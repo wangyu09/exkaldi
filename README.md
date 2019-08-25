@@ -19,7 +19,7 @@ Most of functions in PythonKaldi tool are performed with using "subprocess" to r
 
 
 _-----------------------------------------------< Basis Tools >-----------------------------------------------------_
-### KaldiArk 
+### KaldiArk   
 <basic class>  
 
 **KaldiArk** is a subclass of **bytes**. It maks a object who holds the kaldi ark data in a binary type. **KaldiArk** and **KaldiDict** object have almost the same attributes and functions, and they can do some mixed operations such as "+" and "concat" and so on.  
@@ -136,10 +136,10 @@ return a lattice with a binary data type.
 
 < Methods >  
 
-`.load(latFile,HmmGmm,wordSymbol)`      
+`.load(latFile,HmmGmm,wordSymbol)`        
 load lattice. < latFile > can be file path or binary data. < HmmGmm > and < wordSymbol > are expected as file path.
 
-`.get_1best_words(minLmwt=1,maxLmwt=None,Acwt=1.0,outDir='.',asFile=False)` 
+`.get_1best_words(minLmwt=1,maxLmwt=None,Acwt=1.0,outDir='.',asFile=False)`   
 return dict object. key is the lmwt value. if < asFile > == True or file name, the result will be save as file and values of returned dict is these files' path, or they will be 1-best words.
 
 `.scale(Acwt=1,inAcwt=1,Ac2Lm=0,Lmwt=1,Lm2Ac=0)`  
