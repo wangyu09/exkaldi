@@ -26,7 +26,7 @@ Moreover, alignment can also be held by KaldiArk and KaldiDict in Pythonkaldi to
 
 < Attributes >  
 
-__.lens__    
+`__.lens__`   
 return a tuple: ( the numbers of all utterances, the frames of each utterance ).  
 
 __.dim__    
