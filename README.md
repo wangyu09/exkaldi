@@ -17,9 +17,9 @@ Especially, there are three sections in this sample program: first, train chaine
 ## Concepts and Usage
 Most of functions in PythonKaldi tool are performed with using "subprocess" to run shell cmd of kaldi tools. But we design a series of classes and functions to use them in a flexible way and it is more familiar for python programmer. PythonKaldi tool consist of three parts: < Basis Tools > to cover kaldi functions, < Speek client > to realize online-recognization, and < Chainer Tools > to give some useful tools to help train neural network acoustic model.
 
-### < Basis Tools >
+_-----------------------------------------------< Basis Tools >-----------------------------------------------------_
 
-#### 1. Basic class: **KaldiArk**   
+### Basic class: KaldiArk   
 
 **KaldiArk** is a subclass of **bytes**. It is a object who holds the kaldi ark data in a binary type. **KaldiArk** and **KaldiDict** object have almost the same attributes and functions, and they can do some mixed operations such as "+" and "concat" and so on.  
 Moreover, alignment can also be held by KaldiArk and KaldiDict in Pythonkaldi tool, and we defined it as int32 data type.  
