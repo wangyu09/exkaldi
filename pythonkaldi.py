@@ -1779,7 +1779,7 @@ def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,asFile=Fal
                 if utt2spkFile == None:
                     raise WrongOperation('Miss utt2spk file.')
                 else:
-                    cmd1 = 'compute-cmvn-stats --spk2utt={} ark:- ark:-'.format(spk2uttFile)
+                    cmd1 = 'compute-cmvn-stats --spk2utt=ark:{} ark:- ark:-'.format(spk2uttFile)
             else:
                 cmd1 = 'compute-cmvn-stats ark:- ark:-'
             p1 = subprocess.Popen(cmd1,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
