@@ -257,8 +257,21 @@ Apply CMVN to feature. Return KaldiArk object or file path if <asFile> is True. 
 `feat` _KaldiArk or KaldiDict object_
 `cmvnStatFile`   _if None compute it firstly, default = None_  
 `spk2uttFile`   _if None compute cmvn state whin each utterance, default = None_  
-`spk2uttFile`   _if None and spk2uttFile != None, raise error, default = None_  
+`utt2spkFile`   _if None and spk2uttFile != None, raise error, default = None_  
 `asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
+
+
+### compute_cmvn_stats(feat,asFile,_**other parameters_) 
+
+< function discription >
+
+Compute CMVN state and save it as file. Return cmvn file path.   
+
+< Parameters >  
+
+`feat` _KaldiArk or KaldiDict object_
+`spk2uttFile`   _if None compute cmvn state whin each utterance, default = None_  
+`asFile`   _file path name_  
 
 
 ### use_cmvn_sliding(feat,_**other parameters_) 
