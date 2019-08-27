@@ -1,7 +1,7 @@
 ############# Version Information #############
 # PythonKaldi V1.6
 # WangYu, University of Yamanashi 
-# August, 24
+# August, 27
 ###############################################
 
 import pythonkaldi as PK
@@ -118,12 +118,12 @@ def train_model():
         return datas
 
     global CSJpath
-    scpFile = CSJpath + '/data/train/test.scp'
+    scpFile = CSJpath + '/data/train/feats.scp'
     aliFile = CSJpath + '/exp/tri4/ali.*.gz'
-    # Get train data iterator 
     train = PK.DataIterator(scpFile,batchSize,chunks='auto',processFunc=loadChunkData,labelOrAliFiles=aliFile,validDataRatio=0.05)
-    # Get vali data iterator 
+    print('Generate train dataset done. Chunks:{} / Batch size:{} / Valid data ratio:{}.'.format(train.chunks,train.batch_size,0.05))
     vali = train.getValiData()
+    print('Generate validation dataset done. Chunks:{} / Batch size:{}.'.format(vali.chunks,vali.batch_size))
 
     print('\nStep 2: Prepare Model...')
 
@@ -133,6 +133,8 @@ def train_model():
                     'batchnorm':[True,True,True,True,True,True,False],
                     'layernorm':[False,False,False,False,False,False,False],
                     'dropout':[0.15,0.15,0.15,0.15,0.15,0.15,0.0],
+                    'batchnorm_in':False,
+                    'layernorm_in':False
                     }
 
     model = PK.MLP(modelConfig)
@@ -152,6 +154,7 @@ def train_model():
     trainer.extend(MLPEvaluator(vali, model, supporter=supporter,device=gpu),trigger=(1,'epoch'))
 
     trainer.extend(extensions.ProgressBar())
+    # While first epoch, the epoch size is computed gradually, so the prograss information will be inaccurate. 
 
     print('\nStep 4: Start Training')
     trainer.run()
@@ -177,7 +180,7 @@ def recognize_test(modelConfig,pretrainedModel):
     print('\nStep 2: Process mfcc feat to recognized result')
 
     global CSJpath
-    filePath = CSJpath + '/data/eval1/feats.scp'
+    filePath = CSJpath + '/data/eval1/feats_1.scp'
     # Because if load all of eval1 data at one time to CPU memory, It maybe result in memorr error.
     # So we split it firstly.
     fileList = PK.split_file(filePath,chunks=4)
@@ -255,7 +258,7 @@ def OnlineRecognize(modelConfig,pretrainedModel):
     model.to_gpu(0)
     print('Prepare Done')
 
-    def recoFunc(tid,waveFile,AMmodel):
+    def testFunc(tid,waveFile,AMmodel):
 
         feat = PK.compute_mfcc(waveFile)
         feat = PK.use_cmvn_sliding(feat)       

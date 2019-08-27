@@ -109,12 +109,16 @@ def check_config(name,config=None):
         if not isinstance(config,dict):
             raise WrongOperation("<config> has a wrong format. Try to use PythonKaldi.check_config({}) to look expected configure format.".format(name))
 
-        if len(config.keys()) != len(c.items(name)):
-            raise WrongOperation('Expected all configures.')
+        if len(config.keys()) < len(c.items(name)):
+            reKeys = []
+            for k,v in c.items(name):
+                if not k in config.keys():
+                    reKeys.append(k)
+            raise WrongOperation('Missing configure of keys: {}.'.format(','.join(reKeys)))
         else:
 
             for k in config.keys():
-                if k in c.keys():
+                if k in c[name]:
                     value = c.get(name,k)
                 else:
                     raise WrongOperation('No such configure value: < {} > in {}.'.format(k,name))
@@ -3763,9 +3767,9 @@ class DataIterator(chainer.iterators.SerialIterator):
             self.nextDataset = self.fileProcessFunc(chunkData)
 
         if self.batch_size > len(self.nextDataset):
-            print("Warning: Batch Size < {} > is large for dataset whose len is < {} >, we hope you can use a more suitable value.".format(self.batch_size,len(len(self.nextDataset))))
-        else:
-            self.nextDataset = [X for X in self.nextDataset]
+            print("Warning: Batch Size < {} > is extremely large for this dataset, we hope you can use a more suitable value.".format(self.batch_size,len(len(self.nextDataset))))
+        
+        self.nextDataset = [X for X in self.nextDataset]
 
     def next(self):
         i = self.current_position
