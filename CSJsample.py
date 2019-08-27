@@ -89,7 +89,7 @@ def train_model():
     np.random.seed(1234)
     
     batchSize = 128
-    epoch = 2
+    epoch = 6
     lr = 0.0002
     gpu = 0
     outDir = 'Result'
