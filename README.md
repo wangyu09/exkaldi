@@ -8,7 +8,13 @@ This is a tool which introduce kaldi tools into python in a easy-use way.
 git clone https://github.com/wangyu09/pythonkaldi
 ```
 
-2. In the file < CSJsample.py >, there is a sample chainer program  that showed how to use the PythonKaldi tool. Exchange the parameter < CSJpath > for yours and also other parameters such as < epoch > if you want. Then run it.
+2. We need  some dependent packages. So run this command to check and install them.  
+
+```
+pip install -r requirement.txt
+```
+
+3. In the file < CSJsample.py >, there is a sample chainer program  that showed how to use the PythonKaldi tool. Exchange the parameter < CSJpath > for yours and also other parameters such as < epoch > if you want. Then run it.
 ```
 python CSJsample.py
 ```
@@ -21,7 +27,7 @@ Most of functions in PythonKaldi tool are performed with using "subprocess" to r
 _-----------------------------------------------< Basis Tools >-----------------------------------------------------_
 ### KaldiArk   
 
-< class discription >  
+< class description >  
 
 **KaldiArk** is a subclass of **bytes**. It maks a object who holds the kaldi ark data in a binary type. **KaldiArk** and **KaldiDict** object have almost the same attributes and functions, and they can do some mixed operations such as "+" and "concat" and so on.   Moreover, alignment can also be held by KaldiArk and KaldiDict in Pythonkaldi tool, and we defined it as int32 data type.  
 
@@ -71,7 +77,7 @@ if uttList != None, select utterances if utterance id appeared.
 
 ### KaldiDict 
 
-< class discription >  
+< class description >  
 
 **KaldiDict** is a subclass of **dict**. It is a object who holds the kaldi ark data in numpy array type. Its key are the utterance id and the value is the numpy array data. **KaldiDict** can also do some mixed operations with **KaldiArk** such as "+" and "concat" and so on.  
 Note that **KaldiDict** has some functions which **KaldiArk** dosen't have. They will be introduced as follow.
@@ -128,7 +134,7 @@ Return a KaldiDict object. if std == True, do _alpha*(x-mean)/(std+epsilon)+belt
 
 ### KaldiLattice 
 
-< class discription >
+< class description >
 
 **KaldiLattice** holds the lattice and its related file path: HmmGmm file and WordSymbol file. PythonKaldi.decode_lattice function will return a KaldiLattice object. Aslo, you can define a empty KaldiLattice object and load its data later.
 
@@ -229,7 +235,7 @@ Compute plp feature. Return KaldiArk object or file path if <asFile> is True. We
 
 ### compute_spectrogram(wavFile,_**other parameters_) 
 
-< function discription>
+< function description>
 
 Compute spectrogram feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use pythonkaldi.check_config('compute_spetrogram') function to get configure information you could set. Also run shell command "compute-spetrogram-feats" to look their meaning.
 
@@ -248,7 +254,7 @@ Compute spectrogram feature. Return KaldiArk object or file path if <asFile> is 
 
 ### use_cmvn(feat,_**other parameters_) 
 
-< function discription >
+< function description >
 
 Apply CMVN to feature. Return KaldiArk object or file path if <asFile> is True. If < cmvnStatFile >  are None, first compute the CMVN state. But <utt2spkFile> and <spk2uttFile> are expected given at the same time if they were not None.
 
@@ -263,7 +269,7 @@ Apply CMVN to feature. Return KaldiArk object or file path if <asFile> is True. 
 
 ### compute_cmvn_stats(feat,asFile,_**other parameters_) 
 
-< function discription >
+< function description >
 
 Compute CMVN state and save it as file. Return cmvn file path.   
 
@@ -276,7 +282,7 @@ Compute CMVN state and save it as file. Return cmvn file path.
 
 ### use_cmvn_sliding(feat,_**other parameters_) 
 
-< function discription >
+< function description >
 
 Apply sliding CMVN to feature. Return KaldiArk object. 
 
@@ -289,7 +295,7 @@ Apply sliding CMVN to feature. Return KaldiArk object.
 
 ### add_delta(feat,_**other parameters_) 
 
-< function discription >
+< function description >
 
 Add n-orders delta to feature. Return KaldiArk object or file path if <asFile> is True.
 
@@ -302,7 +308,7 @@ Add n-orders delta to feature. Return KaldiArk object or file path if <asFile> i
 
 ### get_ali(faliFile,HmmGmm,_**other parameters_) 
 
-< function discription >
+< function description >
 
 Get alignment from ali file. Return a KaldiDict object.
 
@@ -315,7 +321,7 @@ Get alignment from ali file. Return a KaldiDict object.
 
 ### decompress(data) 
 
-< function discription >
+< function description >
 
 Decompress data. Feat are expected KaldiArk object whose data type is "CM", that is kaldi compressed ark data. Return a KaldiArk object.
 
@@ -326,7 +332,7 @@ Decompress data. Feat are expected KaldiArk object whose data type is "CM", that
 
 ### load(filePath,_**other parameters_) 
 
-< function discription >
+< function description >
 
 Load kaldi ark feat file, kaldi scp feat file, KaldiArk file, or KaldiDict file. Return KaldiArk or KaldiDict object.
 
@@ -338,7 +344,7 @@ Load kaldi ark feat file, kaldi scp feat file, KaldiArk file, or KaldiDict file.
 
 ### decode_lattice(AmP,HmmGmm,Hclg,Lexicon,_**other parameters_) 
 
-< function discription >
+< function description >
 
 Decode by generating lattice from acoustic probability. Return KaldiLattice object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use pythonkaldi.check_config('decode-lattice') function to get configure information you could set. Also run shell command "latgen-faster-mapped" to look their meaning.
   
@@ -360,7 +366,7 @@ Decode by generating lattice from acoustic probability. Return KaldiLattice obje
 
 ### run_shell_cmd(cmd,_**other parameters_) 
 
-< function discription >
+< function description >
 
 We provided a basic way to run shell command. Return binary string (out,err).
 
@@ -372,7 +378,7 @@ We provided a basic way to run shell command. Return binary string (out,err).
 
 ### compute_wer(hyp,ref,_**other parameters_) 
 
-< function discription >
+< function description >
 
 Compute wer between prediction result and reference text. Return a dict object with score information like: {'WER':0,'allWords':10,'ins':0,'del':0,'sub':0,'SER':0,'wrongSentences':0,'allSentences':1,'missedSentences':0}
 Both <hyp> and <ref> can be text file or result which obtained from KaldiLattice.get_1best_word(). 
@@ -388,7 +394,7 @@ Both <hyp> and <ref> can be text file or result which obtained from KaldiLattice
 
 ### split_file(filePath,_**other parameters_) 
 
-< function discription >
+< function description >
 
 Split a large scp file into n smaller files. The splited files will be put at the same folder as original file and return their paths as a list.
 
@@ -431,7 +437,7 @@ Get a chainer LSTM model. If <config> is None, use default configure. Or you can
 
 ### DataIterator
 
-< class discription >
+< class description >
 
 you can use it as ordinary chainer.iterators.SerialIterator, but you can also try its distinctive ability. If you give it a large scp file of train data, it will split it into n smaller chunks and load them into momery alternately with parallel thread. It will shuffle the original scp file and split again while new epoch.
 
@@ -449,7 +455,7 @@ you can use it as ordinary chainer.iterators.SerialIterator, but you can also tr
 
 ### Supporter
 
-< class discription >
+< class description >
 
 Supporter is a class to be similar to chainer report. But we designed some useful functions such as save model by maximum accuracy and adjust learning rate.
 
@@ -477,14 +483,14 @@ _-----------------------------------------------< Other Tools >-----------------
 
 ### get_kaldi_path() 
 
-< function discription >
+< function description >
 
 Return kaldi path. If the kaldi are not found, will raise error.
 
 
 ### check_config(name,config=None) 
 
-< function discription >
+< function description >
 
 Get default configure if < config > is None, or check if given < config > has a right format. This function will read "conf" file which is located in "./", so if there is not, it will raise error. Also you can change the content of "conf" file with expected format.
 
