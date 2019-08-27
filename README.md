@@ -69,6 +69,7 @@ if nhead > 0, return KaldiArk object which only has start nHead utterances.
 if chunks > 1, return list whose members are KaldiArk.  
 if uttList != None, select utterances if utterance id appeared.  
 
+
 ### KaldiDict 
 
 <basic class>  
@@ -120,48 +121,55 @@ the same as **KaldiArk**.subset
 return a tuple. if keepDim == True the first member is list whose content are numpy arrays of all utterances, and if keepDim == False, it is a integrated numpy array of all utterances. the second member is utterance ids and their frame length information. 
 
 `.remerge(matrix,uttLens)`    
-if self has not any data, do not return, or return a new KaldiDict object. this is a inverse operation of .merge function.
+If self has not any data, do not return, or return a new KaldiDict object. this is a inverse operation of .merge function.
 
 `.normalize(std=True,alpha=1.0,beta=0.0,epsilon=1e-6,axis=0)`    
-return a KaldiDict object. if std == True, do _alpha*(x-mean)/(std+epsilon)+belta_, or do _alpha*(x-mean)+belta_.
+Return a KaldiDict object. if std == True, do _alpha*(x-mean)/(std+epsilon)+belta_, or do _alpha*(x-mean)+belta_.
+
 
 ### KaldiLattice 
 
-<basic class>
+< class discription >
 
 **KaldiLattice** holds the lattice and its related file path: HmmGmm file and WordSymbol file. PythonKaldi.decode_lattice function will return a KaldiLattice object. Aslo, you can define a empty KaldiLattice object and load its data later.
 
+< init Parameters >
+
+`lattice` _Expected lattice binary data or file path_        
+`HmmGmm` _hmm gmm model file path_  
+`wordSymbol` _ word 2 id file path_
 
 < Attributes >  
 
 `.value`    
-return a lattice with a binary data type.
+Return a lattice with a binary data type.
 
 < Methods >  
 
 `.load(latFile,HmmGmm,wordSymbol)`        
-load lattice. < latFile > can be file path or binary data. < HmmGmm > and < wordSymbol > are expected as file path.
+Load lattice. < latFile > can be file path or binary data. < HmmGmm > and < wordSymbol > are expected as file path.
 
 `.get_1best_words(minLmwt=1,maxLmwt=None,Acwt=1.0,outDir='.',asFile=False)`   
-return dict object. key is the lmwt value. if < asFile > == True or file name, the result will be save as file and values of returned dict is these files' path, or they will be 1-best words.
+Return dict object. key is the lmwt value. if < asFile > == True or file name, the result will be save as file and values of returned dict is these files' path, or they will be 1-best words.
 
 `.scale(Acwt=1,inAcwt=1,Ac2Lm=0,Lmwt=1,Lm2Ac=0)`  
-return a new scaled KaldiLattice object.
+Sacle lattice. Return a new scaled KaldiLattice object.
 
 `.add_penalty(penalty=0)`  
-return a new KaldiLattice object.
+Add penalty. Return a new KaldiLattice object.
 
 `.save(fileName)`  
-save lattice as .gz file.
+Save lattice as .gz file.
 
 `+ operator`  
-add the numbers of lattice. Note that it is just a simple addtional operation.
+Add the numbers of lattice. Note that it is just a simple addtional operation.
+
 
 ### compute_mfcc(wavFile,_**other parameters_)
 
 <function>
 
-compute mfcc feature. return KaldiArk object or file path.  
+Compute mfcc feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use pythonkaldi.check_config('compute_mfcc') function to get configure information you could set. Also run shell command "compute-mfcc-feats" to look their meaning. 
 
 < Parameters >  
 
@@ -174,15 +182,16 @@ compute mfcc feature. return KaldiArk object or file path.
 `windowType`   _window function, default = 'povey'_  
 `useUtt`   _when file is a wave file, you can name its utterance id, default = "MAIN"_  
 `useSuffix`   _when file is a scp file but withou 'scp' suffix, you can declare its file suffix, default = None_  
-`configFile`   _It is unable now and must be None_  
+`config`   _another configure setting method_  
 `asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
 `wavFile` _wav file or scp file, you can declare its type by using <useSuffix>_  
   
+
 ### compute_fbank(wavFile,_**other parameters_)
 
 <function>
 
-compute fbank feature. return KaldiArk object or file path.  
+Compute fbank feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use pythonkaldi.check_config('compute_fbank') function to get configure information you could set. Also run shell command "compute-fbank-feats" to look their meaning. 
 
 < Parameters >  
 
@@ -194,14 +203,15 @@ compute fbank feature. return KaldiArk object or file path.
 `windowType`   _window function, default = 'povey'_  
 `useUtt`   _when file is a wave file, you can name its utterance id, default = "MAIN"_  
 `useSuffix`   _when file is a scp file but withou 'scp' suffix, you can declare its file suffix, default = None_  
-`configFile`   _It is unable now and must be None_  
+`config`   _another configure setting method_  
 `asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
+
 
 ### compute_plp(wavFile,_**other parameters_)  
 
 <function>
 
-compute plp feature. return KaldiArk object or file path.  
+Compute plp feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use pythonkaldi.check_config('compute_plp') function to get configure information you could set. Also run shell command "compute-plp-feats" to look their meaning. 
 
 < Parameters >  
 
@@ -214,14 +224,15 @@ compute plp feature. return KaldiArk object or file path.
 `windowType`   _window function, default = 'povey'_  
 `useUtt`   _when file is a wave file, you can name its utterance id, default = "MAIN"_  
 `useSuffix`   _when file is a scp file but withou 'scp' suffix, you can declare its file suffix, default = None_  
-`configFile`   _It is unable now and must be None_  
+`config`   _another configure setting method_  
 `asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
+
 
 ### compute_spectrogram(wavFile,_**other parameters_) 
 
-<function>
+< function discription>
 
-compute spectrogram feature. return KaldiArk object or file path.  
+Compute spectrogram feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use pythonkaldi.check_config('compute_spetrogram') function to get configure information you could set. Also run shell command "compute-spetrogram-feats" to look their meaning.
 
 < Parameters >  
 
@@ -232,15 +243,15 @@ compute spectrogram feature. return KaldiArk object or file path.
 `windowType`   _window function, default = 'povey'_  
 `useUtt`   _when file is a wave file, you can name its utterance id, default = "MAIN"_  
 `useSuffix`   _when file is a scp file but withou 'scp' suffix, you can declare its file suffix, default = None_  
-`configFile`   _It is unable now and must be None_  
+`config`   _another configure setting method_  
 `asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
+
 
 ### use_cmvn(feat,_**other parameters_) 
 
-< function >
+< function discription >
 
-apply CMVN to feature. return KaldiArk object or file path.
-if all of other parameters are None, compute the CMVN state within each utterance firstly and use them.
+Apply CMVN to feature. Return KaldiArk object or file path if <asFile> is True. If < cmvnStatFile >  are None, first compute the CMVN state. But <utt2spkFile> and <spk2uttFile> are expected given at the same time if they were not None.
 
 < Parameters >  
 
@@ -250,35 +261,38 @@ if all of other parameters are None, compute the CMVN state within each utteranc
 `spk2uttFile`   _if None and spk2uttFile != None, raise error, default = None_  
 `asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
 
+
 ### use_cmvn_sliding(feat,_**other parameters_) 
 
-< function >
+< function discription >
 
-apply sliding CMVN to feature. return KaldiArk object or file path.
+Apply sliding CMVN to feature. Return KaldiArk object. 
 
 < Parameters >  
 
-`feat` _KaldiArk or KaldiDict object_
-`windowsSize`   _sliding windows width, frames, if None, set it to cover all frames at one time, default = None_  
-`std`   _if False, only apply mean, default = False_ 
+`feat` _KaldiArk or KaldiDict object_  
+`windowsSize`   _sliding windows width, frames, if None, set it to cover all frames at one time, default = None_   
+`std`   _if False, only apply mean, default = False_  
+
 
 ### add_delta(feat,_**other parameters_) 
 
-< function >
+< function discription >
 
-add n orders delta to feature. return KaldiArk object or file path.
+Add n-orders delta to feature. Return KaldiArk object or file path if <asFile> is True.
 
 < Parameters >  
 
-`feat` _KaldiArk or KaldiDict object_
+`feat` _KaldiArk or KaldiDict object_ 
 `order`   _the times of delta, default = 2_ 
 `asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
 
+
 ### get_ali(faliFile,HmmGmm,_**other parameters_) 
 
-< function >
+< function discription >
 
-get alignment from alignment file. return KaldiDict object.
+Get alignment from ali file. Return a KaldiDict object.
 
 < Parameters >  
 
@@ -286,83 +300,90 @@ get alignment from alignment file. return KaldiDict object.
 `HmmGmm`   _HmmGmm model path_ 
 `returnPhoneme`   _if True, return phoneme id, or return pdf id, default = False_
 
+
 ### decompress(data) 
 
-< function >
+< function discription >
 
-decompress kaldi compressed feature data. return KaldiArk object.
+Decompress data. Feat are expected KaldiArk object whose data type is "CM", that is kaldi compressed ark data. Return a KaldiArk object.
 
 < Parameters >  
 
 `data` _the binary data of kaldi compressed feature_
 
+
 ### load(filePath,_**other parameters_) 
 
-< function >
+< function discription >
 
-load kaldi ark feat file, kaldi scp feat file, KaldiArk file, or KaldiDict file. return KaldiArk or KaldiDict object.
+Load kaldi ark feat file, kaldi scp feat file, KaldiArk file, or KaldiDict file. Return KaldiArk or KaldiDict object.
 
 < Parameters >  
 
 `filePath` _file path with a suffix '.ark' or '.scp' or '.npy'_
 `useSuffix`   _when file has another suffix, you can declare it, default = None_
 
+
 ### decode_lattice(AmP,HmmGmm,Hclg,Lexicon,_**other parameters_) 
 
-< function >
+< function discription >
 
-decode by generating lattice. return KaldiLattice object.
-
+Decode by generating lattice from acoustic probability. Return KaldiLattice object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use pythonkaldi.check_config('decode-lattice') function to get configure information you could set. Also run shell command "latgen-faster-mapped" to look their meaning.
+  
 < Parameters >  
 
-`AmP` _acoustic model loglike probability, KaldiArk object_  
-`HmmGmm`   _HmmGmm file path_  
-`Hclg`   _Hclg file path_  
-`Lexicon`   _word symbol file path_  
-`minActive`   _minimum active, default=200_  
-`maxMem`   _maximum memory, default=50000000_  
-`maxActive`   _maximum active, default=7000_  
-`beam`   _beam, default=13_
-`latBeam`   _lattice beam, default=8_
-`Acwt`   _acoustic model weight, default=1_
-`configFile`   _it is unable to use and must be None_  
-`maxThreads`   _the numbers of decode thread, default=1_  
-`asFile`   _if True or file name, save result as file and return file path, or return KaldiLattice object, default = False_  
+`AmP` _acoustic model loglike probability, KaldiArk object_    
+`HmmGmm`   _HmmGmm file path_    
+`Hclg`   _Hclg file path_    
+`Lexicon`   _word symbol file path_    
+`minActive`   _minimum active, default=200_    
+`maxMem`   _maximum memory, default=50000000_    
+`maxActive`   _maximum active, default=7000_    
+`beam`   _beam, default=13_  
+`latBeam`   _lattice beam, default=8_  
+`Acwt`   _acoustic model weight, default=1_  
+`config`   _another configure setting method_    
+`maxThreads`   _the numbers of decode thread, default=1_      
+`asFile`   _if True or file name, save result as file and return file path, or return KaldiLattice object, default = False_    
+
 ### run_shell_cmd(cmd,_**other parameters_) 
 
-< function >
+< function discription >
 
-provide a basic way to run shell command. return (out,err).
+We provided a basic way to run shell command. Return binary string (out,err).
 
 < Parameters >  
 
 `cmd` _shell command, string_  
 `inputs`   _inputs data, string, default=None_  
 
+
 ### compute_wer(hyp,ref,_**other parameters_) 
 
-< function >
+< function discription >
 
-compute wer between prediction result and reference text. return a dict object with score information like {'WER':0,'allWords':10,'ins':0,'del':0,'sub':0,'SER':0,'wrongSentences':0,'allSentences':1,'missedSentences':0}
+Compute wer between prediction result and reference text. Return a dict object with score information like: {'WER':0,'allWords':10,'ins':0,'del':0,'sub':0,'SER':0,'wrongSentences':0,'allSentences':1,'missedSentences':0}
+Both <hyp> and <ref> can be text file or result which obtained from KaldiLattice.get_1best_word(). 
 
 < Parameters >  
 
-`hyp` _prediction result file or result-list which obtained from KaldiLattice.get_1best_words function_     
-`ref` _reference text file or result-like-list_   
-`mode` _score mode, default=present_
-`ignore` _ignore some symbol such as "sil" before score, default=None_
-`p` _if True, score quietly without any print information, default=True_
+`hyp` _prediction result file or result-list which obtained from KaldiLattice.get_1best_words function_       
+`ref` _reference text file or result-like-list_     
+`mode` _score mode, default=present_  
+`ignore` _ignore some symbol such as "sil" before score, default=None_  
+`p` _if True, score quietly without any print information, default=True_  
+
 
 ### split_file(filePath,_**other parameters_) 
 
-< function >
+< function discription >
 
-split a large scp file into n smaller files. return a list whose members are splited files' path.
+Split a large scp file into n smaller files. The splited files will be put at the same folder as original file and return their paths as a list.
 
 < Parameters >  
 
-`filePath` _scp file path_     
-`chunks` _expected numbers, must >1, default=2_   
+`filePath` _scp file path_       
+`chunks` _expected numbers, must >1, default=2_     
 
 _-----------------------------------------------< Speak Client >-----------------------------------------------------_
 
@@ -371,6 +392,7 @@ _-----------------------------------------------< Speak Client >----------------
 < class >
 
 I am sorry it is unable to use for the moment.
+
 
 ### RemoteServer
 
@@ -387,11 +409,13 @@ _-----------------------------------------------< Chainer Tools >---------------
 
 Get a chainer MLP model. If <config> is None, use default configure. Or you can initialize it by set <config>. Try to use pythonkaldi.check_config('MLP') function to get configure information you could set.
 
+
 ### LSTM
 
 < class >
 
 Get a chainer LSTM model. If <config> is None, use default configure. Or you can initialize it by set <config>. Try to use pythonkaldi.check_config('LSTM') function to get configure information you could set.
+
 
 ### DataIterator
 
@@ -401,14 +425,15 @@ you can use it as ordinary chainer.iterators.SerialIterator, but you can also tr
 
 < init Parameters >
 
-`dataOrScpFiles` _ordinary data type or scp file, if scp file, processFunc is necessary._    
-`batchSize` _mini batch size_    
-`chunks` _if scp file, split it into n chunks. if chunks=='auto', compute the chunks automatically. default="auto"_  
-`processFunc` _a function to process scp file to ordinary data type_    
-`shuffle` _shuffle batch data, default=True_    
-`labelOrAliFiles` _if not None, alignment file or labels will be splited into n chunks and give them to processFunc,default=None_   
-`hmmGmm` _if None, will find model automatically according to aliFile, default=None_  
-`validDataRatio` _if > 0 , will reserve a part of data as valid data, default=0.1_  
+`dataOrScpFiles` _ordinary data type or scp file, if scp file, processFunc is necessary_      
+`batchSize` _mini batch size_      
+`chunks` _if scp file, split it into n chunks. if chunks=='auto', compute the chunks automatically. default="auto"_    
+`processFunc` _a function to process scp file to ordinary data type_      
+`shuffle` _shuffle batch data, default=True_      
+`labelOrAliFiles` _if not None, alignment file or labels will be splited into n chunks and give them to processFunc,default=None_     
+`hmmGmm` _if None, will find model automatically according to aliFile, default=None_    
+`validDataRatio` _if > 0 , will reserve a part of data as valid data, default=0.1_    
+
 
 ### Supporter
 
@@ -444,15 +469,16 @@ _-----------------------------------------------< Other Tools >-----------------
 
 Return kaldi path. If the kaldi are not found, will raise error.
 
+
 ### check_config(name,config=None) 
 
 < function discription >
 
-Get default configure if < config > is None, or check if given < config > has a right format. This function will read "conf" file which is placed in "./", so if there is not, will raise error. Also you can change the content of "conf" file.
+Get default configure if < config > is None, or check if given < config > has a right format. This function will read "conf" file which is located in "./", so if there is not, it will raise error. Also you can change the content of "conf" file with expected format.
 
 < Parameters >  
 
-`name` _scp file path_     
-`chunks` _expected numbers, must >1, default=2_  
+`name` _object name you want to check. such as "compute_mfcc","MLP"_     
+`config` _if none, return defalut configure, or chenk the format of configure and return True if correct_  
 
 
