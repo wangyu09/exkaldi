@@ -21,10 +21,9 @@ Most of functions in PythonKaldi tool are performed with using "subprocess" to r
 _-----------------------------------------------< Basis Tools >-----------------------------------------------------_
 ### KaldiArk   
 
-<basic class>  
+< class discription >  
 
-**KaldiArk** is a subclass of **bytes**. It maks a object who holds the kaldi ark data in a binary type. **KaldiArk** and **KaldiDict** object have almost the same attributes and functions, and they can do some mixed operations such as "+" and "concat" and so on.  
-Moreover, alignment can also be held by KaldiArk and KaldiDict in Pythonkaldi tool, and we defined it as int32 data type.  
+**KaldiArk** is a subclass of **bytes**. It maks a object who holds the kaldi ark data in a binary type. **KaldiArk** and **KaldiDict** object have almost the same attributes and functions, and they can do some mixed operations such as "+" and "concat" and so on.   Moreover, alignment can also be held by KaldiArk and KaldiDict in Pythonkaldi tool, and we defined it as int32 data type.  
 
 < Attributes >  
 
@@ -72,7 +71,7 @@ if uttList != None, select utterances if utterance id appeared.
 
 ### KaldiDict 
 
-<basic class>  
+< class discription >  
 
 **KaldiDict** is a subclass of **dict**. It is a object who holds the kaldi ark data in numpy array type. Its key are the utterance id and the value is the numpy array data. **KaldiDict** can also do some mixed operations with **KaldiArk** such as "+" and "concat" and so on.  
 Note that **KaldiDict** has some functions which **KaldiArk** dosen't have. They will be introduced as follow.
