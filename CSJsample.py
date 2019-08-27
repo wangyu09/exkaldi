@@ -129,7 +129,7 @@ def train_model():
 
     modelConfig = {'inputdim':429,
                     'node':[1095,1095,1095,1095,1095,1095,9288],
-                    'acfunction':['relu','relu','relu','relu','relu','relu','log_softmax'],
+                    'acfunction':['relu','relu','relu','relu','relu','relu','none'],
                     'batchnorm':[True,True,True,True,True,True,False],
                     'layernorm':[False,False,False,False,False,False,False],
                     'dropout':[0.15,0.15,0.15,0.15,0.15,0.15,0.0],
@@ -210,7 +210,7 @@ def recognize_test(modelConfig,pretrainedModel):
             for j,utt in enumerate(feat.keys(),start=1):
                 print("({}/{}) Forward nework: {}/{}".format(i,len(fileList),j,len(feat.keys())),end='\r')
                 data = np.array(feat[utt],dtype=np.float32)
-                out = model(data)
+                out = F.log_softmax(model(data),axis=1)
                 temp[utt] = out.array
         print()
 
