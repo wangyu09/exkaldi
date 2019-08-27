@@ -8,7 +8,7 @@ This is a tool which introduce kaldi tools into python in a easy-use way.
 git clone https://github.com/wangyu09/pythonkaldi
 ```
 
-2. In the file < CSJsample.py >, there is a sample program that showed how to use the PythonKaldi tool. Exchange the parameter < CSJpath > for yours and also other parameters such as < epoch > if you want. Then run it.
+2. In the file < CSJsample.py >, there is a sample chainer program  that showed how to use the PythonKaldi tool. Exchange the parameter < CSJpath > for yours and also other parameters such as < epoch > if you want. Then run it.
 ```
 python CSJsample.py
 ```
