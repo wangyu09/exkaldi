@@ -19,6 +19,8 @@ import copy
 import queue
 import sys
 
+CSJpath = '/misc/Work18/wangyu/kaldi/egs/csj/demo1'
+
 class MLPUpdater(chainer.training.StandardUpdater):
     def __init__(self,*args,**kwargs):
         self.supporter = kwargs.pop('supporter')
@@ -87,7 +89,7 @@ def train_model():
     np.random.seed(1234)
     
     batchSize = 128
-    epoch = 6
+    epoch = 2
     lr = 0.0002
     gpu = 0
     outDir = 'Result'
@@ -96,8 +98,9 @@ def train_model():
 
     def loadChunkData(feat,label):
         # <feat> is KaldiArk and <label> is KaldiDict
-        uttSpk = '/misc/Work18/wangyu/kaldi/egs/csj/demo1/data/train/utt2spk'
-        cmvnState = '/misc/Work18/wangyu/kaldi/egs/csj/demo1/data/train/cmvn.scp'
+        global CSJpath
+        uttSpk = CSJpath + '/data/train/utt2spk'
+        cmvnState = CSJpath + '/data/train/cmvn.scp'
         # Apply CMVN
         feat = PK.use_cmvn(feat,cmvnState,uttSpk)  
         # Add 2 orders delta  
@@ -114,8 +117,9 @@ def train_model():
         datas,_ = datas.merge()
         return datas
 
-    scpFile = '/misc/Work18/wangyu/kaldi/egs/csj/demo1/data/train/feats.scp'
-    aliFile = '/misc/Work18/wangyu/kaldi/egs/csj/demo1/exp/tri4/ali.*.gz'
+    global CSJpath
+    scpFile = CSJpath + '/data/train/test.scp'
+    aliFile = CSJpath + '/exp/tri4/ali.*.gz'
     # Get train data iterator 
     train = PK.DataIterator(scpFile,batchSize,chunks='auto',processFunc=loadChunkData,labelOrAliFiles=aliFile,validDataRatio=0.05)
     # Get vali data iterator 
@@ -171,10 +175,11 @@ def recognize_test(modelConfig,pretrainedModel):
     chainer.serializers.load_npz(pretrainedModel,model)
 
     print('\nStep 2: Process mfcc feat to recognized result')
+
+    global CSJpath
+    filePath = CSJpath + '/data/eval1/feats.scp'
     # Because if load all of eval1 data at one time to CPU memory, It maybe result in memorr error.
     # So we split it firstly.
-
-    filePath = '/misc/Work18/wangyu/kaldi/egs/csj/demo1/data/eval1/feats.scp'
     fileList = PK.split_file(filePath,chunks=4)
 
     lattice = PK.KaldiLattice()
@@ -184,8 +189,8 @@ def recognize_test(modelConfig,pretrainedModel):
         print('({}/{}) File:'.format(i,len(fileList)),scpFile)
         feat = PK.load(scpFile,useSuffix='scp')
 
-        uttSpk = '/misc/Work18/wangyu/kaldi/egs/csj/demo1/data/eval1/utt2spk'
-        cmvnState = '/misc/Work18/wangyu/kaldi/egs/csj/demo1/data/eval1/cmvn.scp'
+        uttSpk = CSJpath + '/data/eval1/utt2spk'
+        cmvnState = CSJpath + '/data/eval1/cmvn.scp'
         print("({}/{}) Apply CMVN".format(i,len(fileList)))
         feat = PK.use_cmvn(feat,cmvnState,uttSpk)  
         print("({}/{}) Add 2 orders delta".format(i,len(fileList)))  
@@ -211,9 +216,9 @@ def recognize_test(modelConfig,pretrainedModel):
 
         print('({}/{}) Now start to decode'.format(i,len(fileList)))
 
-        hmm = '/misc/Work18/wangyu/kaldi/egs/csj/demo1/exp/dnn5b_pretrain-dbn_dnn/final.mdl'
-        hclg = '/misc/Work18/wangyu/kaldi/egs/csj/demo1/exp/tri4/graph_csj_tg/HCLG.fst'
-        lexicon = '/misc/Work18/wangyu/kaldi/egs/csj/demo1/exp/tri4/graph_csj_tg/words.txt'
+        hmm = CSJpath + '/exp/dnn5b_pretrain-dbn_dnn/final.mdl'
+        hclg = CSJpath + '/exp/tri4/graph_csj_tg/HCLG.fst'
+        lexicon = CSJpath + '/exp/tri4/graph_csj_tg/words.txt'
 
         print('({}/{}) Gennerate lattice'.format(i,len(fileList)))
         lattice += PK.decode_lattice(amp,hmm,hclg,lexicon,Acwt=0.2,maxThreads=3)
@@ -224,7 +229,7 @@ def recognize_test(modelConfig,pretrainedModel):
     outs = lattice.get_1best_words(minLmwt=1,maxLmwt=15,outDir=outDir,asFile='outRaw.txt')
 
     print('\nStep 3: Score by different language model scales') 
-    refText = '/misc/Work18/wangyu/kaldi/egs/csj/demo1/exp/tri4/decode_eval1_csj/scoring_kaldi/test_filt.txt'
+    refText = CSJpath + '/exp/tri4/decode_eval1_csj/scoring_kaldi/test_filt.txt'
     for k in range(1,15,1):
         
         cmd = 'bash outFilter.sh {} {}/test_prediction_filt.txt'.format(outs[k],outDir)

@@ -1,24 +1,18 @@
 ############# Version Information #############
 # PythonKaldi V1.6
 # WangYu, University of Yamanashi 
-# August, 24
-###############################################
-
-############## Debug Information ##############
-#<18:00 Aug 23,2019>Speek Client Section is still debugging now.
-#<12:00 Aug 23,2019>: (new bug) When the data is extremely large, hope to stop it when load.
-#<12:10 Aug 23,2019>: (new bug) The format of configure options should be detected by <re> grammar. <== Debug Done, 0:30, Aug 24, 2019, wangyu
-#<2:28 Aug 24 2019>: When data load use thread to compute its runing time. 
+# August, 27
 ###############################################
 
 import os,sys
 import struct,copy,re,time
-import math,socket
+import math,socket,random
 import subprocess,threading
 import wave#,pyaudio
 import queue,tempfile
 import numpy as np
 from io import BytesIO
+import configparser
 
 class PathError(Exception):pass
 class UnsupportedDataType(Exception):pass
@@ -27,6 +21,12 @@ class KaldiProcessError(Exception):pass
 class WrongOperation(Exception):pass
 
 def get_kaldi_path():
+    '''
+    Useage:  KALDIROOT = get_kaldi_path() 
+    
+    Return kaldi path. If the kaldi are not found, will raise error.
+
+    '''
     p = subprocess.Popen('which copy-feats',shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     (out,err) = p.communicate()
     if out == b'':
@@ -38,11 +38,119 @@ def get_kaldi_path():
 
 KALDIROOT = get_kaldi_path()
 
+def check_config(name,config=None):
+    '''
+    Useage:  configure = check_config(name='compute_mfcc')  or   check_config(name='compute_mfcc',config=configure)
+    
+    Get default configure if < config > is None, or check if given < config > has a right format. 
+    This function will read "conf" file which is placed in "./", so if there is not, will raise error.
+    Also you can change the content of "conf" file.
+
+    '''
+
+    assert isinstance(name,str), "<name> should be a name-like string."
+
+    cFile = './conf'
+
+    if not os.path.isfile(cFile):
+        raise PathError("Miss the global configure file. Please download it again from https://github.com/wangyu09/pythonkaldi.")
+
+    c = configparser.ConfigParser()
+    c.read(cFile)
+
+    if not name in c:
+        print("Warning: no default configure for name {}.".format(name))
+        return None 
+
+    def transType(proto,value=''):
+        value = value.strip().lower()
+        if value == 'none':
+            return None
+        
+        proto = proto.strip().lower()
+        if proto == 'float':
+            if value != '':
+                return float(value)
+            else:
+                return float
+        elif proto == 'int':
+            if value != '':
+                return int(value)
+            else:
+                return int
+        elif proto == 'bool':
+            if value == 'false':
+                return False
+            elif value != '':
+                return True
+            else:
+                return bool
+        elif proto == 'str':
+            if value != '':
+                return value
+            else:
+                return str
+        else:
+            raise UnsupportedDataType('{} is unsupported type.')       
+
+    if config == None:
+        new = {}
+        for key,values in c.items(name):
+            values = values.split(',')
+            proto = values[-1]
+            if len(values) == 2:
+                new[key] = transType(proto)(values[0])
+            else:
+                for index,value in enumerate(values[0:-1]):
+                    values[index] = transType(proto,value)
+                new[key] = values[0:-1]
+        return new
+    else:
+        if not isinstance(config,dict):
+            raise WrongOperation("<config> has a wrong format. Try to use PythonKaldi.check_config({}) to look expected configure format.".format(name))
+
+        if len(config.keys()) != len(c.items(name)):
+            raise WrongOperation('Expected all configures.')
+        else:
+
+            for k in config.keys():
+                if k in c.keys():
+                    value = c.get(name,k)
+                else:
+                    raise WrongOperation('No such configure value: < {} > in {}.'.format(k,name))
+                
+                proto = value.split(',')[-1]
+
+                if isinstance(config[k],(list,tuple)):
+                    for v in config[k]:
+                        if v != None and not isinstance(v,transType(proto)):
+                            raise WrongDataFormat("configure < {} > is expected {} but got {}.".format(k,proto,type(v)))
+                else:
+                    if config[k] != None and not isinstance(config[k],transType(proto)):
+                        raise WrongDataFormat("configure < {} > is expected {} but got {}.".format(k,proto,type(config[k])))
+
+            return True
+
 class KaldiArk(bytes):
+    '''
+    Useage:  obj = KaldiArk(binaryData)  or   obj = KaldiArk()
+    
+    KaldiArk is a subclass of bytes. It maks a object who holds the kaldi ark data in a binary type. 
+    KaldiArk and KaldiDict object have almost the same attributes and functions, and they can do some mixed operations such as "+" and "concat" and so on.
+    Moreover, alignment can also be held by KaldiArk and KaldiDict in Pythonkaldi tool, and we defined it as int32 data type.
+
+    '''
     def __init__(self,*args):
         super(KaldiArk,self).__init__()
     
     def _read_one_record(self,fp):
+        '''
+        Useage:  (utt,dataType,rows,cols,buf) = _read_one_record(binaryPointer)
+        
+        Read one piece of record from binary ark data. Return (utterance id, dtype of data, rows of data, clos of data, object of binary data)
+        We don't support to use it in external way.
+
+        '''
         utt = ''
         while True:
             char = fp.read(1).decode()
@@ -80,6 +188,13 @@ class KaldiArk(bytes):
         
     @property
     def lens(self):
+        '''
+        Useage:  lens = obj.lens
+        
+        Return a tuple: ( the numbers of all utterances, the frames of each utterance ). The first one is an int, and second one is a list.
+        If there is not any data, return (0,None)
+
+        '''
         _lens = None
         if self != b'':
             sp = BytesIO(self)
@@ -97,6 +212,13 @@ class KaldiArk(bytes):
     
     @property
     def dim(self):
+        '''
+        Useage:  dim = obj.dim
+        
+        Return an int: feature dimensional.
+        If it is alignment data, dim will be 1.
+
+        '''
         _dim = None
         if self != b'':
             sp = BytesIO(self)
@@ -107,6 +229,12 @@ class KaldiArk(bytes):
     
     @property
     def dtype(self):
+        '''
+        Useage:  dtype = obj.dtype
+        
+        Return an str: data type. We only use 'float32','float64' and 'int32'.
+
+        '''
         _dtype = None
         if self != b'':
             sp = BytesIO(self)
@@ -121,6 +249,12 @@ class KaldiArk(bytes):
         return _dtype
 
     def toDtype(self,dtype):
+        '''
+        Useage:  newObj = obj.toDtype('float')
+        
+        Return a new KaldiArk object. 'float' will be treated as 'float32' and 'int' will be 'int32'.
+
+        '''
         if self.dtype != dtype:
             if dtype == 'float32' or dtype == 'float':
                 newDataType = 'FM '
@@ -158,6 +292,12 @@ class KaldiArk(bytes):
 
     @property
     def utts(self):
+        '''
+        Useage:  utts = obj.utts
+        
+        Return a list: including all utterance id.
+
+        '''
         allUtts = []
         sp = BytesIO(self)
         while True:
@@ -169,6 +309,12 @@ class KaldiArk(bytes):
         return allUtts
     
     def check_format(self):
+        '''
+        Useage:  obj.check_format()
+        
+        Check if data has a correct kaldi ark data format. If had, return True, or raise error.
+
+        '''
         if self != b'':
             _dim = 'unknown'
             _dataType = 'unknown'
@@ -204,6 +350,12 @@ class KaldiArk(bytes):
 
     @property
     def array(self):
+        '''
+        Useage:  newObj = obj.array
+        
+        Return a KaldiDict object. Transform ark data into numpy array data.
+
+        '''    
         newDict = KaldiDict()
         if self == b'':
             return newDict
@@ -225,7 +377,12 @@ class KaldiArk(bytes):
         return newDict
     
     def save(self,fileName,chunks=1):
+        '''
+        Useage:  obj.save('feat.ark') or obj.save('feat.ark',chunks=2)
         
+        Save as .ark file. If chunks is larger than 1, split it averagely and save them.
+
+        '''        
         if self == b'':
             raise WrongOperation('No data to save.')
 
@@ -273,7 +430,13 @@ class KaldiArk(bytes):
             sp.close()
     
     def __add__(self,other):
-        # Note that if there are the same utt id in both self and other, data in the formar will be retained
+        '''
+        Useage:  obj3 = obj1 + obj2
+        
+        Return a new KaldiArk object. obj2 can be KaldiArk or KaldiDict object.
+        Note that if there are the same utt id in both obj1 and obj2, data in the formar will be retained.
+
+        ''' 
 
         if isinstance(other,KaldiArk):
             pass
@@ -307,7 +470,13 @@ class KaldiArk(bytes):
         return KaldiArk(b''.join([self,*newData]))
 
     def concat(self,others,axis=1):
+        '''
+        Useage:  obj3 = obj1.concat(obj2) or newObj = obj1.concat([obj2,obj3....])
+        
+        Return a new KaldiArk object. obj2,obj3... can be KaldiArk or KaldiDict objects.
+        Note that only these utterance ids which appeared in all objects can be retained in concat result. 
 
+        ''' 
         if axis != 1 and axis != 0:
             raise WrongOperation("Expect axis==1 or 0 but got {}.".format(axis))
         if not isinstance(others,(list,tuple)):
@@ -387,7 +556,12 @@ class KaldiArk(bytes):
         return KaldiArk(newData)
 
     def splice(self,left=4,right=None):
+        '''
+        Useage:  newObj = obj.splice(4) or newObj = obj.splice(4,3)
+        
+        Return a new KaldiArk object. If right is None, we define right = left. So if you don't want to splice, set the value = 0.
 
+        ''' 
         if right == None:
             right = left
         
@@ -402,7 +576,13 @@ class KaldiArk(bytes):
             return KaldiArk(out)
 
     def select(self,dims,reserve=False):
+        '''
+        Useage:  newObj = obj.select(4) or newObj = obj.select('5,10-15') or newObj1,newObj2 = obj.select('5,10-15',True)
+        
+        Select data according dims. < dims > should be an int or string like "1,5-20".
+        If < reserve > is True, return 2 new KaldiArk objects. Or only return selected data.
 
+        ''' 
         _dim = self.dim
         if _dim == 1:
             raise WrongOperation('Cannot select any data from 1-dim data.')
@@ -455,6 +635,16 @@ class KaldiArk(bytes):
             return KaldiArk(outS)
 
     def subset(self,nHead=0,chunks=1,uttList=None):
+        '''
+        Useage:  newObj = obj.subset(nHead=10) or newObj = obj.subset(chunks=10) or newObj = obj.subset(uttList=uttList)
+        
+        Subset data.
+        If nHead > 0, return a new KaldiArk object whose content is front nHead pieces of data. 
+        Or If chunks > 1, split data averagely as chunks KaidiArk objects. Return a list.
+        Or If uttList != None, select utterances if appeared in obj. Return selected data.
+        
+        ''' 
+
         if nHead > 0:
             sp = BytesIO(self)
             uttLens = []
@@ -534,11 +724,25 @@ class KaldiArk(bytes):
             raise WrongOperation("Expected one value of <nHead>, <chunks> or <uttList>.")
 
 class KaldiDict(dict):
+    '''
+    Useage:  obj = KaldiDict(binaryData)  or   obj = KaldiDict()
+
+    KaldiDict is a subclass of dict. It is a object who holds the kaldi ark data in numpy array type. 
+    Its key are the utterance id and the value is the numpy array data. KaldiDict can also do some mixed operations with KaldiArk such as "+" and "concat" and so on.
+    Note that KaldiDict has some functions which KaldiArk dosen't have.
+
+    '''
     def __init__(self,*args):
         super(KaldiDict,self).__init__(*args)
 
     @property
     def dim(self):
+        '''
+        Useage:  dim = obj.dim
+        
+        Return an int: feature dimensional. If it is alignment data, dim will be 1.
+
+        '''        
         _dim = None
         if len(self.keys()) != 0:
             utt = list(self.keys())[0]
@@ -551,6 +755,13 @@ class KaldiDict(dict):
 
     @property
     def lens(self):
+        '''
+        Useage:  lens = obj.lens
+        
+        Return a tuple: ( the numbers of all utterances, the frames of each utterance ). The first one is an int, and second one is a list.
+        If there is not any data, return (0,None)
+
+        '''
         _lens = None
         allUtts = self.keys()
         if len(allUtts) != 0:
@@ -564,6 +775,12 @@ class KaldiDict(dict):
 
     @property
     def dtype(self):
+        '''
+        Useage:  dtype = obj.dtype
+        
+        Return an str: data type. We only use 'float32','float64' and 'int32'.
+
+        '''        
         _dtype = None
         if len(self.keys()) != 0:
             utt = list(self.keys())[0]
@@ -571,6 +788,12 @@ class KaldiDict(dict):
         return _dtype
     
     def toDtype(self,dtype):
+        '''
+        Useage:  newObj = obj.toDtype('float')
+        
+        Return a new KaldiArk object. 'float' will be treated as 'float32' and 'int' will be 'int32'.
+
+        '''        
         if self.dtype != dtype:
             assert dtype in ['int','int32','float','float32','float64'],'Expected dtype==<int><int32><float><float32><float64> but got {}.'.format(dtype)
             if dtype == 'int': 
@@ -586,9 +809,21 @@ class KaldiDict(dict):
 
     @property
     def utts(self):
+        '''
+        Useage:  utts = obj.utts
+        
+        Return a list: including all utterance id.
+
+        '''        
         return list(self.keys())
     
     def check_format(self):
+        '''
+        Useage:  obj.check_format()
+        
+        Check if data has a correct kaldi ark data format. If had, return True, or raise error.
+
+        '''        
         if len(self.keys()) != 0:
             _dim = 'unknown'
             for utt in self.keys():
@@ -615,7 +850,12 @@ class KaldiDict(dict):
     
     @property
     def ark(self):
+        '''
+        Useage:  newObj = obj.ark
+        
+        Return a KaldiArk object. Transform numpy array data into ark binary data.
 
+        '''    
         totalSize = 0
         for u in self.keys():
             totalSize += sys.getsizeof(self[u])
@@ -648,7 +888,12 @@ class KaldiDict(dict):
         return KaldiArk(b''.join(newData))
 
     def save(self,fileName,chunks=1):
+        '''
+        Useage:  obj.save('feat.npy') or obj.save('feat.npy',chunks=2)
         
+        Save as .npy file. If chunks is larger than 1, split it averagely and save them.
+
+        '''          
         if len(self.keys()) == 0:
             raise WrongOperation('No data to save.')
 
@@ -684,6 +929,14 @@ class KaldiDict(dict):
                 np.save(fileName+'_ck{}.npy'.format(i),chunkData)         
 
     def __add__(self,other):
+        '''
+        Useage:  obj3 = obj1 + obj2
+        
+        Return a new KaldiDict object. obj2 can be KaldiArk or KaldiDict object.
+        Note that if there are the same utt id in both obj1 and obj2, data in the formar will be retained.
+
+        ''' 
+
         if isinstance(other,KaldiDict):
             pass         
         elif isinstance(other,KaldiArk):
@@ -702,7 +955,13 @@ class KaldiDict(dict):
         return KaldiDict(temp)
     
     def concat(self,others,axis=1):
+        '''
+        Useage:  obj3 = obj1.concat(obj2) or newObj = obj1.concat([obj2,obj3....])
+        
+        Return a new KaldiDict object. obj2,obj3... can be KaldiArk or KaldiDict objects.
+        Note that only these utterance ids which appeared in all objects can be retained in concat result. 
 
+        ''' 
         if axis != 1 and axis != 0:
             raise WrongOperation("Expected axis ==1 or 0 but got {}.".format(axis))
 
@@ -750,6 +1009,12 @@ class KaldiDict(dict):
         return newDict
 
     def splice(self,left=4,right=None):
+        '''
+        Useage:  newObj = obj.splice(4) or newObj = obj.splice(4,3)
+        
+        Return a new KaldiDict object. If right is None, we define right = left. So if you don't want to splice, set the value = 0.
+
+        ''' 
         if right == None:
             right = left
         lengths = []
@@ -781,7 +1046,13 @@ class KaldiDict(dict):
         return newFea
     
     def select(self,dims,reserve=False):
+        '''
+        Useage:  newObj = obj.select(4) or newObj = obj.select('5,10-15') or newObj1,newObj2 = obj.select('5,10-15',True)
         
+        Select data according dims. < dims > should be an int or string like "1,5-20".
+        If < reserve > is True, return 2 new KaldiDict objects. Or only return selected data.
+
+        '''         
         _dim = self.dim
         if _dim == 1:
             raise WrongOperation('Cannot select any data from 1-dim data.')
@@ -819,6 +1090,13 @@ class KaldiDict(dict):
             return seleDict
                     
     def merge(self,keepDim=False):
+        '''
+        Useage:  data,uttlength = obj.merge() or data,uttlength = obj.merge(keepDim=True)
+        
+        If < keepDim > is False, the first one is returned result is 2-dim numpy array, the second one is a list consists of id and frames of each utterance. 
+        If < keepDim > is True, only the first one will be a list.
+
+        ''' 
         uttLens = []
         matrixs = []
         for utt in self.keys():
@@ -829,35 +1107,48 @@ class KaldiDict(dict):
             matrixs = np.concatenate(matrixs,axis=0)
         return matrixs,uttLens
 
-    def remerge(self,matris,uttLens):
-
+    def remerge(self,matrix,uttLens):
+        '''
+        Useage:  obj = obj.merge(data,uttlength)
+        
+        Return KaldiDict object. This is a inverse operation of .merge() function.
+        
+        ''' 
         if len(self.keys()) == 0:
-            if isinstance(matris,list):
+            if isinstance(matrix,list):
                 for i,(utt,lens) in enumerate(uttLens):
-                    self[utt] = matris[i]
-            elif isinstance(matris,np.ndarray):
+                    self[utt] = matrix[i]
+            elif isinstance(matrix,np.ndarray):
                 start = 0
                 for utt,lens in uttLens:
-                    self[utt] = matris[start:start+lens]
+                    self[utt] = matrix[start:start+lens]
                     start += lens
             else:
                 raise UnsupportedDataType('It is not KaldiDict merged data.')
         else:
             newDict = KaldiDict()
-            if isinstance(matris,list):
+            if isinstance(matrix,list):
                 for i,(utt,lens) in enumerate(uttLens):
-                    newDict[utt] = matris[i]
-            elif isinstance(matris,np.ndarray):
+                    newDict[utt] = matrix[i]
+            elif isinstance(matrix,np.ndarray):
                 start = 0
                 for utt,lens in uttLens:
-                    newDict[utt] = matris[start:start+lens]
+                    newDict[utt] = matrix[start:start+lens]
                     start += lens
             else:
                 raise UnsupportedDataType('It is not KaldiDict merged data.')
             return newDict
 
     def subset(self,nHead=0,chunks=1,uttList=None):
-
+        '''
+        Useage:  newObj = obj.subset(nHead=10) or newObj = obj.subset(chunks=10) or newObj = obj.subset(uttList=uttList)
+        
+        Subset data.
+        If nHead > 0, return a new KaldiDict object whose content is front nHead pieces of data. 
+        Or If chunks > 1, split data averagely as chunks KaidiDict objects. Return a list.
+        Or If uttList != None, select utterances if appeared in obj. Return selected data.
+        
+        ''' 
         if nHead > 0:
             newDict = KaldiDict()
             utts = list(self.keys())
@@ -909,7 +1200,12 @@ class KaldiDict(dict):
             raise WrongOperation("nHead, chunks and uttList are not allowed be None at the same time.")
 
     def normalize(self,std=True,alpha=1.0,beta=0.0,epsilon=1e-6,axis=0):
-
+        '''
+        Useage:  newObj = obj.normalize()
+        
+        Return a KaldiDict object. if < std > is True, do alpha*(x-mean)/(std+epsilon)+belta, or do alpha*(x-mean)+belta.
+        
+        '''
         data,uttLens = self.merge()
         mean = np.mean(data,axis=axis)
 
@@ -928,6 +1224,14 @@ class KaldiDict(dict):
         return newDict 
 
 class KaldiLattice(object):
+    '''
+    Useage:  obj = KaldiLattice()  or   obj = KaldiLattice(lattice,hmmgmm,wordSymbol)
+
+    KaldiLattice holds the lattice and its related file path: HmmGmm file and WordSymbol file. 
+    The <lattice> can be lattice binary data or file path. Both < HmmGmm > and < wordSymbol > are expected file path.
+    pythonkaldi.decode_lattice function will return a KaldiLattice object. Aslo, you can define a empty KaldiLattice object and load its data later.
+
+    '''    
     def __init__(self,lattice=None,HmmGmm=None,wordSymbol=None):
 
         self._lat = lattice
@@ -944,6 +1248,13 @@ class KaldiLattice(object):
                 raise UnsupportedDataType("<lattice> is not a correct lattice data.")
 
     def load(self,latFile,HmmGmm,wordSymbol):
+        '''
+        Useage:  obj.load(lattice,hmmgmm,wordSymbol)
+
+        Load lattice to memory. < latFile > can be file path or binary data. < HmmGmm > and < wordSymbol > are expected as file path.
+        Note that the original data in obj will be abandoned. 
+
+        '''    
         for x in [latFile,HmmGmm,wordSymbol]:
             if not os.path.isfile(x):
                 raise PathError('No such file:{}.'.format(latFile))
@@ -961,7 +1272,12 @@ class KaldiLattice(object):
             raise UnsupportedDataType('Expected gz file but got {}.'.format(latFile))
 
     def get_1best_words(self,minLmwt=1,maxLmwt=None,Acwt=1.0,outDir='.',asFile=False):
+        '''
+        Useage:  out = obj.get_1best_words(minLmwt=1)
 
+        Return a dict object. Its key is lm weight, and value will be result-list if <asFile> is False or result-file-path if <asFile> is True. 
+
+        ''' 
         if self._lat == None:
             raise WrongOperation('No any data in lattice.')
 
@@ -1027,7 +1343,12 @@ class KaldiLattice(object):
         return result
 
     def scale(self,Acwt=1,inAcwt=1,Ac2Lm=0,Lmwt=1,Lm2Ac=0):
+        '''
+        Useage:  newObj = obj.sacle(inAcwt=0.2)
 
+        Scale lattice. Return a new KaldiLattice object.
+
+        ''' 
         if self._lat == None:
             raise WrongOperation('No any lattice to scale.')
 
@@ -1051,7 +1372,12 @@ class KaldiLattice(object):
             return KaldiLattice(out,self._model,self._word2id)
 
     def add_penalty(self,penalty=0):
+        '''
+        Useage:  newObj = obj.add_penalty(0.5)
 
+        Add penalty. Return a new KaldiLattice object.
+
+        ''' 
         if self._lat == None:
             raise WrongOperation('No any lattice to scale.')
 
@@ -1070,7 +1396,12 @@ class KaldiLattice(object):
             return KaldiLattice(out,self._model,self._word2id)
 
     def save(self,fileName):
+        '''
+        Useage:  obj.save("lat.gz")
 
+        Save lattice as .gz file. 
+
+        ''' 
         if self._lat == None:
             raise WrongOperation('No any data to save.')   
 
@@ -1087,10 +1418,22 @@ class KaldiLattice(object):
 
     @property
     def value(self):
+        '''
+        Useage:  lat = obj.value
+
+        Return binary lattice data. 
+
+        ''' 
         return self._lat
 
     def __add__(self,other):
-        
+        '''
+        Useage:  lat3 = lat1 + lat2
+
+        Return a new KaldiLattice object. lat2 must be KaldiLattice object.
+        Note that this is only a simple additional operation to make two lattices be one.
+
+        '''         
         assert isinstance(other,KaldiLattice), "Expected KaldiLattice but got {}.".format(type(other))
 
         if self._lat == None:
@@ -1104,15 +1447,24 @@ class KaldiLattice(object):
 
         return KaldiLattice(newLat,self._model,self._word2id)
 
-def compute_mfcc(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useUtt='MAIN',useSuffix=None,configFile=None,asFile=False):
+def compute_mfcc(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,asFile=False):
+    '''
+    Useage:  obj = compute_mfcc("test.wav") or compute_mfcc("test.scp")
 
+    Compute mfcc feature. Return KaldiArk object or file path if <asFile> is True.
+    We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
+    You can use pythonkaldi.check_config('compute_mfcc') function to get configure information you could set.
+    Also run shell command "compute-mfcc-feats" to look their meaning.
+
+    '''  
     kaldiTool = 'compute-mfcc-feats'
 
-    if configFile != None:
-        if isinstance(configFile,str) and os.path.isfile(configFile):
-            kaldiTool += ' --config='+configFile
-        else:
-            raise WrongOperation('<configFile> is not a correct configure file.')
+    if config != None:
+        
+        if check_config(name='compute_mfcc',config=config):
+            for key in config.keys():
+                kaldiTool = ' {}={}'.format(key,config[key])
+
     else:
         kaldiTool += ' --allow-downsample=true'
         kaldiTool += ' --allow-upsample=true'
@@ -1172,15 +1524,24 @@ def compute_mfcc(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featD
         else:
             return KaldiArk(out)
 
-def compute_fbank(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,windowType='povey',useUtt='MAIN',useSuffix=None,configFile=None,asFile=False):
+def compute_fbank(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,asFile=False):
+    '''
+    Useage:  obj = compute_fbank("test.wav") or compute_mfcc("test.scp")
 
+    Compute fbank feature. Return KaldiArk object or file path if <asFile> is True.
+    We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
+    You can use pythonkaldi.check_config('compute_fbank') function to get configure information you could set.
+    Also run shell command "compute-fbank-feats" to look their meaning.
+
+    '''  
     kaldiTool = 'compute-fbank-feats'
 
-    if configFile != None:
-        if isinstance(configFile,str) and os.path.isfile(configFile):
-            kaldiTool += ' --config='+configFile
-        else:
-            raise WrongOperation('<configFile> is not a correct configure file.')
+    if config != None:
+        
+        if check_config(name='compute_fbank',config=config):
+            for key in config.keys():
+                kaldiTool = ' {}={}'.format(key,config[key])
+
     else:
         kaldiTool += ' --allow-downsample=true'
         kaldiTool += ' --allow-upsample=true'
@@ -1239,15 +1600,24 @@ def compute_fbank(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,wind
         else:
             return KaldiArk(out)
 
-def compute_plp(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useUtt='MAIN',useSuffix=None,configFile=None,asFile=False):
+def compute_plp(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,asFile=False):
+    '''
+    Useage:  obj = compute_plp("test.wav") or compute_mfcc("test.lst",useSuffix='scp')
 
+    Compute plp feature. Return KaldiArk object or file path if <asFile> is True.
+    We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
+    You can use pythonkaldi.check_config('compute_plp') function to get configure information you could set.
+    Also run shell command "compute-plp-feats" to look their meaning.
+
+    '''  
     kaldiTool = 'compute-plp-feats'
 
-    if configFile != None:
-        if isinstance(configFile,str) and os.path.isfile(configFile):
-            kaldiTool += ' --config='+configFile
-        else:
-            raise WrongOperation('<configFile> is not a correct configure file.')
+    if config != None:
+        
+        if check_config(name='compute_plp',config=config):
+            for key in config.keys():
+                kaldiTool = ' {}={}'.format(key,config[key])
+
     else:
         kaldiTool += ' --allow-downsample=true'
         kaldiTool += ' --allow-upsample=true'
@@ -1307,15 +1677,24 @@ def compute_plp(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDi
         else:
             return KaldiArk(out)
 
-def compute_spectrogram(wavFile,rate=16000,frameWidth=25,frameShift=10,windowType='povey',useUtt='MAIN',useSuffix=None,configFile=None,asFile=False):
+def compute_spectrogram(wavFile,rate=16000,frameWidth=25,frameShift=10,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,asFile=False):
+    '''
+    Useage:  obj = compute_spetrogram("test.wav") or compute_mfcc("test.lst",useSuffix='scp')
 
+    Compute spectrogram feature. Return KaldiArk object or file path if <asFile> is True.
+    We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
+    You can use pythonkaldi.check_config('compute_spetrogram') function to get configure information you could set.
+    Also run shell command "compute-spetrogram-feats" to look their meaning.
+
+    ''' 
     kaldiTool = 'compute-spectrogram-feats'
 
-    if configFile != None:
-        if isinstance(configFile,str) and os.path.isfile(configFile):
-            kaldiTool += ' --config='+configFile
-        else:
-            raise WrongOperation('<configFile> is not a correct configure file.')
+    if config != None:
+        
+        if check_config(name='compute_spetrogram',config=config):
+            for key in config.keys():
+                kaldiTool = ' {}={}'.format(key,config[key])
+
     else:
         kaldiTool += ' --allow-downsample=true'
         kaldiTool += ' --allow-upsample=true'
@@ -1374,7 +1753,13 @@ def compute_spectrogram(wavFile,rate=16000,frameWidth=25,frameShift=10,windowTyp
             return KaldiArk(out)
 
 def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,asFile=False):
+    '''
+    Useage:  obj = use_cmvn(feat) or obj = use_cmvn(feat,cmvnStatFile,utt2spkFile) or obj = use_cmvn(feat,utt2spkFile,spk2uttFile)
 
+    Apply CMVN to feature. Return KaldiArk object or file path if <asFile> is true. 
+    If < cmvnStatFile >  are None, first compute the CMVN state. But <utt2spkFile> and <spk2uttFile> are expected given at the same time if they were not None.
+
+    ''' 
     if isinstance(feat,KaldiArk):
         pass
     elif isinstance(feat,KaldiDict):
@@ -1449,7 +1834,13 @@ def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,asFile=Fal
         fw.close()
 
 def use_cmvn_sliding(feat,windowsSize=None,std=False):
+    '''
+    Useage:  obj = use_cmvn_sliding(feat) or obj = use_cmvn_sliding(feat,windows=200)
 
+    Apply sliding CMVN to feature. Return KaldiArk object. If <windowsSize> is None, the window width will be set larger than frames of <feat>.
+    If < std > is False, only apply mean, or apply both mean and std.
+
+    ''' 
     if isinstance(feat,KaldiArk):
         pass
     elif isinstance(feat,KaldiDict):
@@ -1479,7 +1870,12 @@ def use_cmvn_sliding(feat,windowsSize=None,std=False):
         return KaldiArk(out)  
 
 def add_delta(feat,order=2,asFile=False):
+    '''
+    Useage:  newObj = add_delta(feat)
 
+    Add n-orders delta to feature. Return KaldiArk object or file path if <asFile> is True.
+
+    ''' 
     if isinstance(feat,KaldiArk):
         pass
     elif isinstance(feat,KaldiDict):
@@ -1518,7 +1914,12 @@ def add_delta(feat,order=2,asFile=False):
             return KaldiArk(out)      
 
 def get_ali(aliFile,HmmGmm,returnPhoneme=False):
+    '''
+    Useage:  obj = get_ali('ali.1.gz','graph/final.mdl') or obj = get_ali('ali.1.gz','graph/final.mdl',True)
 
+    Get alignment from ali file. Return a KaldiDict object. If <returnPhoneme> is True, return phone id, or return pdf id.
+
+    ''' 
     if isinstance(aliFile,str):
         if aliFile.endswith('.gz'):
             pass
@@ -1561,7 +1962,12 @@ def get_ali(aliFile,HmmGmm,returnPhoneme=False):
         return KaldiDict(ali_dict)
         
 def decompress(data):
-    
+    '''
+    Useage:  obj = decompress(feat)
+
+    Feat are expected KaldiArk object whose data type is "CM", that is kaldi compressed ark data. Return a KaldiArk object.
+
+    '''     
     def _read_compressed_mat(fd):
 
         # Format of header 'struct',
@@ -1631,7 +2037,12 @@ def decompress(data):
     return KaldiArk(b''.join(newData))
 
 def load(feaFile,useSuffix=None):
-    
+    '''
+    Useage:  obj = load('feat.npy') or obj = load('feat.ark') or obj = load('feat.scp') or obj = load('feat.lst', useSuffix='scp')
+
+    Load kaldi ark feat file, kaldi scp feat file, KaldiArk file, or KaldiDict file. Return KaldiArk or KaldiDict object.
+
+    '''      
     if isinstance(feaFile,str):
         if not os.path.isfile(feaFile):
             raise PathError("No such file:{}.".format(feaFile))
@@ -1672,8 +2083,16 @@ def load(feaFile,useSuffix=None):
                 print('Warning: Data is extramely large. It could not be used correctly sometimes.') 
             return KaldiArk(out)
 
-def decode_lattice(AmP,HmmGmm,Hclg,Lexicon,minActive=200,maxActive=7000,maxMem=50000000,beam=13,latBeam=8,Acwt=1,configFile=None,maxThreads=1,asFile=False):
+def decode_lattice(AmP,HmmGmm,Hclg,Lexicon,minActive=200,maxActive=7000,maxMem=50000000,beam=13,latBeam=8,Acwt=1,config=None,maxThreads=1,asFile=False):
+    '''
+    Useage:  kaldiLatticeObj = decode_lattice(amp,'graph/final.mdl','graph/HCLG')
 
+    Decode by generating lattice from acoustic probability. Return KaldiLattice object or file path if <asFile> is True.
+    We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
+    You can use pythonkaldi.check_config('decode-lattice') function to get configure information you could set.
+    Also run shell command "latgen-faster-mapped" to look their meaning.
+
+    '''  
     if isinstance(AmP,KaldiArk):
         pass
     elif isinstance(AmP,KaldiDict):
@@ -1690,11 +2109,13 @@ def decode_lattice(AmP,HmmGmm,Hclg,Lexicon,minActive=200,maxActive=7000,maxMem=5
     else:
         kaldiTool = "latgen-faster-mapped" 
 
-    if configFile != None:
-        if isinstance(configFile,str) and os.path.isfile(configFile):
-            kaldiTool += ' --config='+configFile
-        else:
-            raise WrongOperation('<configFile> is not a correct configure file.')
+    if config != None:
+        
+        if check_config(name='decode_lattice',config=config):
+            config['--word-symbol-table'] = Lexicon
+            for key in config.keys():
+                kaldiTool = ' {}={}'.format(key,config[key])
+
     else:
         kaldiTool += ' --allow-partial=true'
         kaldiTool += ' --min-active={}'.format(minActive)
@@ -1734,6 +2155,13 @@ def decode_lattice(AmP,HmmGmm,Hclg,Lexicon,minActive=200,maxActive=7000,maxMem=5
             return KaldiLattice(out2,HmmGmm,Lexicon)
 
 def run_shell_cmd(cmd,inputs=None):
+    '''
+    Useage:  out,err = run_shell_cmd('ls -lh')
+
+    We provided a basic way to run shell command. Return binary string (out,err). 
+
+    '''
+
     if inputs != None:
         if isinstance(inputs,str):
             inputs = inputs.encode()
@@ -1746,7 +2174,14 @@ def run_shell_cmd(cmd,inputs=None):
     return out,err
 
 def compute_wer(hyp,ref,mode='present',ignore=None,p=True):
+    '''
+    Useage:  score = compute_wer('pre.txt','ref.txt',ignore='<sil>') or score = compute_wer(out[1],'ref.txt')
 
+    Compute wer between prediction result and reference text. Return a dict object with score information like:
+    {'WER':0,'allWords':10,'ins':0,'del':0,'sub':0,'SER':0,'wrongSentences':0,'allSentences':1,'missedSentences':0}
+    Both <hyp> and <ref> can be text file or result which obtained from KaldiLattice.get_1best_word().  
+
+    '''
     if ignore == None:
         if isinstance(hyp,list):
             out1 = "\n".join(hyp)
@@ -1840,7 +2275,12 @@ def compute_wer(hyp,ref,mode='present',ignore=None,p=True):
         return score
 
 def split_file(filePath,chunks=2):
-    
+    '''
+    Useage:  score = split_file('eval.scp',5)
+
+    Split a large scp file into n smaller files. The splited files will be put at the same folder as original file and return their paths as a list.
+
+    '''    
     assert isinstance(chunks,int) and chunks > 1, "Expected <chunks> is int and bigger than 1."
 
     if not os.path.isfile(filePath):
@@ -3044,131 +3484,6 @@ class RemoteServer(object):
 import chainer
 import chainer.functions as F
 import chainer.links as L
-import random
-import cupy as cp
-from distutils.util import strtobool
-import configparser
-
-def check_model_config(configFile=None,modelName=None):
-
-    if configFile == None and modelName == None:
-        raise Exception("configFile and modelName are not allowed to be None simultaneously")
-       
-    if configFile != None:
-        if isinstance(configFile,dict):
-            architecture = configFile
-        elif os.path.isfile(configFile):
-            config = configparser.ConfigParser()
-            config.read(configFile)
-            sections = config.sections()
-            if len(sections) == 1 and modelName == None:
-                architecture = config.items(sections[0])
-            elif len(sections) > 1 and modelName == None:
-                raise Exception('Except model name')
-            elif not modelName in sections:
-                raise Exception('model name {} is inexistence in configure file'.format(modelName))
-            else:
-                architecture = config.items(modelName)
-        else:
-            raise Exception("Except a ini configure file or config-like python dict")
-    else:
-        pass    
-
-    if modelName != None:
-        if 'mlp' == modelName.lower():
-            architecture_default = {
-                'node':[1024,1024,1024,1024,1960],
-                'dropout':[0.15,0.15,0.15,0.15,0.0],
-                'batchnorm':[True,True,True,True,False],
-                'layernorm':[False,False,False,False,False],
-                'batchnorm_in':False,
-                'layernorm_in':False,
-                'acfunction':['relu','relu','relu','relu','None'],
-                'inputdim':39,
-            }  
-            if configFile != None:
-                for key in list(architecture.keys()):
-                    if key == 'node':
-                        if isinstance(architecture[key],str):
-                            architecture_default[key] = list(map(int,architecture[key].split(',')))
-                        else:
-                            architecture_default[key] = list(map(int,architecture[key]))
-                    elif key == 'dropout':
-                        if isinstance(architecture[key],str):
-                            architecture_default[key] = list(map(float,architecture[key].split(',')))
-                        else:
-                            architecture_default[key] = list(map(float,architecture[key]))                 
-                    elif key == 'batchnorm':
-                        if isinstance(architecture[key],str):
-                            architecture_default[key] = list(map(strtobool,architecture[key].split(',')))
-                        else:
-                            architecture_default[key] = architecture[key] 
-                    elif key == 'layernorm':
-                        if isinstance(architecture[key],str):
-                            architecture_default[key] = list(map(strtobool,architecture[key].split(',')))
-                        else:
-                            architecture_default[key] = architecture[key] 
-                    elif key == 'batchnorm_in':
-                        if isinstance(architecture[key],str):
-                            architecture_default[key] = strtobool(architecture[key].split(','))
-                        else:
-                            architecture_default[key] = architecture[key]
-                    elif key == 'layernorm_in':
-                        if isinstance(architecture[key],str):
-                            architecture_default[key] = strtobool(architecture[key].split(','))
-                        else:
-                            architecture_default[key] = architecture[key]
-                    elif key == 'acfunction':
-                        if isinstance(architecture[key],str):
-                            architecture_default[key] = architecture[key].split(',')
-                        else:
-                            architecture_default[key] = architecture[key]
-                    elif key == 'inputdim':
-                        if isinstance(architecture[key],str):
-                            architecture_default[key] = architecture[key].split(',')
-                        else:
-                            architecture_default[key] = architecture[key]
-                    else:
-                        raise Exception('Got a unexcepted configure key {}'.format(key))
-            return architecture_default
-        if 'lstm' == modelName.lower():
-            architecture_default = {
-                'layers':2,
-                'dropout':0.2,
-                'batchnorm_in':False,
-                'layernorm_in':False,
-                'inputdim':512,
-                'outputdim':512,
-                'actfunction_out':'None',
-                'dropout_out':0.0,
-            }  
-            if configFile != None:
-                for key in list(architecture.keys()):
-                    if key == 'layer_num':
-                        architecture_default[key] = int(architecture[key])
-                    elif key == 'dropout':
-                        architecture_default[key] = float(architecture[key])                
-                    elif key == 'batchnorm_in':
-                        if isinstance(architecture[key],str):
-                            architecture_default[key] = strtobool(architecture[key].split(','))
-                        else:
-                            architecture_default[key] = architecture[key]
-                    elif key == 'layernorm_in':
-                        if isinstance(architecture[key],str):
-                            architecture_default[key] = strtobool(architecture[key].split(','))
-                        else:
-                            architecture_default[key] = architecture[key]
-                    elif key == 'inputdim':
-                        architecture_default[key] = int(architecture[key])
-                    elif key == 'outputdim':
-                        architecture_default[key] = int(architecture[key])                        
-                    else:
-                        raise Exception('Got a unexcepted configure key {}'.format(key))
-            return architecture_default        
-        else:
-            raise Exception('There is not any model named {}'.format(modelName))
-    else:
-        return architecture
 
 class LayerNorm(chainer.Chain):
 
@@ -3188,25 +3503,26 @@ class Acfunction(chainer.Chain):
     def __init__(self,acfun_type):
         super(Acfunction,self).__init__()
         with self.init_scope():
-            acfun_type = acfun_type.lower()
-            if acfun_type=="relu":
-                self.acfun = F.relu
-            elif acfun_type=="tanh":
-                self.acfun = F.tanh      
-            elif acfun_type=="sigmoid":
-                self.acfun = F.sigmoid      
-            elif acfun_type=="leaky_relu":
-                self.acfun = F.leaky_relu      
-            elif acfun_type=="elu":
-                self.acfun = F.elu      
-            elif acfun_type=="log_softmax":
-                self.acfun = F.log_softmax
-            elif acfun_type=="softmax":
-                self.acfun = F.softmax
-            elif acfun_type=="none":
-                self.acfun = lambda x : x  # Don't use any activate function
+            if acfun_type == None:
+                self.acfun = lambda x : x
             else:
-                raise WrongOperation('No such activation function:{}'.format(acfun_type))
+                acfun_type = acfun_type.lower()
+                if acfun_type=="relu":
+                    self.acfun = F.relu
+                elif acfun_type=="tanh":
+                    self.acfun = F.tanh      
+                elif acfun_type=="sigmoid":
+                    self.acfun = F.sigmoid      
+                elif acfun_type=="leaky_relu":
+                    self.acfun = F.leaky_relu      
+                elif acfun_type=="elu":
+                    self.acfun = F.elu      
+                elif acfun_type=="log_softmax":
+                    self.acfun = F.log_softmax
+                elif acfun_type=="softmax":
+                    self.acfun = F.softmax
+                else:
+                    raise WrongOperation('No such activation function:{}'.format(acfun_type))
 
     def __call__(self,x):
         return self.acfun(x)
@@ -3223,7 +3539,12 @@ class MLP(chainer.ChainList):
     def __init__(self,config=None):
         super(MLP, self).__init__()
         with self.init_scope():
-            config = check_model_config(config,'MLP')
+            
+            if config == None:
+                config = check_config('MLP')
+            else:
+                check_config('MLP',config)
+
             if config['layernorm_in']:
                 self.add_link(LayerNorm(config['inputdim']))
             if config['batchnorm_in']:
@@ -3247,8 +3568,10 @@ class MLP(chainer.ChainList):
                 
                 if config['acfunction'][i] != None or config['acfunction'][i].lower() != 'none': 
                     self.add_link(Acfunction(config['acfunction'][i]))
+
                 if config['dropout'][i] != None or float(config['acfunction'][i]) != 0.: 
                     self.add_link(Dropout(config['dropout'][i]))
+
             self.config = config
 
     def forward(self, x):
@@ -3266,8 +3589,11 @@ class LSTM(chainer.ChainList):
     def __init__(self,config=None):
         super(LSTM, self).__init__()
         with self.init_scope():
-
-            config = check_model_config(config,'LSTM')
+            
+            if config == None:
+                config = check_config('LSTM')
+            else:
+                check_config('LSTM',config)
 
             # input layer normalization
             if config['layernorm_in']:
@@ -3298,7 +3624,9 @@ class LSTM(chainer.ChainList):
         return self.config
 
 class DataIterator(chainer.iterators.SerialIterator):
+    '''
     
+    '''
     def __init__(self,dataOrScpFiles,batchSize,chunks='auto',processFunc=None,shuffle=True,labelOrAliFiles=None,hmmGmm=None,validDataRatio=0.1):
 
         self.datasetList = []
@@ -3434,7 +3762,10 @@ class DataIterator(chainer.iterators.SerialIterator):
         else:
             self.nextDataset = self.fileProcessFunc(chunkData)
 
-        self.nextDataset = [X for X in self.nextDataset]
+        if self.batch_size > len(self.nextDataset):
+            print("Warning: Batch Size < {} > is large for dataset whose len is < {} >, we hope you can use a more suitable value.".format(self.batch_size,len(len(self.nextDataset))))
+        else:
+            self.nextDataset = [X for X in self.nextDataset]
 
     def next(self):
         i = self.current_position
@@ -3539,7 +3870,12 @@ class DataIterator(chainer.iterators.SerialIterator):
             return False        
 
 class Supporter(object):
-    
+    '''
+    Useage:  supporter = Supporter(outDir='Result')
+
+    Supporter is a class to be similar to chainer report. But we designed some useful functions such as save model by maximum accuracy and adjust learning rate.
+
+    '''      
     def __init__(self,outDir='Result'):
 
         self.currentFiled = {}
@@ -3567,7 +3903,12 @@ class Supporter(object):
         self._allKeys = []
         
     def send_report(self,x,*args):
+        '''
+        Useage:  supporter = obj.send_report({"epoch":epoch,"train_loss":loss,"train_acc":acc})
 
+        Send information and thses info will be retained untill you do the statistics by using obj.collect_report().
+
+        '''           
         keys = list(x)
 
         allKeys = list(self.currentFiled)
@@ -3584,8 +3925,13 @@ class Supporter(object):
             self.currentFiled[i].append(value)
 
     def collect_report(self,keys=None,plot=True):
+        '''
+        Useage:  supporter = obj.collect_report(plot=True)
 
-        # Statistics
+        Do the statistics of received information. The result will be saved in outDir/log file. If < keys > is not None, only collect the data in keys. 
+        If < plot > is True, print the statistics result to standard output.
+        
+        '''   
         if keys == None:
             keys = list(self.currentFiled)
     
@@ -3628,7 +3974,14 @@ class Supporter(object):
         self.currentFiled = {}
 
     def save_model(self,models,iterSymbol=None,byKey=None,maxValue=True,saveFunc=None):
+        '''
+        Useage:  obj.save_model(plot=True)
 
+        Save model when you use this function. Your can give <iterSymbol> and it will be add to the end of file name.
+        If you use < byKey > and set < maxValue >, model will be saved only while meeting the condition.
+        We use chainer as default framework, but if you don't, give the < saveFunc > specially please. 
+        
+        ''' 
         assert isinstance(models,dict), "Expected <models> is dict whose key is model-name and value is model-object."
 
         if self.currentFiled != {}:
@@ -3691,10 +4044,21 @@ class Supporter(object):
 
     @property
     def finalModel(self):
+        '''
+        Useage:  model = obj.finalModel
+
+        Get the final saved model. Return a dict whose key is model name and value is model path. 
+        
+        ''' 
         return self.lastSavedModel
 
     def adjust_lr(self,oldLR,key,condition,threshold,newLR=None):
+        '''
+        Useage:  newLR = obj.adjust_lr(0.08,'train_loss','<',0.1,0.04)
 
+        This is a simple function. You can use it to change learning rate.
+        
+        ''' 
         assert condition in ['>','>=','<=','<','==','!='], '<condiction> is not a correct conditional operator.'
         assert isinstance(threshold,(int,float)), '<threshold> should be float or int value.'
 
@@ -3717,7 +4081,12 @@ class Supporter(object):
             return oldLR
 
     def dump_item(self,key=None):
+        '''
+        Useage:  out = obj.dump_item(key=['epoch','train_loss','test_loss'])
 
+        Return a dict. Get the global data in order to plot graph.
+        
+        ''' 
         if isinstance(key,str):
             key = [key,]
 
@@ -3738,3 +4107,4 @@ class Supporter(object):
                     items[i].append(temp[i])
 
         return items
+
