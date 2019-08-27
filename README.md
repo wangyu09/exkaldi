@@ -381,51 +381,40 @@ I am sorry it is unable to use for the moment.
 
 _-----------------------------------------------< Chainer Tools >-----------------------------------------------------_
 
-### check_model_config  
-
-< function >  
-
-we prepared two kinds of model: MLP and LSTM. return a dict object consisting of model configure.  
-
-< Parameters >  
-
-`modelName` _if modelName="MLP" or "LSTM", it will return necessary configure keys and default value, default=None_
-`configFile` _i am sorry it is unable to use at the moment, it must be None, default=None_
-
 ### MLP
 
 < class >
 
-chainer MLP model. use `model=MLP(config=config)` to introduce configure and get MLP model. if config == None, the default configure will be use. you can use `print(model)` to watch the architecture of model.
+Get a chainer MLP model. If <config> is None, use default configure. Or you can initialize it by set <config>. Try to use pythonkaldi.check_config('MLP') function to get configure information you could set.
 
 ### LSTM
 
 < class >
 
-chainer LSTM model. the same as MLP.
+Get a chainer LSTM model. If <config> is None, use default configure. Or you can initialize it by set <config>. Try to use pythonkaldi.check_config('LSTM') function to get configure information you could set.
 
 ### DataIterator
 
-< class >
+< class discription >
 
-you can use it as ordinary chainer.iterators.SerialIterator, but you can also try its distinctive ability. if you give it a large scp file of train data, it will split it into n smaller chunks and load them into momery alternately with parallel thread. it will shuffle all data while is new epoch.
+you can use it as ordinary chainer.iterators.SerialIterator, but you can also try its distinctive ability. If you give it a large scp file of train data, it will split it into n smaller chunks and load them into momery alternately with parallel thread. It will shuffle the original scp file and split again while new epoch.
 
 < init Parameters >
 
-`dataOrScpFiles` _ordinary data type or scp file, if scp file, processFunc is necessary._  
-`batchSize` _mini batch size_  
+`dataOrScpFiles` _ordinary data type or scp file, if scp file, processFunc is necessary._    
+`batchSize` _mini batch size_    
 `chunks` _if scp file, split it into n chunks. if chunks=='auto', compute the chunks automatically. default="auto"_  
-`processFunc` _a function to process scp file to ordinary data type_  
-`shuffle` _shuffle batch data, default=True_  
-`labelOrAliFiles` _if not None, alignment file or labels will be splited into n chunks and give them to processFunc,default=None_  
+`processFunc` _a function to process scp file to ordinary data type_    
+`shuffle` _shuffle batch data, default=True_    
+`labelOrAliFiles` _if not None, alignment file or labels will be splited into n chunks and give them to processFunc,default=None_   
 `hmmGmm` _if None, will find model automatically according to aliFile, default=None_  
 `validDataRatio` _if > 0 , will reserve a part of data as valid data, default=0.1_  
 
 ### Supporter
 
-< class >
+< class discription >
 
-a class such as chainer report. But we designed some useful functions such as save model by maximum accuracy and adjust learning rate. 
+Supporter is a class to be similar to chainer report. But we designed some useful functions such as save model by maximum accuracy and adjust learning rate.
 
 < init Parameters >
 
@@ -439,16 +428,31 @@ _return the last saved model path_
 < Methods >
 
 `send_report(x)`   
-send information which has a format such as {"epoch":epoch,"train_loss":loss} to supporter object.
+Send information and thses info will be retained untill you do the statistics by using obj.collect_report().
 
 `collect_report(keys=None,plot=True)`   
-do the statistics of received information. if keys != None, only collect the data in keys. if plot == True, print the statistics result to standard output.
+Do the statistics of received information. The result will be saved in outDir/log file. If < keys > is not None, only collect the data in keys. If < plot > is True, print the statistics result to standard output.
 
 `save_model(self,models,iterSymbol=None,byKey=None,maxValue=True,saveFunc=None)`   
-do the statistics of received information. if keys != None, only collect the data in keys. if plot == True, print the statistics result to standard output.
+Save model when you use this function. Your can give <iterSymbol> and it will be add to the end of file name. If you use < byKey > and set < maxValue >, model will be saved only while meeting the condition. We use chainer as default framework, but if you don't, give the < saveFunc > specially please. 
 
+_-----------------------------------------------< Other Tools >-----------------------------------------------------_
 
+### get_kaldi_path() 
 
+< function discription >
 
+Return kaldi path. If the kaldi are not found, will raise error.
+
+### check_config(name,config=None) 
+
+< function discription >
+
+Get default configure if < config > is None, or check if given < config > has a right format. This function will read "conf" file which is placed in "./", so if there is not, will raise error. Also you can change the content of "conf" file.
+
+< Parameters >  
+
+`name` _scp file path_     
+`chunks` _expected numbers, must >1, default=2_  
 
 
