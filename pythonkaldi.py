@@ -1837,6 +1837,43 @@ def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,asFile=Fal
     finally:
         fw.close()
 
+def compute_cmvn_stats(feat,asFile,spk2uttFile=None):
+    '''
+    Useage:  obj = compute_cmvn_stats(feat,'train_cmvn.ark') or obj = compute_cmvn_stats(feat,'train_cmvn.ark','train/spk2utt')
+
+    Compute CMVN state and save it as file. Return cmvn file path. 
+
+    ''' 
+    if isinstance(feat,KaldiArk):
+        pass
+    elif isinstance(feat,KaldiDict):
+        feat = feat.ark
+    else:
+        raise UnsupportedDataType("Expected KaldiArk KaldiDict but got {}.".format(type(feat)))
+    
+    if spk2uttFile != None:
+        cmd = 'compute-cmvn-stats --spk2utt=ark:{} ark:-'.format(spk2uttFile)
+    else:
+        cmd = 'compute-cmvn-stats ark:-'
+
+    if asFile.endswith('.scp'):
+        cmd += ' ark,scp:{},{}'.format(asFile[0:-4]+'.ark',asFile)
+    else:
+        if not asFile.endswith('.ark'):
+            asFile = asFile + '.ark'
+        cmd += ' ark:{}'.format(asFile)
+
+    p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE)
+    (_,err) = p.communicate(input=feat)
+
+    if not os.path.isfile(asFile):
+        err = err.decode()
+        print(err)
+        raise KaldiProcessError('Compute cmvn stats defeated.')
+    else:
+        return asFile    
+
+
 def use_cmvn_sliding(feat,windowsSize=None,std=False):
     '''
     Useage:  obj = use_cmvn_sliding(feat) or obj = use_cmvn_sliding(feat,windows=200)
