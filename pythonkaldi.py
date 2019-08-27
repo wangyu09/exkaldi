@@ -3525,6 +3525,8 @@ class Acfunction(chainer.Chain):
                     self.acfun = F.log_softmax
                 elif acfun_type=="softmax":
                     self.acfun = F.softmax
+                elif acfun_type == 'none':
+                    self.acfun = lambda x : x
                 else:
                     raise WrongOperation('No such activation function:{}'.format(acfun_type))
 
