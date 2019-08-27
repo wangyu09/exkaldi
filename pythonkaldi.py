@@ -3540,6 +3540,13 @@ class Dropout(chainer.Chain):
         return F.dropout(x,self.ratio)
 
 class MLP(chainer.ChainList):
+    '''
+    Useage: model = MLP() or model = MLP(config=config)
+
+    Get a chainer MLP model. If <config> is None, use default configure. Or you can initialize it by setting <config>. 
+    Try to use pythonkaldi.check_config('MLP') function to get configure information you could set.
+
+    ''' 
     def __init__(self,config=None):
         super(MLP, self).__init__()
         with self.init_scope():
@@ -3590,6 +3597,13 @@ class MLP(chainer.ChainList):
         return self.config
 
 class LSTM(chainer.ChainList):
+    '''
+    Useage: model = LSTM() or model = LSTM(config=config)
+
+    Get a chainer LSTM model. If <config> is None, use default configure. Or you can initialize it by setting <config>. 
+    Try to use pythonkaldi.check_config('LSTM') function to get configure information you could set.
+
+    '''   
     def __init__(self,config=None):
         super(LSTM, self).__init__()
         with self.init_scope():
@@ -3629,7 +3643,12 @@ class LSTM(chainer.ChainList):
 
 class DataIterator(chainer.iterators.SerialIterator):
     '''
-    
+    Useage: obj = DataIterator(data,64) or obj = DataIterator('train.scp',64,chunks='auto',processFunc=function)
+
+    This is a imporved data interator. You can not only use it as ordinary chainer.iterators.SerialIterator, but also try its distinctive ability. 
+    If you give it a large scp file of train data, it will split it into n smaller chunks and load them into momery alternately with parallel thread. 
+    It will shuffle the original scp file and split again while new epoch.
+
     '''
     def __init__(self,dataOrScpFiles,batchSize,chunks='auto',processFunc=None,shuffle=True,labelOrAliFiles=None,hmmGmm=None,validDataRatio=0.1):
 
@@ -3767,7 +3786,7 @@ class DataIterator(chainer.iterators.SerialIterator):
             self.nextDataset = self.fileProcessFunc(chunkData)
 
         if self.batch_size > len(self.nextDataset):
-            print("Warning: Batch Size < {} > is extremely large for this dataset, we hope you can use a more suitable value.".format(self.batch_size,len(len(self.nextDataset))))
+            print("Warning: Batch Size < {} > is extremely large for this dataset, we hope you can use a more suitable value.".format(self.batch_size))
         
         self.nextDataset = [X for X in self.nextDataset]
 
