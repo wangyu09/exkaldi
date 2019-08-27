@@ -1,3 +1,5 @@
+Version 1.6
+
 #<18:00 Aug 23,2019>: Speak Client Section is still debugging now.
 #<12:00 Aug 23,2019>: (Advice) When the data is extremely large, hope to stop it when load.
 #<12:10 Aug 23,2019>: (Bug) The format of configure options should be detected by <re> grammar. <== Debug Done, 0:30, Aug 24, 2019, wangyu
