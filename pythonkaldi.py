@@ -99,7 +99,7 @@ def check_config(name,config=None):
             values = values.split(',')
             proto = values[-1]
             if len(values) == 2:
-                new[key] = transType(proto)(values[0])
+                new[key] = transType(proto,values[0])
             else:
                 for index,value in enumerate(values[0:-1]):
                     values[index] = transType(proto,value)
@@ -3616,10 +3616,10 @@ class MLP(chainer.ChainList):
 
                     self.add_link(L.Linear(None, config['node'][i], nobias=False))
                 
-                if config['acfunction'][i] != None or config['acfunction'][i].lower() != 'none': 
+                if config['acfunction'][i] != None and config['acfunction'][i].lower() != 'none': 
                     self.add_link(Acfunction(config['acfunction'][i]))
 
-                if config['dropout'][i] != None or float(config['acfunction'][i]) != 0.: 
+                if config['dropout'][i] != None and float(config['dropout'][i]) != 0.: 
                     self.add_link(Dropout(config['dropout'][i]))
 
             self.config = config
@@ -3662,9 +3662,9 @@ class LSTM(chainer.ChainList):
 
             self.add_link(L.NStepBiLSTM(config['layers'],config['inputdim'],config['outputdim'],config['dropout']))
 
-            if config['acfunction_out'] != None or config['acfunction_out'].lower() != 'none': 
+            if config['acfunction_out'] != None and config['acfunction_out'].lower() != 'none': 
                 self.add_link(Acfunction(config['acfunction_out']))
-            if config['dropout_out'] != None or float(config['dropout_out']) != 0.:     
+            if config['dropout_out'] != None and float(config['dropout_out']) != 0.:     
                 self.add_link(Dropout(config['dropout_out']))
 
             self.config = config
