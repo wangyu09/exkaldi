@@ -2249,7 +2249,7 @@ def compute_wer(ref,hyp,mode='present',ignore=None,p=True):
             raise WrongDataFormat("Ref has not correct data.")
         
     else:
-        if isinstance(ignore,str) and len(ignore) > 0:
+        if not (isinstance(ignore,str) and len(ignore) > 0):
             raise WrongOperation('<ignore> must be a string avaliable.')
 
         if isinstance(hyp,list):
@@ -3598,14 +3598,14 @@ class MLP(chainer.ChainList):
             if config['layernorm_in']:
                 self.add_link(LayerNorm(config['inputdim']))
             if config['batchnorm_in']:
-                self.add_link(LayerNorm(config['inputdim']))
+                self.add_link(L.BatchNormalization(config['inputdim'],decay=0.95))
             
             self.layers=len(config['node'])
 
             for i in range(self.layers):
 
                 if config['layernorm'][i] or config['batchnorm'][i]:
-                    self.add_link(L.Linear(None, config['node'][i], nobias=True))
+                    self.add_link(L.Linear(None, config['node'][i], nobias=True, initialW=chainer.initializers.HeNormal))
 
                     if config['layernorm'][i]:
                         self.add_link(LayerNorm(config['node'][i]))
@@ -3614,8 +3614,8 @@ class MLP(chainer.ChainList):
                         self.add_link(L.BatchNormalization(config['node'][i],decay=0.95))
                 else:
 
-                    self.add_link(L.Linear(None, config['node'][i], nobias=False))
-                
+                    self.add_link(L.Linear(None, config['node'][i], nobias=False, initialW=chainer.initializers.HeNormal, initial_bias=chainer.initializers.Zero))
+
                 if config['acfunction'][i] != None and config['acfunction'][i].lower() != 'none': 
                     self.add_link(Acfunction(config['acfunction'][i]))
 
