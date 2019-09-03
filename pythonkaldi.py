@@ -1873,7 +1873,6 @@ def compute_cmvn_stats(feat,asFile,spk2uttFile=None):
     else:
         return asFile    
 
-
 def use_cmvn_sliding(feat,windowsSize=None,std=False):
     '''
     Useage:  obj = use_cmvn_sliding(feat) or obj = use_cmvn_sliding(feat,windows=200)
@@ -2214,7 +2213,7 @@ def run_shell_cmd(cmd,inputs=None):
     (out,err) = p.communicate(input=inputs)
     return out,err
 
-def compute_wer(hyp,ref,mode='present',ignore=None,p=True):
+def compute_wer(ref,hyp,mode='present',ignore=None,p=True):
     '''
     Useage:  score = compute_wer('pre.txt','ref.txt',ignore='<sil>') or score = compute_wer(out[1],'ref.txt')
 
@@ -2224,6 +2223,7 @@ def compute_wer(hyp,ref,mode='present',ignore=None,p=True):
 
     '''
     if ignore == None:
+
         if isinstance(hyp,list):
             out1 = "\n".join(hyp)
         elif isinstance(hyp,str) and os.path.isfile(hyp):
@@ -2283,9 +2283,9 @@ def compute_wer(hyp,ref,mode='present',ignore=None,p=True):
     with tempfile.NamedTemporaryFile('w+') as fw:
         fw.write(out2)
         fw.seek(0)
-        cmd = 'compute-wer --text --mode={} ark:- ark,p:{}'.format(mode,fw.name)
+        cmd = 'compute-wer --text --mode={} ark:{} ark,p:-'.format(mode,fw.name)
         p3 = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out3,err3) = p3.communicate(input=out1) 
+        (out3,err3) = p3.communicate(input=out1)
     
     if out3 == b'':
         err3 = err3.decode()
