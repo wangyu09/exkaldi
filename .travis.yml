@@ -1,4 +1,8 @@
 sudo: required
+before_install:
+  - sudo apt-get update
+  # install portaudio since this is a requirement for pyaudio
+  - sudo apt-get install portaudio19-dev
 services:
   - docker
 language: python
