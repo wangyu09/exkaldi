@@ -1,0 +1,8 @@
+sudo: required
+services:
+  - docker
+language: python
+install:
+  - pip install -r requirement.txt
+script:
+  - python -m pytest -v tests
