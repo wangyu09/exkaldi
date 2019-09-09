@@ -1,7 +1,7 @@
 ############# Version Information #############
 # PythonKaldi V1.6
 # WangYu, University of Yamanashi 
-# August, 27
+# Sep, 9, 2019
 ###############################################
 
 import os,sys
@@ -189,7 +189,10 @@ class KaldiArk(bytes):
             fp.close()
             raise WrongDataFormat('Miss <binary symbol> in front of utterance.')
         return (utt,dataType,rows,cols,buf)
-        
+    
+    def __str__(self):
+        return "KaldiArk object with unviemable binary data"
+
     @property
     def lens(self):
         '''
