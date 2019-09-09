@@ -2218,7 +2218,7 @@ def run_shell_cmd(cmd,inputs=None):
 
 def compute_wer(ref,hyp,mode='present',ignore=None,p=True):
     '''
-    Useage:  score = compute_wer('pre.txt','ref.txt',ignore='<sil>') or score = compute_wer(out[1],'ref.txt')
+    Useage:  score = compute_wer('ref.txt','pre.txt',ignore='<sil>') or score = compute_wer(out[1],'ref.txt')
 
     Compute wer between prediction result and reference text. Return a dict object with score information like:
     {'WER':0,'allWords':10,'ins':0,'del':0,'sub':0,'SER':0,'wrongSentences':0,'allSentences':1,'missedSentences':0}
@@ -3886,7 +3886,8 @@ class DataIterator(chainer.iterators.SerialIterator):
                 self.current_position = i_end
 
         self.current_epoch_position = (self.current_epoch_position + self.batch_size)%self.epoch_size
-        return np.array(batch,dtype='float32')                            
+
+        return batch                            
 
     @property
     def epoch_detail(self):
