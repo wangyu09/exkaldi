@@ -9,4 +9,4 @@ language: python
 install:
   - pip install -r requirement.txt
 script:
-  - python -m pytest -v tests
+  - python -m pytest -v
