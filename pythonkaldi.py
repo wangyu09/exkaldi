@@ -3605,7 +3605,7 @@ class MLP(chainer.ChainList):
             for i in range(self.layers):
 
                 if config['layernorm'][i] or config['batchnorm'][i]:
-                    self.add_link(L.Linear(None, config['node'][i], nobias=True, initialW=chainer.initializers.HeNormal))
+                    self.add_link(L.Linear(None, config['node'][i], nobias=True, initialW=chainer.initializers.HeNormal()))
 
                     if config['layernorm'][i]:
                         self.add_link(LayerNorm(config['node'][i]))
@@ -3614,7 +3614,7 @@ class MLP(chainer.ChainList):
                         self.add_link(L.BatchNormalization(config['node'][i],decay=0.95))
                 else:
 
-                    self.add_link(L.Linear(None, config['node'][i], nobias=False, initialW=chainer.initializers.HeNormal, initial_bias=chainer.initializers.Zero))
+                    self.add_link(L.Linear(None, config['node'][i], nobias=False, initialW=chainer.initializers.HeNormal(), initial_bias=chainer.initializers.Zero()))
 
                 if config['acfunction'][i] != None and config['acfunction'][i].lower() != 'none': 
                     self.add_link(Acfunction(config['acfunction'][i]))
