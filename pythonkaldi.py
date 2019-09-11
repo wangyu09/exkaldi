@@ -2306,15 +2306,15 @@ def compute_wer(ref,hyp,mode='present',ignore=None,p=True):
         s1 = re.findall(pattern1,out[0])[0]
         s2 = re.findall(pattern2,out[1])[0]
         s3 = re.findall(pattern3,out[2])[0]    
-        score['WER']=s1[0]
-        score['allWords']=s1[2]
-        score['ins']=s1[3]
-        score['del']=s1[4]
-        score['sub']=s1[5]
-        score['SER']=s2[0]
-        score['wrongSentences']=s2[1]        
-        score['allSentences']=s2[2]
-        score['missedSentences']=s3[1]
+        score['WER']=float(s1[0])
+        score['allWords']=int(s1[2])
+        score['ins']=int(s1[3])
+        score['del']=int(s1[4])
+        score['sub']=int(s1[5])
+        score['SER']=float(s2[0])
+        score['wrongSentences']=int(s2[1])        
+        score['allSentences']=int(s2[2])
+        score['missedSentences']=int(s3[1])
 
         return score
 
