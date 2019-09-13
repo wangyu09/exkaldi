@@ -2306,15 +2306,15 @@ def compute_wer(ref,hyp,mode='present',ignore=None,p=True):
         s1 = re.findall(pattern1,out[0])[0]
         s2 = re.findall(pattern2,out[1])[0]
         s3 = re.findall(pattern3,out[2])[0]    
-        score['WER']=s1[0]
-        score['allWords']=s1[2]
-        score['ins']=s1[3]
-        score['del']=s1[4]
-        score['sub']=s1[5]
-        score['SER']=s2[0]
-        score['wrongSentences']=s2[1]        
-        score['allSentences']=s2[2]
-        score['missedSentences']=s3[1]
+        score['WER']=float(s1[0])
+        score['allWords']=int(s1[2])
+        score['ins']=int(s1[3])
+        score['del']=int(s1[4])
+        score['sub']=int(s1[5])
+        score['SER']=float(s2[0])
+        score['wrongSentences']=int(s2[1])        
+        score['allSentences']=int(s2[2])
+        score['missedSentences']=int(s3[1])
 
         return score
 
@@ -4118,11 +4118,17 @@ class Supporter(object):
         ''' 
         return self.lastSavedModel
 
-    def adjust_lr(self,oldLR,key,condition,threshold,newLR=None):
-        '''
-        Useage:  newLR = obj.adjust_lr(0.08,'train_loss','<',0.1,0.04)
+    @property
+    def value(self):
+        if self.currentFiled != {}:
+            self.collect_report(plot=False)
+        return self.globalFiled        
 
-        This is a simple function. You can use it to change learning rate.
+    def judge(self,key,condition,threshold):
+        '''
+        Useage:  newLR = obj.judge('train_loss','<',0.1)
+
+        Return True or False. <key> is expected to be reported before.
         
         ''' 
         assert condition in ['>','>=','<=','<','==','!='], '<condiction> is not a correct conditional operator.'
@@ -4139,12 +4145,9 @@ class Supporter(object):
         condition = eval(value+condition+str(threshold))
 
         if condition:
-            if newLR == None:
-                return 0.5 * oldLR
-            else:
-                return newLR
+            return True
         else:
-            return oldLR
+            return False
 
     def dump_item(self,key=None):
         '''
