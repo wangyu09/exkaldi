@@ -22,7 +22,7 @@ class WrongOperation(Exception):pass
 
 def get_kaldi_path():
     '''
-    Useage:  KALDIROOT = get_kaldi_path() 
+    Usage:  KALDIROOT = get_kaldi_path() 
     
     Return kaldi path. If the kaldi are not found, will raise error.
 
@@ -40,7 +40,7 @@ KALDIROOT = get_kaldi_path()
 
 def check_config(name,config=None):
     '''
-    Useage:  configure = check_config(name='compute_mfcc')  or   check_config(name='compute_mfcc',config=configure)
+    Usage:  configure = check_config(name='compute_mfcc')  or   check_config(name='compute_mfcc',config=configure)
     
     Get default configure if < config > is None, or check if given < config > has a right format. 
     This function will read "conf" file which is placed in "./", so if there is not, will raise error.
@@ -137,7 +137,7 @@ def check_config(name,config=None):
 
 class KaldiArk(bytes):
     '''
-    Useage:  obj = KaldiArk(binaryData)  or   obj = KaldiArk()
+    Usage:  obj = KaldiArk(binaryData)  or   obj = KaldiArk()
     
     KaldiArk is a subclass of bytes. It maks a object who holds the kaldi ark data in a binary type. 
     KaldiArk and KaldiDict object have almost the same attributes and functions, and they can do some mixed operations such as "+" and "concat" and so on.
@@ -149,7 +149,7 @@ class KaldiArk(bytes):
     
     def _read_one_record(self,fp):
         '''
-        Useage:  (utt,dataType,rows,cols,buf) = _read_one_record(binaryPointer)
+        Usage:  (utt,dataType,rows,cols,buf) = _read_one_record(binaryPointer)
         
         Read one piece of record from binary ark data. Return (utterance id, dtype of data, rows of data, clos of data, object of binary data)
         We don't support to use it in external way.
@@ -196,7 +196,7 @@ class KaldiArk(bytes):
     @property
     def lens(self):
         '''
-        Useage:  lens = obj.lens
+        Usage:  lens = obj.lens
         
         Return a tuple: ( the numbers of all utterances, the frames of each utterance ). The first one is an int, and second one is a list.
         If there is not any data, return (0,None)
@@ -220,7 +220,7 @@ class KaldiArk(bytes):
     @property
     def dim(self):
         '''
-        Useage:  dim = obj.dim
+        Usage:  dim = obj.dim
         
         Return an int: feature dimensional.
         If it is alignment data, dim will be 1.
@@ -237,7 +237,7 @@ class KaldiArk(bytes):
     @property
     def dtype(self):
         '''
-        Useage:  dtype = obj.dtype
+        Usage:  dtype = obj.dtype
         
         Return an str: data type. We only use 'float32','float64' and 'int32'.
 
@@ -257,7 +257,7 @@ class KaldiArk(bytes):
 
     def toDtype(self,dtype):
         '''
-        Useage:  newObj = obj.toDtype('float')
+        Usage:  newObj = obj.toDtype('float')
         
         Return a new KaldiArk object. 'float' will be treated as 'float32' and 'int' will be 'int32'.
 
@@ -300,7 +300,7 @@ class KaldiArk(bytes):
     @property
     def utts(self):
         '''
-        Useage:  utts = obj.utts
+        Usage:  utts = obj.utts
         
         Return a list: including all utterance id.
 
@@ -317,7 +317,7 @@ class KaldiArk(bytes):
     
     def check_format(self):
         '''
-        Useage:  obj.check_format()
+        Usage:  obj.check_format()
         
         Check if data has a correct kaldi ark data format. If had, return True, or raise error.
 
@@ -358,7 +358,7 @@ class KaldiArk(bytes):
     @property
     def array(self):
         '''
-        Useage:  newObj = obj.array
+        Usage:  newObj = obj.array
         
         Return a KaldiDict object. Transform ark data into numpy array data.
 
@@ -385,7 +385,7 @@ class KaldiArk(bytes):
     
     def save(self,fileName,chunks=1):
         '''
-        Useage:  obj.save('feat.ark') or obj.save('feat.ark',chunks=2)
+        Usage:  obj.save('feat.ark') or obj.save('feat.ark',chunks=2)
         
         Save as .ark file. If chunks is larger than 1, split it averagely and save them.
 
@@ -438,7 +438,7 @@ class KaldiArk(bytes):
     
     def __add__(self,other):
         '''
-        Useage:  obj3 = obj1 + obj2
+        Usage:  obj3 = obj1 + obj2
         
         Return a new KaldiArk object. obj2 can be KaldiArk or KaldiDict object.
         Note that if there are the same utt id in both obj1 and obj2, data in the formar will be retained.
@@ -478,7 +478,7 @@ class KaldiArk(bytes):
 
     def concat(self,others,axis=1):
         '''
-        Useage:  obj3 = obj1.concat(obj2) or newObj = obj1.concat([obj2,obj3....])
+        Usage:  obj3 = obj1.concat(obj2) or newObj = obj1.concat([obj2,obj3....])
         
         Return a new KaldiArk object. obj2,obj3... can be KaldiArk or KaldiDict objects.
         Note that only these utterance ids which appeared in all objects can be retained in concat result. 
@@ -564,7 +564,7 @@ class KaldiArk(bytes):
 
     def splice(self,left=4,right=None):
         '''
-        Useage:  newObj = obj.splice(4) or newObj = obj.splice(4,3)
+        Usage:  newObj = obj.splice(4) or newObj = obj.splice(4,3)
         
         Return a new KaldiArk object. If right is None, we define right = left. So if you don't want to splice, set the value = 0.
 
@@ -584,7 +584,7 @@ class KaldiArk(bytes):
 
     def select(self,dims,reserve=False):
         '''
-        Useage:  newObj = obj.select(4) or newObj = obj.select('5,10-15') or newObj1,newObj2 = obj.select('5,10-15',True)
+        Usage:  newObj = obj.select(4) or newObj = obj.select('5,10-15') or newObj1,newObj2 = obj.select('5,10-15',True)
         
         Select data according dims. < dims > should be an int or string like "1,5-20".
         If < reserve > is True, return 2 new KaldiArk objects. Or only return selected data.
@@ -643,7 +643,7 @@ class KaldiArk(bytes):
 
     def subset(self,nHead=0,chunks=1,uttList=None):
         '''
-        Useage:  newObj = obj.subset(nHead=10) or newObj = obj.subset(chunks=10) or newObj = obj.subset(uttList=uttList)
+        Usage:  newObj = obj.subset(nHead=10) or newObj = obj.subset(chunks=10) or newObj = obj.subset(uttList=uttList)
         
         Subset data.
         If nHead > 0, return a new KaldiArk object whose content is front nHead pieces of data. 
@@ -732,7 +732,7 @@ class KaldiArk(bytes):
 
 class KaldiDict(dict):
     '''
-    Useage:  obj = KaldiDict(binaryData)  or   obj = KaldiDict()
+    Usage:  obj = KaldiDict(binaryData)  or   obj = KaldiDict()
 
     KaldiDict is a subclass of dict. It is a object who holds the kaldi ark data in numpy array type. 
     Its key are the utterance id and the value is the numpy array data. KaldiDict can also do some mixed operations with KaldiArk such as "+" and "concat" and so on.
@@ -745,7 +745,7 @@ class KaldiDict(dict):
     @property
     def dim(self):
         '''
-        Useage:  dim = obj.dim
+        Usage:  dim = obj.dim
         
         Return an int: feature dimensional. If it is alignment data, dim will be 1.
 
@@ -763,7 +763,7 @@ class KaldiDict(dict):
     @property
     def lens(self):
         '''
-        Useage:  lens = obj.lens
+        Usage:  lens = obj.lens
         
         Return a tuple: ( the numbers of all utterances, the frames of each utterance ). The first one is an int, and second one is a list.
         If there is not any data, return (0,None)
@@ -783,7 +783,7 @@ class KaldiDict(dict):
     @property
     def dtype(self):
         '''
-        Useage:  dtype = obj.dtype
+        Usage:  dtype = obj.dtype
         
         Return an str: data type. We only use 'float32','float64' and 'int32'.
 
@@ -796,7 +796,7 @@ class KaldiDict(dict):
     
     def toDtype(self,dtype):
         '''
-        Useage:  newObj = obj.toDtype('float')
+        Usage:  newObj = obj.toDtype('float')
         
         Return a new KaldiArk object. 'float' will be treated as 'float32' and 'int' will be 'int32'.
 
@@ -817,7 +817,7 @@ class KaldiDict(dict):
     @property
     def utts(self):
         '''
-        Useage:  utts = obj.utts
+        Usage:  utts = obj.utts
         
         Return a list: including all utterance id.
 
@@ -826,7 +826,7 @@ class KaldiDict(dict):
     
     def check_format(self):
         '''
-        Useage:  obj.check_format()
+        Usage:  obj.check_format()
         
         Check if data has a correct kaldi ark data format. If had, return True, or raise error.
 
@@ -858,7 +858,7 @@ class KaldiDict(dict):
     @property
     def ark(self):
         '''
-        Useage:  newObj = obj.ark
+        Usage:  newObj = obj.ark
         
         Return a KaldiArk object. Transform numpy array data into ark binary data.
 
@@ -896,7 +896,7 @@ class KaldiDict(dict):
 
     def save(self,fileName,chunks=1):
         '''
-        Useage:  obj.save('feat.npy') or obj.save('feat.npy',chunks=2)
+        Usage:  obj.save('feat.npy') or obj.save('feat.npy',chunks=2)
         
         Save as .npy file. If chunks is larger than 1, split it averagely and save them.
 
@@ -937,7 +937,7 @@ class KaldiDict(dict):
 
     def __add__(self,other):
         '''
-        Useage:  obj3 = obj1 + obj2
+        Usage:  obj3 = obj1 + obj2
         
         Return a new KaldiDict object. obj2 can be KaldiArk or KaldiDict object.
         Note that if there are the same utt id in both obj1 and obj2, data in the formar will be retained.
@@ -963,7 +963,7 @@ class KaldiDict(dict):
     
     def concat(self,others,axis=1):
         '''
-        Useage:  obj3 = obj1.concat(obj2) or newObj = obj1.concat([obj2,obj3....])
+        Usage:  obj3 = obj1.concat(obj2) or newObj = obj1.concat([obj2,obj3....])
         
         Return a new KaldiDict object. obj2,obj3... can be KaldiArk or KaldiDict objects.
         Note that only these utterance ids which appeared in all objects can be retained in concat result. 
@@ -1017,7 +1017,7 @@ class KaldiDict(dict):
 
     def splice(self,left=4,right=None):
         '''
-        Useage:  newObj = obj.splice(4) or newObj = obj.splice(4,3)
+        Usage:  newObj = obj.splice(4) or newObj = obj.splice(4,3)
         
         Return a new KaldiDict object. If right is None, we define right = left. So if you don't want to splice, set the value = 0.
 
@@ -1054,7 +1054,7 @@ class KaldiDict(dict):
     
     def select(self,dims,reserve=False):
         '''
-        Useage:  newObj = obj.select(4) or newObj = obj.select('5,10-15') or newObj1,newObj2 = obj.select('5,10-15',True)
+        Usage:  newObj = obj.select(4) or newObj = obj.select('5,10-15') or newObj1,newObj2 = obj.select('5,10-15',True)
         
         Select data according dims. < dims > should be an int or string like "1,5-20".
         If < reserve > is True, return 2 new KaldiDict objects. Or only return selected data.
@@ -1098,7 +1098,7 @@ class KaldiDict(dict):
                     
     def merge(self,keepDim=False):
         '''
-        Useage:  data,uttlength = obj.merge() or data,uttlength = obj.merge(keepDim=True)
+        Usage:  data,uttlength = obj.merge() or data,uttlength = obj.merge(keepDim=True)
         
         If < keepDim > is False, the first one is returned result is 2-dim numpy array, the second one is a list consists of id and frames of each utterance. 
         If < keepDim > is True, only the first one will be a list.
@@ -1116,7 +1116,7 @@ class KaldiDict(dict):
 
     def remerge(self,matrix,uttLens):
         '''
-        Useage:  obj = obj.merge(data,uttlength)
+        Usage:  obj = obj.merge(data,uttlength)
         
         Return KaldiDict object. This is a inverse operation of .merge() function.
         
@@ -1148,7 +1148,7 @@ class KaldiDict(dict):
 
     def subset(self,nHead=0,chunks=1,uttList=None):
         '''
-        Useage:  newObj = obj.subset(nHead=10) or newObj = obj.subset(chunks=10) or newObj = obj.subset(uttList=uttList)
+        Usage:  newObj = obj.subset(nHead=10) or newObj = obj.subset(chunks=10) or newObj = obj.subset(uttList=uttList)
         
         Subset data.
         If nHead > 0, return a new KaldiDict object whose content is front nHead pieces of data. 
@@ -1208,7 +1208,7 @@ class KaldiDict(dict):
 
     def normalize(self,std=True,alpha=1.0,beta=0.0,epsilon=1e-6,axis=0):
         '''
-        Useage:  newObj = obj.normalize()
+        Usage:  newObj = obj.normalize()
         
         Return a KaldiDict object. if < std > is True, do alpha*(x-mean)/(std+epsilon)+belta, or do alpha*(x-mean)+belta.
         
@@ -1232,7 +1232,7 @@ class KaldiDict(dict):
 
 class KaldiLattice(object):
     '''
-    Useage:  obj = KaldiLattice()  or   obj = KaldiLattice(lattice,hmmgmm,wordSymbol)
+    Usage:  obj = KaldiLattice()  or   obj = KaldiLattice(lattice,hmmgmm,wordSymbol)
 
     KaldiLattice holds the lattice and its related file path: HmmGmm file and WordSymbol file. 
     The <lattice> can be lattice binary data or file path. Both < HmmGmm > and < wordSymbol > are expected file path.
@@ -1256,7 +1256,7 @@ class KaldiLattice(object):
 
     def load(self,latFile,HmmGmm,wordSymbol):
         '''
-        Useage:  obj.load(lattice,hmmgmm,wordSymbol)
+        Usage:  obj.load(lattice,hmmgmm,wordSymbol)
 
         Load lattice to memory. < latFile > can be file path or binary data. < HmmGmm > and < wordSymbol > are expected as file path.
         Note that the original data in obj will be abandoned. 
@@ -1280,7 +1280,7 @@ class KaldiLattice(object):
 
     def get_1best_words(self,minLmwt=1,maxLmwt=None,Acwt=1.0,outDir='.',asFile=False):
         '''
-        Useage:  out = obj.get_1best_words(minLmwt=1)
+        Usage:  out = obj.get_1best_words(minLmwt=1)
 
         Return a dict object. Its key is lm weight, and value will be result-list if <asFile> is False or result-file-path if <asFile> is True. 
 
@@ -1351,7 +1351,7 @@ class KaldiLattice(object):
 
     def scale(self,Acwt=1,inAcwt=1,Ac2Lm=0,Lmwt=1,Lm2Ac=0):
         '''
-        Useage:  newObj = obj.sacle(inAcwt=0.2)
+        Usage:  newObj = obj.sacle(inAcwt=0.2)
 
         Scale lattice. Return a new KaldiLattice object.
 
@@ -1380,7 +1380,7 @@ class KaldiLattice(object):
 
     def add_penalty(self,penalty=0):
         '''
-        Useage:  newObj = obj.add_penalty(0.5)
+        Usage:  newObj = obj.add_penalty(0.5)
 
         Add penalty. Return a new KaldiLattice object.
 
@@ -1404,7 +1404,7 @@ class KaldiLattice(object):
 
     def save(self,fileName):
         '''
-        Useage:  obj.save("lat.gz")
+        Usage:  obj.save("lat.gz")
 
         Save lattice as .gz file. 
 
@@ -1426,7 +1426,7 @@ class KaldiLattice(object):
     @property
     def value(self):
         '''
-        Useage:  lat = obj.value
+        Usage:  lat = obj.value
 
         Return binary lattice data. 
 
@@ -1435,7 +1435,7 @@ class KaldiLattice(object):
 
     def __add__(self,other):
         '''
-        Useage:  lat3 = lat1 + lat2
+        Usage:  lat3 = lat1 + lat2
 
         Return a new KaldiLattice object. lat2 must be KaldiLattice object.
         Note that this is only a simple additional operation to make two lattices be one.
@@ -1456,7 +1456,7 @@ class KaldiLattice(object):
 
 def compute_mfcc(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,asFile=False):
     '''
-    Useage:  obj = compute_mfcc("test.wav") or compute_mfcc("test.scp")
+    Usage:  obj = compute_mfcc("test.wav") or compute_mfcc("test.scp")
 
     Compute mfcc feature. Return KaldiArk object or file path if <asFile> is True.
     We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
@@ -1533,7 +1533,7 @@ def compute_mfcc(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featD
 
 def compute_fbank(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,asFile=False):
     '''
-    Useage:  obj = compute_fbank("test.wav") or compute_mfcc("test.scp")
+    Usage:  obj = compute_fbank("test.wav") or compute_mfcc("test.scp")
 
     Compute fbank feature. Return KaldiArk object or file path if <asFile> is True.
     We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
@@ -1609,7 +1609,7 @@ def compute_fbank(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,wind
 
 def compute_plp(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,asFile=False):
     '''
-    Useage:  obj = compute_plp("test.wav") or compute_mfcc("test.lst",useSuffix='scp')
+    Usage:  obj = compute_plp("test.wav") or compute_mfcc("test.lst",useSuffix='scp')
 
     Compute plp feature. Return KaldiArk object or file path if <asFile> is True.
     We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
@@ -1686,7 +1686,7 @@ def compute_plp(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDi
 
 def compute_spectrogram(wavFile,rate=16000,frameWidth=25,frameShift=10,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,asFile=False):
     '''
-    Useage:  obj = compute_spetrogram("test.wav") or compute_mfcc("test.lst",useSuffix='scp')
+    Usage:  obj = compute_spetrogram("test.wav") or compute_mfcc("test.lst",useSuffix='scp')
 
     Compute spectrogram feature. Return KaldiArk object or file path if <asFile> is True.
     We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
@@ -1761,7 +1761,7 @@ def compute_spectrogram(wavFile,rate=16000,frameWidth=25,frameShift=10,windowTyp
 
 def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,asFile=False):
     '''
-    Useage:  obj = use_cmvn(feat) or obj = use_cmvn(feat,cmvnStatFile,utt2spkFile) or obj = use_cmvn(feat,utt2spkFile,spk2uttFile)
+    Usage:  obj = use_cmvn(feat) or obj = use_cmvn(feat,cmvnStatFile,utt2spkFile) or obj = use_cmvn(feat,utt2spkFile,spk2uttFile)
 
     Apply CMVN to feature. Return KaldiArk object or file path if <asFile> is true. 
     If < cmvnStatFile >  are None, first compute the CMVN state. But <utt2spkFile> and <spk2uttFile> are expected given at the same time if they were not None.
@@ -1842,7 +1842,7 @@ def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,asFile=Fal
 
 def compute_cmvn_stats(feat,asFile,spk2uttFile=None):
     '''
-    Useage:  obj = compute_cmvn_stats(feat,'train_cmvn.ark') or obj = compute_cmvn_stats(feat,'train_cmvn.ark','train/spk2utt')
+    Usage:  obj = compute_cmvn_stats(feat,'train_cmvn.ark') or obj = compute_cmvn_stats(feat,'train_cmvn.ark','train/spk2utt')
 
     Compute CMVN state and save it as file. Return cmvn file path. 
 
@@ -1878,7 +1878,7 @@ def compute_cmvn_stats(feat,asFile,spk2uttFile=None):
 
 def use_cmvn_sliding(feat,windowsSize=None,std=False):
     '''
-    Useage:  obj = use_cmvn_sliding(feat) or obj = use_cmvn_sliding(feat,windows=200)
+    Usage:  obj = use_cmvn_sliding(feat) or obj = use_cmvn_sliding(feat,windows=200)
 
     Apply sliding CMVN to feature. Return KaldiArk object. If <windowsSize> is None, the window width will be set larger than frames of <feat>.
     If < std > is False, only apply mean, or apply both mean and std.
@@ -1914,7 +1914,7 @@ def use_cmvn_sliding(feat,windowsSize=None,std=False):
 
 def add_delta(feat,order=2,asFile=False):
     '''
-    Useage:  newObj = add_delta(feat)
+    Usage:  newObj = add_delta(feat)
 
     Add n-orders delta to feature. Return KaldiArk object or file path if <asFile> is True.
 
@@ -1958,7 +1958,7 @@ def add_delta(feat,order=2,asFile=False):
 
 def get_ali(aliFile,HmmGmm,returnPhoneme=False):
     '''
-    Useage:  obj = get_ali('ali.1.gz','graph/final.mdl') or obj = get_ali('ali.1.gz','graph/final.mdl',True)
+    Usage:  obj = get_ali('ali.1.gz','graph/final.mdl') or obj = get_ali('ali.1.gz','graph/final.mdl',True)
 
     Get alignment from ali file. Return a KaldiDict object. If <returnPhoneme> is True, return phone id, or return pdf id.
 
@@ -2006,7 +2006,7 @@ def get_ali(aliFile,HmmGmm,returnPhoneme=False):
         
 def decompress(data):
     '''
-    Useage:  obj = decompress(feat)
+    Usage:  obj = decompress(feat)
 
     Feat are expected KaldiArk object whose data type is "CM", that is kaldi compressed ark data. Return a KaldiArk object.
 
@@ -2081,7 +2081,7 @@ def decompress(data):
 
 def load(feaFile,useSuffix=None):
     '''
-    Useage:  obj = load('feat.npy') or obj = load('feat.ark') or obj = load('feat.scp') or obj = load('feat.lst', useSuffix='scp')
+    Usage:  obj = load('feat.npy') or obj = load('feat.ark') or obj = load('feat.scp') or obj = load('feat.lst', useSuffix='scp')
 
     Load kaldi ark feat file, kaldi scp feat file, KaldiArk file, or KaldiDict file. Return KaldiArk or KaldiDict object.
 
@@ -2128,7 +2128,7 @@ def load(feaFile,useSuffix=None):
 
 def decode_lattice(AmP,HmmGmm,Hclg,Lexicon,minActive=200,maxActive=7000,maxMem=50000000,beam=13,latBeam=8,Acwt=1,config=None,maxThreads=1,asFile=False):
     '''
-    Useage:  kaldiLatticeObj = decode_lattice(amp,'graph/final.mdl','graph/HCLG')
+    Usage:  kaldiLatticeObj = decode_lattice(amp,'graph/final.mdl','graph/HCLG')
 
     Decode by generating lattice from acoustic probability. Return KaldiLattice object or file path if <asFile> is True.
     We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
@@ -2199,7 +2199,7 @@ def decode_lattice(AmP,HmmGmm,Hclg,Lexicon,minActive=200,maxActive=7000,maxMem=5
 
 def run_shell_cmd(cmd,inputs=None):
     '''
-    Useage:  out,err = run_shell_cmd('ls -lh')
+    Usage:  out,err = run_shell_cmd('ls -lh')
 
     We provided a basic way to run shell command. Return binary string (out,err). 
 
@@ -2218,7 +2218,7 @@ def run_shell_cmd(cmd,inputs=None):
 
 def compute_wer(ref,hyp,mode='present',ignore=None,p=True):
     '''
-    Useage:  score = compute_wer('ref.txt','pre.txt',ignore='<sil>') or score = compute_wer(out[1],'ref.txt')
+    Usage:  score = compute_wer('ref.txt','pre.txt',ignore='<sil>') or score = compute_wer(out[1],'ref.txt')
 
     Compute wer between prediction result and reference text. Return a dict object with score information like:
     {'WER':0,'allWords':10,'ins':0,'del':0,'sub':0,'SER':0,'wrongSentences':0,'allSentences':1,'missedSentences':0}
@@ -2320,7 +2320,7 @@ def compute_wer(ref,hyp,mode='present',ignore=None,p=True):
 
 def split_file(filePath,chunks=2):
     '''
-    Useage:  score = split_file('eval.scp',5)
+    Usage:  score = split_file('eval.scp',5)
 
     Split a large scp file into n smaller files. The splited files will be put at the same folder as original file and return their paths as a list.
 
@@ -3583,7 +3583,7 @@ class Dropout(chainer.Chain):
 
 class MLP(chainer.ChainList):
     '''
-    Useage: model = MLP() or model = MLP(config=config)
+    Usage: model = MLP() or model = MLP(config=config)
 
     Get a chainer MLP model. If <config> is None, use default configure. Or you can initialize it by setting <config>. 
     Try to use pythonkaldi.check_config('MLP') function to get configure information you could set.
@@ -3640,7 +3640,7 @@ class MLP(chainer.ChainList):
 
 class LSTM(chainer.ChainList):
     '''
-    Useage: model = LSTM() or model = LSTM(config=config)
+    Usage: model = LSTM() or model = LSTM(config=config)
 
     Get a chainer LSTM model. If <config> is None, use default configure. Or you can initialize it by setting <config>. 
     Try to use pythonkaldi.check_config('LSTM') function to get configure information you could set.
@@ -3685,7 +3685,7 @@ class LSTM(chainer.ChainList):
 
 class DataIterator(chainer.iterators.SerialIterator):
     '''
-    Useage: obj = DataIterator(data,64) or obj = DataIterator('train.scp',64,chunks='auto',processFunc=function)
+    Usage: obj = DataIterator(data,64) or obj = DataIterator('train.scp',64,chunks='auto',processFunc=function)
 
     This is a imporved data interator. You can not only use it as ordinary chainer.iterators.SerialIterator, but also try its distinctive ability. 
     If you give it a large scp file of train data, it will split it into n smaller chunks and load them into momery alternately with parallel thread. 
@@ -3937,7 +3937,7 @@ class DataIterator(chainer.iterators.SerialIterator):
 
 class Supporter(object):
     '''
-    Useage:  supporter = Supporter(outDir='Result')
+    Usage:  supporter = Supporter(outDir='Result')
 
     Supporter is a class to be similar to chainer report. But we designed some useful functions such as save model by maximum accuracy and adjust learning rate.
 
@@ -3970,7 +3970,7 @@ class Supporter(object):
         
     def send_report(self,x,*args):
         '''
-        Useage:  supporter = obj.send_report({"epoch":epoch,"train_loss":loss,"train_acc":acc})
+        Usage:  supporter = obj.send_report({"epoch":epoch,"train_loss":loss,"train_acc":acc})
 
         Send information and thses info will be retained untill you do the statistics by using obj.collect_report().
 
@@ -3992,7 +3992,7 @@ class Supporter(object):
 
     def collect_report(self,keys=None,plot=True):
         '''
-        Useage:  supporter = obj.collect_report(plot=True)
+        Usage:  supporter = obj.collect_report(plot=True)
 
         Do the statistics of received information. The result will be saved in outDir/log file. If < keys > is not None, only collect the data in keys. 
         If < plot > is True, print the statistics result to standard output.
@@ -4041,7 +4041,7 @@ class Supporter(object):
 
     def save_model(self,models,iterSymbol=None,byKey=None,maxValue=True,saveFunc=None):
         '''
-        Useage:  obj.save_model(plot=True)
+        Usage:  obj.save_model(plot=True)
 
         Save model when you use this function. Your can give <iterSymbol> and it will be add to the end of file name.
         If you use < byKey > and set < maxValue >, model will be saved only while meeting the condition.
@@ -4111,7 +4111,7 @@ class Supporter(object):
     @property
     def finalModel(self):
         '''
-        Useage:  model = obj.finalModel
+        Usage:  model = obj.finalModel
 
         Get the final saved model. Return a dict whose key is model name and value is model path. 
         
@@ -4126,7 +4126,7 @@ class Supporter(object):
 
     def judge(self,key,condition,threshold):
         '''
-        Useage:  newLR = obj.judge('train_loss','<',0.1)
+        Usage:  newLR = obj.judge('train_loss','<',0.1)
 
         Return True or False. <key> is expected to be reported before.
         
@@ -4151,7 +4151,7 @@ class Supporter(object):
 
     def dump_item(self,key=None):
         '''
-        Useage:  out = obj.dump_item(key=['epoch','train_loss','test_loss'])
+        Usage:  out = obj.dump_item(key=['epoch','train_loss','test_loss'])
 
         Return a dict. Get the global data in order to plot graph.
         
