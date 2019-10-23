@@ -1,7 +1,7 @@
-# PythonKaldi
+# ExKaldi
 This is a tool which introduce kaldi tools into python in a easy-use way.
 
-## PythonKaldi at a Glance
+## ExKaldi at a Glance
 
 1. Clone the PythonKaldi project.
 ```
