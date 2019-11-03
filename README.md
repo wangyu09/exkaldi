@@ -43,6 +43,8 @@ _-----------------------------------------------< ExKAldi API >-----------------
 - [function: select](#selectdatadimsreserveFalse)
 - [function: splice](#splicedataleft4rightNone)
 - [function: to_dtype](#to_dtypedatadtype)
+- [function: compute_mfcc](#compute_mfccwavFile_otherparameters)
+
 ### KaldiArk()   
 
 < class description >  
@@ -196,7 +198,7 @@ return a tuple: (lattice with a binary data type, hmm file path, wordSymbol file
 load lattice. < latFile > can be file path or binary data. < hmm > and < wordSymbol > are expected as file path.
 
 `.get_1best(lmwt=1,maxLmwt=None,acwt=1.0,outFile=None,phoneSymbol=None)`   
-return Python dict object: its keys are the lmwt value and values are the 1best words output.
+If maxLmwt != None, return Python dict object: its keys are the lmwt value and values are the 1best words output collected in a list. Or only return a list.
 If < outFile > is file name, the 1best words output will be save as file and values of returned dict will be changed for these files' path.
 If < phoneSymbol > is not None, will return phones outputs of 1best words. 
 
@@ -297,34 +299,39 @@ return KaldiArk or KaldiDict object. It is the same as .to_dtype method of Kaldi
 
 < function >
 
-Compute mfcc feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use ExKaldi.check_config('compute_mfcc') function to get configure information you could set. Also run shell command "compute-mfcc-feats" to look their meaning. 
+Compute mfcc feature. Return KaldiArk object or file path if < outFile > is True. We provide some common options, 
+If you want to use more options, set < config > = your-configure but note that if you do this, these usual configures we provided will be ignored. 
+You can use ExKaldi.check_config('compute_mfcc') function to get configure information you could set. 
+Also run shell command "compute-mfcc-feats" to check their meaning. 
 
 < Parameters >  
 
-`wavFile`   _wav file or scp file, you can declare its type by using point useSuffix_  
-`rate`   _sample rate, default = 16000_  
+`wavFile`   _WAV file or scp file, you can declare its type by using point useSuffix_  
+`rate`   _sampling rate, default = 16000_  
 `frameWidth`   _stride windows width, milliseconds, default = 25_  
 `frameShift`   _stride windows width, milliseconds, default = 10_  
 `melBins`   _numbers of mel bins, default = 23_  
 `featDim`   _dimendionality of mfcc feature, default = 13_  
 `windowType`   _window function, default = 'povey'_  
-`useUtt`   _when file is a wave file, you can name its utterance id, default = "MAIN"_  
-`useSuffix`   _when file is a scp file but withou 'scp' suffix, you can declare its file suffix, default = None_  
+`useUtt`   _when file is a WAV file, you can name its utterance id, default = "MAIN"_  
+`useSuffix`   _when file is a scp file but without 'scp' suffix, you can declare its file suffix, or error will be raised, default = None_  
 `config`   _another configure setting method_  
-`asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
-`wavFile` _wav file or scp file, you can declare its type by using <useSuffix>_  
+`outFile`   _if it is a file name, save result as file and return file path. Or return KaldiArk, default = None_  
   
 
 ### compute_fbank(wavFile,_**other parameters_)
 
-<function>
+< function >
 
-Compute fbank feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use ExKaldi.check_config('compute_fbank') function to get configure information you could set. Also run shell command "compute-fbank-feats" to look their meaning. 
+Compute fbank feature. Return KaldiArk object or file path if < outFile > is True. We provide some common options, 
+If you want to use more options, set < config > = your-configure but note that if you do this, these usual configures we provided will be ignored. 
+You can use ExKaldi.check_config('compute_fbank') function to get configure information you could set. 
+Also run shell command "compute-fbank-feats" to check their meaning. 
 
 < Parameters >  
 
-`wavFile`   _wav file or scp file, you can declare its type by using point useSuffix_  
-`rate`   _sample rate, default = 16000_  
+`wavFile`   _WAV file or scp file, you can declare its type by using point useSuffix_  
+`rate`   _sampling rate, default = 16000_  
 `frameWidth`   _stride windows width, milliseconds, default = 25_  
 `frameShift`   _stride windows width, milliseconds, default = 10_  
 `melBins`   _numbers of mel bins, default = 23_  
@@ -332,18 +339,21 @@ Compute fbank feature. Return KaldiArk object or file path if <asFile> is True. 
 `useUtt`   _when file is a wave file, you can name its utterance id, default = "MAIN"_  
 `useSuffix`   _when file is a scp file but withou 'scp' suffix, you can declare its file suffix, default = None_  
 `config`   _another configure setting method_  
-`asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
+`outFile`   _if it is file name, save result as file and return file path. Or return KaldiArk, default = False_  
 
 
 ### compute_plp(wavFile,_**other parameters_)  
 
-<function>
+< function >
 
-Compute plp feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use ExKaldi.check_config('compute_plp') function to get configure information you could set. Also run shell command "compute-plp-feats" to look their meaning. 
+Compute plp feature. Return KaldiArk object or file path if < outFile > is True. We provide some common options, 
+If you want to use more options, set < config > = your-configure but note that if you do this, these usual configures we provided will be ignored. 
+You can use ExKaldi.check_config('compute_plp') function to get configure information you could set. 
+Also run shell command "compute-plp-feats" to check their meaning. 
 
 < Parameters >  
 
-`wavFile`   _wav file or scp file, you can declare its type by using point useSuffix_  
+`wavFile`   _WAV file or scp file, you can declare its type by using point useSuffix_  
 `rate`   _sample rate, default = 16000_  
 `frameWidth`   _stride windows width, milliseconds, default = 25_  
 `frameShift`   _stride windows width, milliseconds, default = 10_  
@@ -353,18 +363,21 @@ Compute plp feature. Return KaldiArk object or file path if <asFile> is True. We
 `useUtt`   _when file is a wave file, you can name its utterance id, default = "MAIN"_  
 `useSuffix`   _when file is a scp file but withou 'scp' suffix, you can declare its file suffix, default = None_  
 `config`   _another configure setting method_  
-`asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
+`outFile`   _if it is a file name, save result as file and return file path, or return KaldiArk, default = False_  
 
 
 ### compute_spectrogram(wavFile,_**other parameters_) 
 
 < function description>
 
-Compute spectrogram feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use ExKaldi.check_config('compute_spetrogram') function to get configure information you could set. Also run shell command "compute-spetrogram-feats" to look their meaning.
+Compute spectrogram feature. Return KaldiArk object or file path if < outFile > is True. We provide some common options, 
+If you want to use more options, set < config > = your-configure but note that if you do this, these usual configures we provided will be ignored. 
+You can use ExKaldi.check_config('compute_spectrogram') function to get configure information you could set. 
+Also run shell command "compute-spectrogram-feats" to check their meaning. 
 
 < Parameters >  
 
-`wavFile`   _wav file or scp file, you can declare its type by using point useSuffix_  
+`wavFile`   _WAV file or scp file, you can declare its type by using point useSuffix_  
 `rate`   _sample rate, default = 16000_  
 `frameWidth`   _stride windows width, milliseconds, default = 25_  
 `frameShift`   _stride windows width, milliseconds, default = 10_  
@@ -372,14 +385,14 @@ Compute spectrogram feature. Return KaldiArk object or file path if <asFile> is 
 `useUtt`   _when file is a wave file, you can name its utterance id, default = "MAIN"_  
 `useSuffix`   _when file is a scp file but withou 'scp' suffix, you can declare its file suffix, default = None_  
 `config`   _another configure setting method_  
-`asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
+`outFile`   _if it is a file name, save result as file and return file path, or return KaldiArk, default = False_  
 
 
 ### use_cmvn(feat,_**other parameters_) 
 
 < function description >
 
-Apply CMVN to feature. Return KaldiArk object or file path if <asFile> is True. If < cmvnStatFile >  are None, first compute the CMVN state. But <utt2spkFile> and <spk2uttFile> are expected given at the same time if they were not None.
+Apply CMVN to feature. Return KaldiArk object or file path if < outFile > is not None. If < cmvnStatFile >  are None, first compute the CMVN state. But < utt2spkFile > and < spk2uttFile > are expected at the same time if they were not None.
 
 < Parameters >  
 
@@ -387,10 +400,10 @@ Apply CMVN to feature. Return KaldiArk object or file path if <asFile> is True. 
 `cmvnStatFile`   _if None compute it firstly, default = None_  
 `spk2uttFile`   _if None compute cmvn state whin each utterance, default = None_  
 `utt2spkFile`   _if None and spk2uttFile != None, raise error, default = None_  
-`asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
+`outFile`   _if it is a file name, save result as file and return file path, or return KaldiArk, default = False_  
 
 
-### compute_cmvn_stats(feat,asFile,_**other parameters_) 
+### compute_cmvn_stats(feat,outFile,_**other parameters_) 
 
 < function description >
 
@@ -399,8 +412,8 @@ Compute CMVN state and save it as file. Return cmvn file path.
 < Parameters >  
 
 `feat` _KaldiArk or KaldiDict object_
-`spk2uttFile`   _if None compute cmvn state whin each utterance, default = None_  
-`asFile`   _file path name_  
+`spk2uttFile`   _if None, compute cmvn state whin each utterance, default = None_  
+`outFile`   _file path name_  
 
 
 ### use_cmvn_sliding(feat,_**other parameters_) 
@@ -420,16 +433,16 @@ Apply sliding CMVN to feature. Return KaldiArk object.
 
 < function description >
 
-Add n-orders delta to feature. Return KaldiArk object or file path if <asFile> is True.
+Add n-orders delta to feature. Return KaldiArk object or file path if < outFile > is not None.
 
 < Parameters >  
 
 `feat` _KaldiArk or KaldiDict object_ 
 `order`   _the times of delta, default = 2_ 
-`asFile`   _if True or file name, save result as file and return file path, or return KaldiArk, default = False_  
+`outFile`   _if it is a file name, save result as file and return file path, or return KaldiArk, default = False_  
 
 
-### get_ali(faliFile,HmmGmm,_**other parameters_) 
+### get_ali(aliFile,hmm,_**other parameters_) 
 
 < function description >
 
@@ -437,55 +450,71 @@ Get alignment from ali file. Return a KaldiDict object.
 
 < Parameters >  
 
-`faliFile` _kaldi alignment file path_
-`HmmGmm`   _HmmGmm model path_ 
-`returnPhoneme`   _if True, return phoneme id, or return pdf id, default = False_
+`aliFile` _kaldi alignment file path_
+`hmm`   _HMM file path_ 
+`returnPhoneme`   _if True, return phoneme IDs, or return pdf IDs, default = False_
 
+### analyze_counts(aliFile,outFile,_**other parameters_) 
+
+< function description >
+
+Get statistical information of pdf IDs or phoneme IDs from ali file.
+
+< Parameters >  
+
+`aliFile` _Kaldi alignment file path_
+`outFile` _outFile path_ 
+`countPhone`   _if True, count statistical value of phoneme IDs, or count pdf IDs, default = False_
+`hmm` _if None, find HMM file automatically, default = None_
+`dim` _if None, compute dimension automatically, default = None_
 
 ### decompress(data) 
 
 < function description >
 
-Decompress data. Feat are expected KaldiArk object whose data type is "CM", that is kaldi compressed ark data. Return a KaldiArk object.
+Decompress feature data. Feat are expected KaldiArk object whose data type is "CM", that is kaldi compressed ark data. Return a KaldiArk object. 
+This function is a cover of kaldi-io-for-python tools. For more information about it, please access to https://github.com/vesis84/kaldi-io-for-python/blob/master/kaldi_io/kaldi_io.py 
 
 < Parameters >  
 
 `data` _the binary data of kaldi compressed feature_
 
-
-### load(filePath,_**other parameters_) 
+### load(fileName,_**other parameters_) 
 
 < function description >
 
-Load kaldi ark feat file, kaldi scp feat file, KaldiArk file, or KaldiDict file. Return KaldiArk or KaldiDict object.
+Load Kaldi ark feat file, Kaldi scp feat file, KaldiArk ark file, or KaldiDict npy file. 
+Return KaldiArk or KaldiDict object.
 
 < Parameters >  
 
 `filePath` _file path with a suffix '.ark' or '.scp' or '.npy'_
-`useSuffix`   _when file has another suffix, you can declare it, default = None_
+`useSuffix`  _when file has another suffix, you can declare it, default = None_
 
-
-### decode_lattice(AmP,HmmGmm,Hclg,Lexicon,_**other parameters_) 
+### decode_lattice(amp,hmm,hclg,wordSymbol,_**other parameters_) 
 
 < function description >
 
-Decode by generating lattice from acoustic probability. Return KaldiLattice object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use ExKaldi.check_config('decode-lattice') function to get configure information you could set. Also run shell command "latgen-faster-mapped" to look their meaning.
+Decode by generating lattice from acoustic probability. Return a KaldiLattice object or file path if < outFile > is not None. 
+We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. 
+You can use ExKaldi.check_config('decode-lattice') function to get configure information you could set. 
+Also run shell command "latgen-faster-mapped" to look their meaning.
   
 < Parameters >  
 
-`AmP` _acoustic model loglike probability, KaldiArk object_    
-`HmmGmm`   _HmmGmm file path_    
-`Hclg`   _Hclg file path_    
-`Lexicon`   _word symbol file path_    
+`amp` _acoustic model log-like probability, it should be a KaldiArk object_    
+`hmm`   _HMM file path_    
+`hclg`   _HCLG file path_    
+`wordSymbol`   _word-to-int-ID file path_    
 `minActive`   _minimum active, default=200_    
 `maxMem`   _maximum memory, default=50000000_    
 `maxActive`   _maximum active, default=7000_    
-`beam`   _beam, default=13_  
+`beam`   _beam, default=10_  
 `latBeam`   _lattice beam, default=8_  
-`Acwt`   _acoustic model weight, default=1_  
+`acwt`   _acoustic model weight, default=1_  
 `config`   _another configure setting method_    
 `maxThreads`   _the numbers of decode thread, default=1_      
-`asFile`   _if True or file name, save result as file and return file path, or return KaldiLattice object, default = False_    
+`outFile`   _if it is a file name, save result as file and return file path, or return KaldiLattice object, default = False_    
 
 ### run_shell_cmd(cmd,_**other parameters_) 
 
@@ -498,22 +527,23 @@ We provided a basic way to run shell command. Return binary string (out,err).
 `cmd` _shell command, string_  
 `inputs`   _inputs data, string, default=None_  
 
-
-### compute_wer(hyp,ref,_**other parameters_) 
+### get_kaldi_path() 
 
 < function description >
 
-Compute wer between prediction result and reference text. Return a dict object with score information like: {'WER':0,'allWords':10,'ins':0,'del':0,'sub':0,'SER':0,'wrongSentences':0,'allSentences':1,'missedSentences':0}
-Both <hyp> and <ref> can be text file or result which obtained from KaldiLattice.get_1best_word(). 
+return Kaldi toolkit root path if it had been installed correctlly, or raise error.
+It is a initialized action implemented automatically when importing ExKaldi toolkit. 
+
+### check_config(name,config=None) 
+
+< function description >
+
+Get default configure if < config > is None, or check if given < config > has a right format. This function will read "conf" file which is located in "./", so if there is not, it will raise error. Also you can change the content of "conf" file with expected format.
 
 < Parameters >  
 
-`hyp` _prediction result file or result-list which obtained from KaldiLattice.get_1best_words function_       
-`ref` _reference text file or result-like-list_     
-`mode` _score mode, default=present_  
-`ignore` _ignore some symbol such as "sil" before score, default=None_  
-`p` _if True, score quietly without any print information, default=True_  
-
+`name` _object name you want to check. such as "compute_mfcc"_     
+`config` _if none, return defalut configure, or chenk the format of configure and return True if correct_  
 
 ### split_file(filePath,_**other parameters_) 
 
@@ -524,67 +554,140 @@ Split a large scp file into n smaller files. The splited files will be put at th
 < Parameters >  
 
 `filePath` _scp file path_       
-`chunks` _expected numbers, must >1, default=2_     
+`chunks` _expected numbers, must be larger than 1, default=2_    
 
-_-----------------------------------------------< Speak Client >-----------------------------------------------------_
+### pad_sequence(data,_**other parameters_) 
 
-### SpeakClient
+< function description >
 
-< class >
+Pad a batch sequences in order to train sequential neural network model such as RNN, LSTM.
+Not that the first dimension of padded data is sequence.
 
-I am sorry it is unable to use for the moment.
+< Parameters >  
+
+`data` _a list whose members are batch of sequences_       
+`shuffle` _If True, pad each sequence by randomly deciding its start position, Or start position is 0. default=False_
+`pad` _padded value, default=0_   
+
+### unpack_padded_sequence(data,lengths,_**other parameters_) 
+
+< function description >
+
+It is a reverse operation of ExKaldi.pad_sequence function. 
+
+< Parameters >  
+
+`data` _NumPy array which the first dimension is expected as sequence or batch size_       
+`lengths` _It should has the same format of the lengths-output of pad_sequence function_
+`batchSizeFirst` _if True, assign that the first dimension is batch size. Or sequence. default=False_   
+
+### wer(hyp,ref,_**other parameters_) 
+
+< function description >
+
+Compute WER (word error rate) score between prediction result and reference text. 
+Return a Python dict object with score information like: {'WER':0,'allWords':10,'ins':0,'del':0,'sub':0,'SER':0,'wrongSentences':0,'allSentences':1,'missedSentences':0}
+Both < hyp > and < ref > can be text file or list object. 
+
+< Parameters >  
+
+`hyp` _prediction result file or result-list which obtained from KaldiLattice.get_1best_words function_       
+`ref` _reference text file or result-like-list_     
+`mode` _score mode, default=present_  
+`ignore` _ignore some symbol such as "sil", default=None_  
+`p` _if True, score quietly without any print information, default=True_  
+
+### accuracy(predict,label,_**other parameters_) 
+
+< function description >
+
+Compute one-one match score. for example predict is (1,2,3,4), and label is (1,2,2,4), the score will be 0.75.
+
+< Parameters >  
+
+`predict` _iterative object such as list, tuple or flattened NumPy array_       
+`label` _iterative object which must has the same length _     
+`ignore` _ignore some symbol such as padded 0, default=None_  
+
+### edit_distance(x,y,_**other parameters_) 
+
+< function description >
+
+Compute edit distance score between two string.
+
+< Parameters >  
+
+`x` _string_       
+`y` _string_     
+`ignore` _ignore some symbol, default=None_  
+
+### log_softmax(data,**other parameters_) 
+
+< function description >
+
+Compute the log-softmax value of a NumPy array data.
+
+< Parameters >  
+
+`data` _NumPy array_       
+`axis` _demension, default=1_ 
 
 
-### RemoteServer
-
-< class >
-
-I am sorry it is unable to use for the moment.
-
-
-_-----------------------------------------------< Chainer Tools >-----------------------------------------------------_
-
-### MLP
-
-< class >
-
-Get a chainer MLP model. If <config> is None, use default configure. Or you can initialize it by set <config>. Try to use ExKaldi.check_config('MLP') function to get configure information you could set.
-
-
-### LSTM
-
-< class >
-
-Get a chainer LSTM model. If <config> is None, use default configure. Or you can initialize it by set <config>. Try to use ExKaldi.check_config('LSTM') function to get configure information you could set.
-
-
-### DataIterator
+### DataIterator(scpFiles,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,validDataRatio=0.0)
 
 < class description >
 
-you can use it as ordinary chainer.iterators.SerialIterator, but you can also try its distinctive ability. If you give it a large scp file of train data, it will split it into n smaller chunks and load them into momery alternately with parallel thread. It will shuffle the original scp file and split again while new epoch.
+Data iterator used to train a neural network model. It will split the scp file into n chunks then manage and load them into momery alternately with parallel thread. 
+It will shuffle the original scp file and split again while new epoch.
 
 < init Parameters >
 
-`dataOrScpFiles` _ordinary data type or scp file, if scp file, processFunc is necessary_      
+`scpFiles` _scp file(s)_
+`processFunc` _function to process data from scp file to iterative data format, data ierator itself and scp file name will be introduced into defautly_    
 `batchSize` _mini batch size_      
-`chunks` _if scp file, split it into n chunks. if chunks=='auto', compute the chunks automatically. default="auto"_    
-`processFunc` _a function to process scp file to ordinary data type_      
-`shuffle` _shuffle batch data, default=True_      
-`labelOrAliFiles` _if not None, alignment file or labels will be splited into n chunks and give them to processFunc,default=None_     
-`hmmGmm` _if None, will find model automatically according to aliFile, default=None_    
-`validDataRatio` _if > 0 , will reserve a part of data as valid data, default=0.1_    
+`chunks` _chunk number. if chunks=='auto', compute the chunks automatically. default="auto"_    
+`otherArgs` _introduce other parameters into process function_      
+`shuffle` _shuffle batch data, default=False_         
+`validDataRatio` _if > 0 , will reserve a part of data as valid data, default=0.0_    
 
+< Attributes >
 
-### Supporter
+`.batchSize`    
+return mini batch size value.
+
+`.chunks`    
+return the number of chunks.
+
+`.epoch`    
+return the value of current epoch.
+
+`.isNewEpoch`    
+If finishing iterating all data of current epoch, return True. Or return False
+
+`.isNewChunk`    
+If finishing iterating all data of current chunk, return True. Or return False
+
+`.currentEpochPosition`    
+Return the index position of current iteration corresponding to entire epoch.
+
+< Methods >  
+
+`.next()`        
+Return a batch of data. it is a list object.
+
+`.getValiData(processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False)`        
+Return a new DataIterator object if validation data was reserved before.Oor raise error.
+If these parameters are None, use the same value with main iterator.
+
+### Supporter(outDir='Result')
 
 < class description >
 
-Supporter is a class to be similar to chainer report. But we designed some useful functions such as save model by maximum accuracy and adjust learning rate.
+Supporter is a class to help to manage training information such as the change of loss and plot them to log file and standard output. 
 
 < init Parameters >
 
-`outDir` _out floder, model and log will be saved here, default="Result"_
+`outDir` _out floder, model and log file will be saved here, default="Result"_
 
 < Attributes >
 
@@ -594,32 +697,22 @@ _return the last saved model path_
 < Methods >
 
 `send_report(x)`   
-Send information and thses info will be retained untill you do the statistics by using obj.collect_report().
+Send information and these information will be retained untill count the statistics.
 
 `collect_report(keys=None,plot=True)`   
-Do the statistics of received information. The result will be saved in outDir/log file. If < keys > is not None, only collect the data in keys. If < plot > is True, print the statistics result to standard output.
+Do the statistics of retaining information which are reported since from last statistics. The result will be saved in outDir/log file. 
+If < keys > is not None, only collect the data in keys. If < plot > is True, print the statistics result to standard output.
 
-`save_model(self,models,iterSymbol=None,byKey=None,maxValue=True,saveFunc=None)`   
-Save model when you use this function. Your can give <iterSymbol> and it will be add to the end of file name. If you use < byKey > and set < maxValue >, model will be saved only while meeting the condition. We use chainer as default framework, but if you don't, give the < saveFunc > specially please. 
+`save_model(saveFunc,models,byKey=None,maxValue=True)`   
+Save model. < saveFunc > is expected and (model name, model object) will be introduced into this function. 
+If you use < byKey > and set < maxValue >, model will be saved only while meeting the condition. 
 
-_-----------------------------------------------< Other Tools >-----------------------------------------------------_
+`judge(key,condition,threshold,byDeltaRate=False)`   
+Acording to the value reported before, judge whether condition is right. 
+If < byDeltaRate > is True, use 1-order delta to judge. Or use value itself.
 
-### get_kaldi_path() 
+`dump(logFile=None)`   
+Return training information of each epoch reported. If < logFile > is not None, read these information from file.
 
-< function description >
-
-Return kaldi path. If the kaldi are not found, will raise error.
-
-
-### check_config(name,config=None) 
-
-< function description >
-
-Get default configure if < config > is None, or check if given < config > has a right format. This function will read "conf" file which is located in "./", so if there is not, it will raise error. Also you can change the content of "conf" file with expected format.
-
-< Parameters >  
-
-`name` _object name you want to check. such as "compute_mfcc","MLP"_     
-`config` _if none, return defalut configure, or chenk the format of configure and return True if correct_  
 
 
