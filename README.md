@@ -20,13 +20,14 @@ pip install -r requirement.txt
 
 3. In < sample >, there are some sample programs basid on TIMIT corpus that showed how to use the ExKaldi tools to train a neural network acoustic model with Chainer and Pytorch framework, and build a ASR system quickly. Before you run them, please ensure that you already have prepared feature files and alignment files. 
 
-## Concepts and Usage
-Most of functions in PythonKaldi tool are performed with using "subprocess" to run shell cmd of kaldi tools. But we design a series of classes and functions to use them in a flexible way and it is more familiar for python programmer. PythonKaldi tool consist of three parts: < Basis Tools > to cover kaldi functions, < Speek client > to realize online-recognization, and < Chainer Tools > to give some useful tools to help train neural network acoustic model.
-
 4. ExKaldi has also been released as pipy package. Run this command to install it so as to use it more conceniently.
 ```
 pip install exkaldi
 ```
+
+## Concepts and Usage
+Most of functions in PythonKaldi tool are performed with using "subprocess" to run shell cmd of kaldi tools. But we design a series of classes and functions to use them in a flexible way and it is more familiar for python programmer. PythonKaldi tool consist of three parts: < Basis Tools > to cover kaldi functions, < Speek client > to realize online-recognization, and < Chainer Tools > to give some useful tools to help train neural network acoustic model.
+
 _-----------------------------------------------< Basis Tools >-----------------------------------------------------_
 ### KaldiArk   
 
