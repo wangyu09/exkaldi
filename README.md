@@ -28,7 +28,7 @@ pip install exkaldi
 ## Concepts and Usage
 The core functions in ExKaldi tool are performed with using "subprocess" to run shell cmd of Kaldi tools. Based on this, we designed a series of classes and approaches to use them in a flexible way and it is more familiar for python programmer. ExKaldi toolkit of current version mainly consists of one part which implements Kaldi functions such as processing feature and lattice, and another part which supports training DNN-based acoustic model with deep learning framework such as Chainer and Pytorch, and the other part which simply allows user record their voice from microphone and recognize it with their customized ASR system. 
 
-_-----------------------------------------------< ExKAldi API >-----------------------------------------------------_
+_-----------------------------------------------< ExKaldi API >-----------------------------------------------------_
 - [class: KaldiArk](#kaldiark)
 - [class: KaldiDict](#kaldidict)
 - [class: KaldiLattice](#kaldilatticelatnonehmmnonewordsymbolnone)
@@ -197,17 +197,8 @@ Return a KaldiDict object. if std == True, do _alpha*(x-mean)/(std+epsilon)+belt
 `.cut(maxFrames)`    
 return a KaldiDict object: traverse all utterances, and if one is longer than 1.25*maxFrames, cut it with a threshold length of maxFrames.
 
-### load(fileName,_**other parameters_) 
 
-< function description >
-
-Load Kaldi ark feat file, Kaldi scp feat file, KaldiArk ark file, or KaldiDict npy file. 
-Return KaldiArk or KaldiDict object.
-
-< Parameters >  
-
-`filePath` _file path with a suffix '.ark' or '.scp' or '.npy'_
-`useSuffix`  _when file has another suffix, you can declare it, default = None_### KaldiLattice(lat=None,hmm=None,wordSymbol=None) 
+### KaldiLattice(lat=None,hmm=None,wordSymbol=None) 
 
 < class description >
 
@@ -251,7 +242,17 @@ save lattice as .gz file. If < copyFile > is True, will copy HMM file and wordSy
 `__add__`  
 add another lattice. Note that it is just a simple addtional operation to intergrat several lattices as a big one.
 
+### load(fileName,_**other parameters_) 
 
+< function description >
+
+Load Kaldi ark feat file, Kaldi scp feat file, KaldiArk ark file, or KaldiDict npy file. 
+Return KaldiArk or KaldiDict object.
+
+< Parameters >  
+
+`filePath` _file path with a suffix '.ark' or '.scp' or '.npy'_
+`useSuffix`  _when file has another suffix, you can declare it, default = None_
 
 ### save(data,fileName,chunks=1)
 
