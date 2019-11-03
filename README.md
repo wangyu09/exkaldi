@@ -29,20 +29,20 @@ pip install exkaldi
 The core functions in ExKaldi tool are performed with using "subprocess" to run shell cmd of Kaldi tools. Based on this, we designed a series of classes and approaches to use them in a flexible way and it is more familiar for python programmer. ExKaldi toolkit of current version mainly consists of one part which implements Kaldi functions such as processing feature and lattice, and another part which supports training DNN-based acoustic model with deep learning framework such as Chainer and Pytorch, and the other part which simply allows user record their voice from microphone and recognize it with their customized ASR system. 
 
 _-----------------------------------------------< ExKAldi API >-----------------------------------------------------_
-- [class: KaldiArk](#https://github.com/wangyu09/exkaldi#kaldiark)
-- [class: KaldiDict](#KaldiDict)
+- [class: KaldiArk](#kaldiark)
+- [class: KaldiDict](#kaldidict)
 - [class: KaldiLattice](#kaldilatticelatnonehmmnonewordsymbolnone)
-- [function: save](#save(data,fileName,chunks=1))
-- [function: concat](#concat(datas,axis))
-- [function: cut](#cut(data,maxFrames))
-- [function: normalize](#normalize(data,std=True,alpha=1.0,beta=0.0,epsilon=1e-6,axis=0))
-- [function: subset](#(data,nHead=0,chunks=1,uttList=None))
-- [function: merge](#merge(data,keepDim=False,sort=False))
-- [function: remerge](#remerge(matrix,uttLens))
-- [function: sort](#sort(data,by='frame',reverse=False))
-- [function: select](#select(data,dims,reserve=False))
-- [function: splice](#splice(data,left=4,right=None))
-- [function: to_dtype](#to_dtype(data,dtype))
+- [function: save](#savedatafileNamechunks1)
+- [function: concat](#concatdatasaxis)
+- [function: cut](#cutdatamaxFrames)
+- [function: normalize](#normalizedatastdtruealpha10beta00epsilon1e-6axis0)
+- [function: subset](#subsetdatanhead0chunks1uttlistnone)
+- [function: merge](mergedatakeepdimfalsesortfalse)
+- [function: remerge](#remergematrixuttLens)
+- [function: sort](#sortdatabyframereversefalse)
+- [function: select](#selectdatadimsreserveFalse)
+- [function: splice](#splicedataleft4rightNone)
+- [function: to_dtype](#to_dtypedatadtype)
 ### KaldiArk()   
 
 < class description >  
