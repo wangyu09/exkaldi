@@ -45,6 +45,7 @@ def get_kaldi_path():
 KALDIROOT = get_kaldi_path()
 
 # ------------ Basic Class ------------
+#DONE
 class KaldiArk(bytes):
     '''
     Useage: obj = KaldiArk(binaryData) or obj = KaldiArk()
@@ -640,7 +641,7 @@ class KaldiArk(bytes):
             return KaldiArk(b''.join(newData))          
         else:
             raise WrongOperation("Expected one value of <nHead>, <chunks> or <uttList>.")
-
+#DONE
 class KaldiDict(dict):
     '''
     Useage:  obj = KaldiDict(binaryData)  or   obj = KaldiDict()
@@ -1202,7 +1203,7 @@ class KaldiDict(dict):
                     newData[key+"_"+str(i)] = matrix[i*maxFrames:]
         
         return KaldiDict(newData)
-
+#DONE
 class KaldiLattice(object):
     '''
     Useage:  obj = KaldiLattice()  or   obj = KaldiLattice(lattice,hmm,wordSymbol)
@@ -1746,13 +1747,7 @@ class Supporter(object):
         
         ''' 
         return self.lastSavedModel
-
-    @property
-    def value(self):
-        if self.currentField != {}:
-            self.collect_report(plot=False)
-        return self.globalField        
-
+   
     def judge(self,key,condition,threshold,byDeltaRate=False):
         '''
         Useage:  newLR = obj.judge('train_loss','<',0.1)
@@ -1829,10 +1824,10 @@ class DataIterator(object):
     def __init__(self,scpFiles,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,validDataRatio=0.0):
 
         self.fileProcessFunc = processFunc
-        self.batchSize = batchSize
+        self._batchSize = batchSize
         self.otherArgs = otherArgs
         self._shuffle = shuffle
-        self.chunks = chunks
+        self._chunks = chunks
 
         if isinstance(scpFiles,str):
             p = subprocess.Popen('ls {}'.format(scpFiles),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -1868,12 +1863,12 @@ class DataIterator(object):
                 sampleChunkData = load(sampleFile.name)
             meanLength = int(np.mean(sampleChunkData.lens[1]))
             autoChunkSize = math.ceil(30000/meanLength)  # Use 30000 frames as threshold 
-            self.chunks = len(self.allFiles)//autoChunkSize
-            if self.chunks == 0: 
-                self.chunks = 1
+            self._chunks = len(self.allFiles)//autoChunkSize
+            if self._chunks == 0: 
+                self._chunks = 1
 
         self.make_dataset_bag(shuffle=False)
-        self.epoch = 0 
+        self._epoch = 0 
         
         self.load_dataset(0)
         self.currentDataset = self.nextDataset
@@ -1884,10 +1879,10 @@ class DataIterator(object):
 
         self.currentPosition = 0
         self.currentEpochPosition = 0
-        self.isNewEpoch = False
-        self.isNewChunk = False
+        self._isNewEpoch = False
+        self._isNewChunk = False
 
-        if self.chunks > 1:
+        if self._chunks > 1:
             self.datasetIndex = 1
             self.loadDatasetThread = threading.Thread(target=self.load_dataset,args=(1,))
             self.loadDatasetThread.start()
@@ -1896,10 +1891,10 @@ class DataIterator(object):
         self.datasetBag = []
         if shuffle:
             random.shuffle(self.allFiles)
-        chunkSize = math.ceil(len(self.allFiles)/self.chunks)
-        L = self.chunks -(chunkSize * self.chunks - len(self.allFiles))-1
+        chunkSize = math.ceil(len(self.allFiles)/self._chunks)
+        L = self._chunks -(chunkSize * self._chunks - len(self.allFiles))-1
         start = 0
-        for i in range(self.chunks):
+        for i in range(self._chunks):
             if i > L:
                 end = start + chunkSize - 1
             else:
@@ -1921,17 +1916,17 @@ class DataIterator(object):
 
         self.nextDataset = [X for X in self.nextDataset]
 
-        if self.batchSize > len(self.nextDataset):
-            print("Warning: Batch Size < {} > is extremely large for this dataset, we hope you can use a more suitable value.".format(self.batchSize))
+        if self._batchSize > len(self.nextDataset):
+            print("Warning: Batch Size < {} > is extremely large for this dataset, we hope you can use a more suitable value.".format(self._batchSize))
         
     def next(self):
         i = self.currentPosition
-        iEnd = i + self.batchSize
+        iEnd = i + self._batchSize
         N = len(self.currentDataset)
 
         batch = self.currentDataset[i:iEnd]
 
-        if self.chunks == 1:
+        if self._chunks == 1:
             if iEnd >= N:
                 rest = iEnd - N
                 if self._shuffle:
@@ -1939,11 +1934,11 @@ class DataIterator(object):
                 batch.extend(self.currentDataset[:rest])
                 self.currentPosition = rest
                 self.currentEpochPosition = self.currentPosition
-                self.epoch += 1
-                self.isNewEpoch = True
+                self._epoch += 1
+                self._isNewEpoch = True
             else:
                 self.currentPosition = iEnd
-                self.isNewEpoch = False
+                self._isNewEpoch = False
         else:
             if iEnd >= N:
                 rest = iEnd - N
@@ -1954,16 +1949,16 @@ class DataIterator(object):
                 batch.extend(self.nextDataset[:rest])
                 self.currentPosition = rest
                 self.currentDataset = self.nextDataset
-                self.isNewChunk = True
+                self._isNewChunk = True
                 
                 if self.countEpochSizeFlag:
                     self.epochSize += len(self.currentDataset)
 
-                self.datasetIndex = (self.datasetIndex+1)%self.chunks
+                self.datasetIndex = (self.datasetIndex+1)%self._chunks
 
                 if self.datasetIndex == 1:
-                    self.epoch += 1
-                    self.isNewEpoch = True
+                    self._epoch += 1
+                    self._isNewEpoch = True
 
                 if self.datasetIndex == 0:
                     self.countEpochSizeFlag = False
@@ -1973,18 +1968,34 @@ class DataIterator(object):
                 self.loadDatasetThread.start()
 
             else:
-                self.isNewChunk = False
-                self.isNewEpoch = False
+                self._isNewChunk = False
+                self._isNewEpoch = False
                 self.currentPosition = iEnd
 
-            self.currentEpochPosition = (self.currentEpochPosition + self.batchSize)%self.epochSize
+            self.currentEpochPosition = (self.currentEpochPosition + self._batchSize)%self.epochSize
 
         return batch                            
 
     @property
-    def epoch_detail(self):
-        return self.epoch + self.currentEpochPosition/self.epochSize
-    
+    def batchSize(self):
+        return self._batchSize
+
+    @property
+    def chunks(self):
+        return self._chunks
+
+    @property
+    def epoch(self):
+        return self._epoch
+
+    @property
+    def isNewEpoch(self):
+        return self._isNewEpoch
+
+    @property
+    def isNewChunk(self):
+        return self._isNewChunk
+
     def getValiData(self,processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False):
 
         if len(self.validFiles) == 0:
@@ -1994,7 +2005,7 @@ class DataIterator(object):
             processFunc = self.fileProcessFunc
         
         if batchSize == None:
-            batchSize = self.batchSize
+            batchSize = self._batchSize
 
         if isinstance(chunks,int):
             assert chunks > 0,"Expected chunks is a positive int number."
@@ -2614,7 +2625,7 @@ class RemoteServer(object):
         if not self.safeFlag:
             raise WrongOperation('Please run with safe mode by using <with> grammar.')
 
-        if 'receive' in self.threadsManager.keys() and self.threadsManager['receive'].is_alive():
+        if 'receive' in self.threadManager.keys() and self.threadManager['receive'].is_alive():
             raise WrongOperation('Another receive thread is running now')
         
         if self.client == None:
@@ -3010,11 +3021,11 @@ def to_dtype(data,dtype):
 
 # ---------- Feature and Label Process Fucntions -----------
 
-def compute_mfcc(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,outFile=False):
+def compute_mfcc(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,outFile=None):
     '''
     Useage:  obj = compute_mfcc("test.wav") or compute_mfcc("test.scp")
 
-    Compute mfcc feature. Return KaldiArk object or file path if <outFile> is True.
+    Compute mfcc feature. Return KaldiArk object or file path if <outFile> is not None.
     We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
     You can use pythonkaldi.check_config('compute_mfcc') function to get configure information you could set.
     Also run shell command "compute-mfcc-feats" to look their meaning.
@@ -3045,10 +3056,7 @@ def compute_mfcc(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featD
     else:
         raise WrongOperation('Wrong suffix type.')
 
-    if outFile:
-
-        if outFile == True:
-            outFile = 'mfcc.ark'
+    if outFile != None:
 
         if not outFile.endswith('.ark'):
             outFile += '.ark'
@@ -3087,11 +3095,11 @@ def compute_mfcc(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featD
         else:
             return KaldiArk(out)
 
-def compute_fbank(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,outFile=False):
+def compute_fbank(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,outFile=None):
     '''
     Useage:  obj = compute_fbank("test.wav") or compute_mfcc("test.scp")
 
-    Compute fbank feature. Return KaldiArk object or file path if <outFile> is True.
+    Compute fbank feature. Return KaldiArk object or file path if <outFile> is not None.
     We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
     You can use pythonkaldi.check_config('compute_fbank') function to get configure information you could set.
     Also run shell command "compute-fbank-feats" to look their meaning.
@@ -3121,10 +3129,7 @@ def compute_fbank(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,wind
     else:
         raise WrongOperation('Wrong suffix type.')
 
-    if outFile:
-
-        if outFile == True:
-            outFile = 'fbank.ark'
+    if outFile != none:
 
         if not outFile.endswith('.ark'):
             outFile += '.ark'
@@ -3163,11 +3168,11 @@ def compute_fbank(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,wind
         else:
             return KaldiArk(out)
 
-def compute_plp(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,outFile=False):
+def compute_plp(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,outFile=None):
     '''
     Useage:  obj = compute_plp("test.wav") or compute_mfcc("test.lst",useSuffix='scp')
 
-    Compute plp feature. Return KaldiArk object or file path if <outFile> is True.
+    Compute plp feature. Return KaldiArk object or file path if <outFile> is not None.
     We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
     You can use pythonkaldi.check_config('compute_plp') function to get configure information you could set.
     Also run shell command "compute-plp-feats" to look their meaning.
@@ -3198,10 +3203,7 @@ def compute_plp(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDi
     else:
         raise WrongOperation('Wrong suffix type.')
 
-    if outFile:
-
-        if outFile == True:
-            outFile = 'plp.ark'
+    if outFile != None:
 
         if not outFile.endswith('.ark'):
             outFile += '.ark'
@@ -3240,11 +3242,11 @@ def compute_plp(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDi
         else:
             return KaldiArk(out)
 
-def compute_spectrogram(wavFile,rate=16000,frameWidth=25,frameShift=10,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,outFile=False):
+def compute_spectrogram(wavFile,rate=16000,frameWidth=25,frameShift=10,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,outFile=None):
     '''
     Useage:  obj = compute_spetrogram("test.wav") or compute_mfcc("test.lst",useSuffix='scp')
 
-    Compute spectrogram feature. Return KaldiArk object or file path if <outFile> is True.
+    Compute spectrogram feature. Return KaldiArk object or file path if <outFile> is not None.
     We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
     You can use pythonkaldi.check_config('compute_spetrogram') function to get configure information you could set.
     Also run shell command "compute-spetrogram-feats" to look their meaning.
@@ -3273,10 +3275,7 @@ def compute_spectrogram(wavFile,rate=16000,frameWidth=25,frameShift=10,windowTyp
     else:
         raise WrongOperation('Wrong suffix type.')
 
-    if outFile:
-
-        if outFile == True:
-            outFile = 'spectrogram.ark'
+    if outFile != None:
 
         if not outFile.endswith('.ark'):
             outFile += '.ark'
@@ -3315,7 +3314,7 @@ def compute_spectrogram(wavFile,rate=16000,frameWidth=25,frameShift=10,windowTyp
         else:
             return KaldiArk(out)
 
-def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,outFile=False):
+def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,outFile=None):
     '''
     Useage:  obj = use_cmvn(feat) or obj = use_cmvn(feat,cmvnStatFile,utt2spkFile) or obj = use_cmvn(feat,utt2spkFile,spk2uttFile)
 
@@ -3356,10 +3355,7 @@ def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,outFile=Fa
         else:
             cmvnStatFileOption = 'scp:'+cmvnStatFile
 
-        if outFile != False:
-
-            if outFile == True:
-                outFile = '/cmvn.ark'
+        if outFile != None:
 
             if not outFile.endswith('.ark'):
                 outFile += '.ark'
@@ -3468,7 +3464,7 @@ def use_cmvn_sliding(feat,windowsSize=None,std=False):
     else:
         return KaldiArk(out)  
 
-def add_delta(feat,order=2,outFile=False):
+def add_delta(feat,order=2,outFile=None):
     '''
     Useage:  newObj = add_delta(feat)
 
@@ -3482,10 +3478,7 @@ def add_delta(feat,order=2,outFile=False):
     else:
         raise UnsupportedDataType("Expected KaldiArk KaldiDict but got {}.".format(type(feat)))
 
-    if outFile:
-
-        if outFile == True:
-            outFile = 'add_deltas_{}.ark'.format(order)
+    if outFile != None:
 
         if not outFile.endswith('.ark'):
             outFile += '.ark'
@@ -3621,6 +3614,7 @@ def decompress(data):
     Useage:  obj = decompress(feat)
 
     Feat are expected KaldiArk object whose data type is "CM", that is kaldi compressed ark data. Return a KaldiArk object.
+    This function is a cover of kaldi-io-for-python tools. For more information about it, please access to https://github.com/vesis84/kaldi-io-for-python/blob/master/kaldi_io/kaldi_io.py 
 
     '''     
     def _read_compressed_mat(fd):
@@ -3740,7 +3734,7 @@ def load(fileName,useSuffix=None):
 
 # ---------- Decode Funtions -----------
 
-def decode_lattice(amp,hmm,hclg,wordSymbol,minActive=200,maxActive=7000,maxMem=50000000,beam=13,latBeam=8,acwt=1,config=None,maxThreads=1,outFile=False):
+def decode_lattice(amp,hmm,hclg,wordSymbol,minActive=200,maxActive=7000,maxMem=50000000,beam=10,latBeam=8,acwt=1,config=None,maxThreads=1,outFile=None):
     '''
     Useage:  kaldiLatticeObj = decode_lattice(amp,'graph/final.mdl','graph/hclg')
 
@@ -3783,10 +3777,7 @@ def decode_lattice(amp,hmm,hclg,wordSymbol,minActive=200,maxActive=7000,maxMem=5
         kaldiTool += ' --acoustic-scale={}'.format(acwt)
         kaldiTool += ' --word-symbol-table={}'.format(wordSymbol)
 
-    if outFile:
-
-        if outFile == True:
-            outFile = 'lattice.gz'
+    if outFile != None:
 
         if not outFile.endswith('.gz'):
             outFile += '.gz'
@@ -3972,64 +3963,64 @@ def split_file(filePath,chunks=2):
     
     return files
 
-def pad_sequence(x,shuffle=False,pad=0):
+def pad_sequence(data,shuffle=False,pad=0):
     '''
     Useage:  data,lengths = pad_sequence(dataList)
 
-    Pad sequences with max length. < x > is expected as a list whose members are sequence data with a shape of [ frames,featureDim ].
+    Pad sequences with max length. < data > is expected as a list whose members are sequence data with a shape of [ frames,featureDim ].
 
     If <shuffle> is True, pad each sequence with random start index and return padded data and length information of (startIndex,endIndex) of each sequence.
 
     If <shuffle> is False, align the start index of all sequences then pad them rear. This will return length information of only endIndex.
     '''    
-    assert isinstance(x,list), "Expected < x > is a list but got {}.".format(type(x))
-    assert isinstance(pad,(int,float)), "Expected < pad > is an int or float but got {}.".format(type(x))
+    assert isinstance(data,list), "Expected < data > is a list but got {}.".format(type(data))
+    assert isinstance(pad,(int,float)), "Expected < pad > is an int or float but got {}.".format(type(data))
 
     lengths = []
-    for i in x:
+    for i in data:
         lengths.append(len(i))
     
     maxLen = int(max(lengths))
     batchSize = len(lengths)
 
-    if len(x[0].shape) == 1:
+    if len(data[0].shape) == 1:
         data = pad * np.ones([maxLen,batchSize])
         for k in range(batchSize):
-            snt = len(x[k])
+            snt = len(data[k])
             if shuffle:
                 n = maxLen - snt
                 n = random.randint(0,n)
-                data[n:n+snt,k] = x[k]
+                data[n:n+snt,k] = data[k]
                 lengths[k] = (n,n+snt)
             else:
-                data[0:snt,k] = x[k]
-    elif len(x[0].shape) == 2:
-        dim = x[0].shape[1]
+                data[0:snt,k] = data[k]
+    elif len(data[0].shape) == 2:
+        dim = data[0].shape[1]
         data = pad * np.ones([maxLen,batchSize,dim])
         for k in range(batchSize):
-            snt = len(x[k])
+            snt = len(data[k])
             if shuffle:
                 n = maxLen - snt
                 n = random.randint(0,n)
-                data[n:n+snt,k,:] = x[k]
+                data[n:n+snt,k,:] = data[k]
                 lengths[k] = (n,n+snt)
             else:
-                data[0:snt,k,:] = x[k]
-    elif len(x[0].shape) >= 3:
-        otherDims = x[0].shape[2:]
+                data[0:snt,k,:] = data[k]
+    elif len(data[0].shape) >= 3:
+        otherDims = data[0].shape[2:]
         allDims = 1
         for i in otherDims:
             allDims *= i
         data = pad * np.ones([maxLen,batchSize,allDims])
         for k in range(batchSize):
-            snt = len(x[k])
+            snt = len(data[k])
             if shuffle:
                 n = maxLen - snt
                 n = random.randint(0,n)
-                data[n:n+snt,k,:] = x[k].reshape([snt,allDims])
+                data[n:n+snt,k,:] = data[k].reshape([snt,allDims])
                 lengths[k] = (n,n+snt)
             else:
-                data[0:snt,k,:] = x[k].reshape([snt,allDims])
+                data[0:snt,k,:] = data[k].reshape([snt,allDims])
         data = data.reshape([maxLen,batchSize,*otherDims])
     return data, lengths
 
@@ -4041,7 +4032,7 @@ def unpack_padded_sequence(data,lengths,batchSizeFirst=False):
     This is a reverse operation of pad_sequence() function. Return a list whose members are sequences.
     '''   
 
-    assert isinstance(data,np.ndarray), "Expected <x> is numpy array but got {}.".format(type(data))
+    assert isinstance(data,np.ndarray), "Expected <data> is numpy array but got {}.".format(type(data))
     
     if not batchSizeFirst:
         s = data.shape[2:]
@@ -4159,6 +4150,9 @@ def wer(ref,hyp,mode='present',ignore=None, p=True):
         return score
 
 def accuracy(predict,label,ignore=None):
+    # 把他们展平
+    # ignore后再比较长度
+
     if len(predict) != len(label):
         raise WrongOperation("Expected same length between <predict> and <label> but {}!={}.".format(len(x),len(y)))
     score = []
@@ -4184,6 +4178,7 @@ def accuracy(predict,label,ignore=None):
     return sum(score)/len(score)
 
 def edit_distance(x, y):
+    #加入ignore
 
     assert isinstance(x,str) and isinstance(y,str), "Expected both <x> and <y> are string."
 
