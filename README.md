@@ -30,7 +30,7 @@ The core functions in ExKaldi tool are performed with using "subprocess" to run 
 
 _-----------------------------------------------< ExKAldi API >-----------------------------------------------------_
 - [class: KaldiArk](#KaldiArk)
-- [class: KaldiDict](#KaldiDict
+- [class: KaldiDict](#KaldiDict)
 - [class: KaldiLattice](#KaldiLattice)
 - [function: save](#save(data,fileName,chunks=1))
 - [function: concat](#concat(datas,axis))
