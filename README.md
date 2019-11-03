@@ -29,10 +29,21 @@ pip install exkaldi
 The core functions in ExKaldi tool are performed with using "subprocess" to run shell cmd of Kaldi tools. Based on this, we designed a series of classes and approaches to use them in a flexible way and it is more familiar for python programmer. ExKaldi toolkit of current version mainly consists of one part which implements Kaldi functions such as processing feature and lattice, and another part which supports training DNN-based acoustic model with deep learning framework such as Chainer and Pytorch, and the other part which simply allows user record their voice from microphone and recognize it with their customized ASR system. 
 
 _-----------------------------------------------< ExKAldi API >-----------------------------------------------------_
-- [Getting Started](#KaldiArk)
-
-
-### KaldiArk   
+- [class: KaldiArk](#KaldiArk())
+- [class: KaldiDict](#KaldiDict())
+- [class: KaldiLattice](#KaldiLattice(lat=None,hmm=None,wordSymbol=None))
+- [function: save](#save(data,fileName,chunks=1))
+- [function: concat](#concat(datas,axis))
+- [function: cut](#cut(data,maxFrames))
+- [function: normalize](#normalize(data,std=True,alpha=1.0,beta=0.0,epsilon=1e-6,axis=0))
+- [function: subset](#(data,nHead=0,chunks=1,uttList=None))
+- [function: merge](#merge(data,keepDim=False,sort=False))
+- [function: remerge](#remerge(matrix,uttLens))
+- [function: sort](#sort(data,by='frame',reverse=False))
+- [function: select](#select(data,dims,reserve=False))
+- [function: splice](#splice(data,left=4,right=None))
+- [function: to_dtype](#to_dtype(data,dtype))
+### KaldiArk()   
 
 < class description >  
 
@@ -44,142 +55,247 @@ _-----------------------------------------------< ExKAldi API >-----------------
 return a tuple: ( the numbers of all utterances, the frames of each utterance ).  
 
 `.dim`    
-return a int: feature dim.  
+return an int number: the dimensions of data.  
 
 `.dtype`    
-return a str: data type such as 'float32'.  
+return a str: data type such as 'float32'. 
 
 `.utts`    
 return a list: all utterance names.  
 
 `.array`    
-return a KaldiDict object: transform binary ark data into numpy arrar format.  
+return a KaldiDict object: transform binary ark data to numpy arrar format.  
 
 < Methods >    
 
-`.toDtype(dtype)`    
-change data dtype and return.  
+`.to_dtype(dtype)`    
+change data dtype and return a new KaldiArk object.  
 
 `.check_format()`    
-check if inner data has a correct kaldi ark format. If had, return True.  
+check whether data has a correct Kaldi ark format. If had, return True. Or raise error.  
 
 `.save(fileName,chunks=1)`   
 save as .ark file. If chunks>1, split it averagely and save them.  
 
-`+ operator` 
-KaldiArk object can use < + > operator with another KaldiArk object or KaldiDict object.  
+`__add__` 
+return a new KaldiArk object: use < + > operator to plus another KaldiArk object or KaldiDict object.  
 
 `.concat(others,axis=1)`  
-Return KaldiArk object. If any member has a dtype of float, the result will be float, or it will be int.  
-It only return the concat results whose utterance id appeared in all members at the same time.
+return a KaldiArk object. If any member has a dtype of float, the result will be float, or it will be int.  
+It only return the concat results whose utterance ID appeared in all members.
 
 `.splice(left,right=None)`  
-Return KaldiArk object. Splice front-behind frames. if right == None, we use right = left.  
+return a KaldiArk object. Splice front-behind frames. if right is None, we define right = left.  
+
+`.select(left,dims,reserve=False)`  
+return KaldiArk object(s): select data according to dims. < dims > should be an int or string like "1,5-20".
+If reserve ==  True, return both selected data and non-selected data, or return only selected data.
 
 `.subset(nHead=0,chunks=1,uttList=None)`  
-if nhead > 0, return KaldiArk object which only has start nHead utterances.  
-if chunks > 1, return list whose members are KaldiArk.  
-if uttList != None, select utterances if utterance id appeared.  
+if nhead > 0, return a KaldiArk object which only has start-n utterances.  
+if chunks > 1, return list whose members are KaldiArk objects.  
+if uttList != None, select utterances if utterance id appeared.
+only one of these three options will works by order.   
 
-
-### KaldiDict 
+### KaldiDict() 
 
 < class description >  
 
-**KaldiDict** is a subclass of **dict**. It is a object who holds the kaldi ark data in numpy array type. Its key are the utterance id and the value is the numpy array data. **KaldiDict** can also do some mixed operations with **KaldiArk** such as "+" and "concat" and so on.  
-Note that **KaldiDict** has some functions which **KaldiArk** dosen't have. They will be introduced as follow.
+**KaldiDict** is a subclass of **dict**. It generates a object who holds the Kaldi ark data in NumPy array type. 
+Its keys are the utterance IDs and the values are data. **KaldiDict** can also do some mixed operations with **KaldiArk** such as "+" and "concat" and so on.  
+Note that **KaldiDict** has a part of functions which **KaldiArk** dosen't have.
 
 < Attributes >  
 
 `.lens`    
-the same as **KaldiArk**.lens
+return a tuple: ( the numbers of all utterances, the frames of each utterance ).  
 
 `.dim`   
-the same as **KaldiArk**.dim
+return an int number: the dimensions of data.  
 
 `.dtype`    
-the same as **KaldiArk**.dtype
+return a str: data type such as 'float32'. 
 
 `.utts`   
-the same as **KaldiArk**.utts
+return a list: all utterance names.  
 
-`.array`   
-return a KaldiArk object: transform numpy array data into kaldi binary format.  
+`.ark`   
+return a KaldiArk object: transform numpy array data into Kaldi's binary format.  
 
 < Methods >    
 
-`.toDtype(dtype)`    
-the same as **KaldiArk**.toDtype
+`.to_dtype(dtype)`    
+change data dtype and return a new KaldiArk object.  
 
 `.check_format()`    
-the same as **KaldiArk**.check_format
+check whether data has a correct Kaldi ark format. If had, return True. Or raise error.  
 
 `.save(fileName,chunks=1)`  
-the same as **KaldiArk**.save 
+save as .npy file. If chunks>1, split it averagely and save them.  
 
-`+ operator`  
-the same as **KaldiArk**.add. KaldiDict object can also use < + > operator with another KaldiArk object.    
+`__add__`  
+return a new KaldiDict object: use < + > operator to plus another KaldiArk object or KaldiDict object.  
 
 `.concat(others,axis=1)`    
-the same as **KaldiArk**.concat  
+return a KaldiDict object. If any member has a dtype of float, the result will be float type, or it will be int type.  
+It only returns the concat results whose utterance IDs appeared in all members.
 
 `.splice(left,right=None)`    
-the same as **KaldiArk**.splice  
+return a KaldiDict object. Splice front-behind frames. if right is None, we define right = left.  
+
+`.select(left,dims,reserve=False)`  
+return KaldiDict object(s): select data according to dims. < dims > should be an int or string like "1,5-20".
+If reserve ==  True, return both selected data and non-selected data, or return only selected data.
 
 `.subset(nHead=0,chunks=1,uttList=None)`    
-the same as **KaldiArk**.subset  
+if nhead > 0, return a KaldiArk object which only has start-n utterances.  
+if chunks > 1, return list whose members are KaldiArk objects.  
+if uttList != None, select utterances if utterance id appeared.
+only one of these three options will works by order.   
 
-`.merge(keepDim=False)`    
-return a tuple. if keepDim == True the first member is list whose content are numpy arrays of all utterances, and if keepDim == False, it is a integrated numpy array of all utterances. the second member is utterance ids and their frame length information. 
+`.sort(by='frame',reverse=False)`
+return a KaldiDict object: sort data by utterance IDs or the length of utterances.
+if reverse == True, do descending order.
+
+`.merge(keepDim=False,sort=False)`    
+return a tuple. if keepDim == True, the first member is list whose content are NumPy arrays with 2-dimensions of all utterances, and if keepDim == False, 
+it is a integrated NumPy array with 3-dimensions of all utterances. 
+the second member is utterance IDs and their respective frame length. 
+if sort == True , it will sort all utterances by length with ascending order before merging.
 
 `.remerge(matrix,uttLens)`    
-If self has not any data, do not return, or return a new KaldiDict object. this is a inverse operation of .merge function.
+If self has not any data, do not return, or return a new KaldiDict object: this is a inverse operation of .merge function.
 
-`.normalize(std=True,alpha=1.0,beta=0.0,epsilon=1e-6,axis=0)`    
+`.normalize(std=True,alpha=1.0,beta=0.0,epsilon=1e-6,axis=0)`
 Return a KaldiDict object. if std == True, do _alpha*(x-mean)/(std+epsilon)+belta_, or do _alpha*(x-mean)+belta_.
 
+`.cut(maxFrames)`    
+return a KaldiDict object: traverse all utterances, and if one is longer than 1.25*maxFrames, cut it with a threshold length of maxFrames.
 
-### KaldiLattice 
+### KaldiLattice(lat=None,hmm=None,wordSymbol=None) 
 
 < class description >
 
-**KaldiLattice** holds the lattice and its related file path: HmmGmm file and WordSymbol file. ExKaldi.decode_lattice function will return a KaldiLattice object. Aslo, you can define a empty KaldiLattice object and load its data later.
+**KaldiLattice** holds the lattice and its related file path: HMM file and WordSymbol file. ExKaldi.decode_lattice function will return a KaldiLattice object. 
+Aslo, you can define a empty KaldiLattice object and load its data later.
 
 < init Parameters >
 
-`lattice` _Expected lattice binary data or file path_        
-`HmmGmm` _hmm gmm model file path_  
-`wordSymbol` _ word 2 id file path_
+`lat` _expected Kaldi's lattice binary data or lattice file path which is compressed-gz file_        
+`hmm` _HMM file path_  
+`wordSymbol` _word to int ID file path_
 
 < Attributes >  
 
 `.value`    
-Return a lattice with a binary data type.
+return a tuple: (lattice with a binary data type, hmm file path, wordSymbol file path.
 
 < Methods >  
 
-`.load(latFile,HmmGmm,wordSymbol)`        
-Load lattice. < latFile > can be file path or binary data. < HmmGmm > and < wordSymbol > are expected as file path.
+`.load(latFile,hmm,wordSymbol)`        
+load lattice. < latFile > can be file path or binary data. < hmm > and < wordSymbol > are expected as file path.
 
-`.get_1best_words(minLmwt=1,maxLmwt=None,Acwt=1.0,outDir='.',asFile=False)`   
-Return dict object. key is the lmwt value. if < asFile > == True or file name, the result will be save as file and values of returned dict is these files' path, or they will be 1-best words.
+`.get_1best(lmwt=1,maxLmwt=None,acwt=1.0,outFile=None,phoneSymbol=None)`   
+return Python dict object: its keys are the lmwt value and values are the 1best words output.
+If < outFile > is file name, the 1best words output will be save as file and values of returned dict will be changed for these files' path.
+If < phoneSymbol > is not None, will return phones outputs of 1best words. 
 
-`.scale(Acwt=1,inAcwt=1,Ac2Lm=0,Lmwt=1,Lm2Ac=0)`  
-Sacle lattice. Return a new scaled KaldiLattice object.
+`.get_nbest(n,acwt=1.0,outFile=None,outAliFile=None,requireCost=False)`   
+If < outFile > is not None, output results as file and if < requireCost > == True, lm cost and ac cost will be also returned as files. In this way, return a list whose members are path of these files. If < outFile > is None, also return a list but its members are n best words and their respective ac cost and lm cost.
+If < outAliFile > is not None, fore-alignment file will be reserved. 
+
+`.scale(acwt=1,inAcwt=1,ac2lm=0,lmwt=1,lm2ac=0)`  
+sacle lattice and return a new scaled KaldiLattice object.
 
 `.add_penalty(penalty=0)`  
-Add penalty. Return a new KaldiLattice object.
+add words insertion penalty and return a new KaldiLattice object.
 
-`.save(fileName)`  
-Save lattice as .gz file.
+`.save(fileName,copyFile=False)`  
+save lattice as .gz file. If < copyFile > is True, will copy HMM file and wordSymbol file to the same directory as saved lattice file. 
 
-`+ operator`  
-Add the numbers of lattice. Note that it is just a simple addtional operation.
+`__add__`  
+add another lattice. Note that it is just a simple addtional operation to intergrat several lattices as a big one.
+
+### save(data,fileName,chunks=1)
+
+< function description >
+
+It is the same as .save method of KaldiArk or KaldiDict. 
+< data > is expected as KaldiArk or KaldiDict object.
+
+### concat(datas,axis)
+
+< function description >
+
+return KaldiArk or KaldiDict object. It is the same as .concat method of KaldiArk or KaldiDict. 
+< datas > is expected as KaldiArk or KaldiDict object(s).
+
+### cut(data,maxFrames)
+
+< function description >
+
+return KaldiDict object. It is he same as .cut method of KaldiDict. 
+< data > is expected as KaldiArk or KaldiDict object.
+
+### normalize(data,std=True,alpha=1.0,beta=0.0,epsilon=1e-6,axis=0)
+
+< function description >
+
+return KaldiDict object. It is he same as .normalize method of KaldiDict. 
+< data > is expected as KaldiArk or KaldiDict object.
+
+### subset(data,nHead=0,chunks=1,uttList=None)
+
+< function description >
+
+return KaldiArk or KaldiDict object(s). It is the same as .subset method of KaldiArk or KaldiDict. 
+< data > is expected as KaldiArk or KaldiDict object(s).
+
+### merge(data,keepDim=False,sort=False)
+
+< function description >
+
+It is the same as .merge method of KaldiDict. 
+< data > is expected as KaldiArk or KaldiDict object(s).
+
+### remerge(matrix,uttLens)
+
+< function description >
+
+return a kaldiDict object.It is the same as .remerge method of KaldiDict. 
+
+### sort(data,by='frame',reverse=False)
+
+< function description >
+
+return a KaldiDict object. It is the same as .sort method of KaldiDict. 
+< data > is expected as KaldiArk or KaldiDict object(s).
+
+### select(data, dims,reserve=False)
+
+< function description >
+
+return KaldiArk or KaldiDict object(s). It is the same as .select method of KaldiArk or KaldiDict. 
+< datas > is expected as KaldiArk or KaldiDict object.
+
+### splice(data,left=4,right=None)
+
+< function description >
+
+return KaldiArk or KaldiDict object. It is the same as .splice method of KaldiArk or KaldiDict. 
+< datas > is expected as KaldiArk or KaldiDict object.
+
+### to_dtype(data,dtype)
+
+< function description >
+
+return KaldiArk or KaldiDict object. It is the same as .to_dtype method of KaldiArk or KaldiDict. 
+< datas > is expected as KaldiArk or KaldiDict object.
 
 
 ### compute_mfcc(wavFile,_**other parameters_)
 
-<function>
+< function >
 
 Compute mfcc feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use ExKaldi.check_config('compute_mfcc') function to get configure information you could set. Also run shell command "compute-mfcc-feats" to look their meaning. 
 
