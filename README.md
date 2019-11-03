@@ -26,14 +26,17 @@ pip install exkaldi
 ```
 
 ## Concepts and Usage
-Most of functions in PythonKaldi tool are performed with using "subprocess" to run shell cmd of kaldi tools. But we design a series of classes and functions to use them in a flexible way and it is more familiar for python programmer. PythonKaldi tool consist of three parts: < Basis Tools > to cover kaldi functions, < Speek client > to realize online-recognization, and < Chainer Tools > to give some useful tools to help train neural network acoustic model.
+The core functions in ExKaldi tool are performed with using "subprocess" to run shell cmd of Kaldi tools. Based on this, we designed a series of classes and approaches to use them in a flexible way and it is more familiar for python programmer. ExKaldi toolkit of current version mainly consists of one part which implements Kaldi functions such as processing feature and lattice, and another part which supports training DNN-based acoustic model with deep learning framework such as Chainer and Pytorch, and the other part which simply allows user record their voice from microphone and recognize it with their customized ASR system. 
 
-_-----------------------------------------------< Basis Tools >-----------------------------------------------------_
+_-----------------------------------------------< ExKAldi API >-----------------------------------------------------_
+- [KaldiArk](### KaldiArk)
+
+
 ### KaldiArk   
 
 < class description >  
 
-**KaldiArk** is a subclass of **bytes**. It maks a object who holds the kaldi ark data in a binary type. **KaldiArk** and **KaldiDict** object have almost the same attributes and functions, and they can do some mixed operations such as "+" and "concat" and so on.   Moreover, alignment can also be held by KaldiArk and KaldiDict in Pythonkaldi tool, and we defined it as int32 data type.  
+**KaldiArk** is a subclass of **bytes**. It maks a object who holds the Kaldi ark data in a binary type. **KaldiArk** and **KaldiDict** object have almost the same attributes and functions, and they can do some mixed operations such as "+" and "concat" and so on.   Moreover, force-alignment can also be held by KaldiArk and KaldiDict in ExKaldi tool, and we defined it as int32 data type.  
 
 < Attributes >  
 
@@ -140,7 +143,7 @@ Return a KaldiDict object. if std == True, do _alpha*(x-mean)/(std+epsilon)+belt
 
 < class description >
 
-**KaldiLattice** holds the lattice and its related file path: HmmGmm file and WordSymbol file. PythonKaldi.decode_lattice function will return a KaldiLattice object. Aslo, you can define a empty KaldiLattice object and load its data later.
+**KaldiLattice** holds the lattice and its related file path: HmmGmm file and WordSymbol file. ExKaldi.decode_lattice function will return a KaldiLattice object. Aslo, you can define a empty KaldiLattice object and load its data later.
 
 < init Parameters >
 
@@ -178,7 +181,7 @@ Add the numbers of lattice. Note that it is just a simple addtional operation.
 
 <function>
 
-Compute mfcc feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use pythonkaldi.check_config('compute_mfcc') function to get configure information you could set. Also run shell command "compute-mfcc-feats" to look their meaning. 
+Compute mfcc feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use ExKaldi.check_config('compute_mfcc') function to get configure information you could set. Also run shell command "compute-mfcc-feats" to look their meaning. 
 
 < Parameters >  
 
@@ -200,7 +203,7 @@ Compute mfcc feature. Return KaldiArk object or file path if <asFile> is True. W
 
 <function>
 
-Compute fbank feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use pythonkaldi.check_config('compute_fbank') function to get configure information you could set. Also run shell command "compute-fbank-feats" to look their meaning. 
+Compute fbank feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use ExKaldi.check_config('compute_fbank') function to get configure information you could set. Also run shell command "compute-fbank-feats" to look their meaning. 
 
 < Parameters >  
 
@@ -220,7 +223,7 @@ Compute fbank feature. Return KaldiArk object or file path if <asFile> is True. 
 
 <function>
 
-Compute plp feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use pythonkaldi.check_config('compute_plp') function to get configure information you could set. Also run shell command "compute-plp-feats" to look their meaning. 
+Compute plp feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use ExKaldi.check_config('compute_plp') function to get configure information you could set. Also run shell command "compute-plp-feats" to look their meaning. 
 
 < Parameters >  
 
@@ -241,7 +244,7 @@ Compute plp feature. Return KaldiArk object or file path if <asFile> is True. We
 
 < function description>
 
-Compute spectrogram feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use pythonkaldi.check_config('compute_spetrogram') function to get configure information you could set. Also run shell command "compute-spetrogram-feats" to look their meaning.
+Compute spectrogram feature. Return KaldiArk object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use ExKaldi.check_config('compute_spetrogram') function to get configure information you could set. Also run shell command "compute-spetrogram-feats" to look their meaning.
 
 < Parameters >  
 
@@ -350,7 +353,7 @@ Load kaldi ark feat file, kaldi scp feat file, KaldiArk file, or KaldiDict file.
 
 < function description >
 
-Decode by generating lattice from acoustic probability. Return KaldiLattice object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use pythonkaldi.check_config('decode-lattice') function to get configure information you could set. Also run shell command "latgen-faster-mapped" to look their meaning.
+Decode by generating lattice from acoustic probability. Return KaldiLattice object or file path if <asFile> is True. We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored. You can use ExKaldi.check_config('decode-lattice') function to get configure information you could set. Also run shell command "latgen-faster-mapped" to look their meaning.
   
 < Parameters >  
 
@@ -429,14 +432,14 @@ _-----------------------------------------------< Chainer Tools >---------------
 
 < class >
 
-Get a chainer MLP model. If <config> is None, use default configure. Or you can initialize it by set <config>. Try to use pythonkaldi.check_config('MLP') function to get configure information you could set.
+Get a chainer MLP model. If <config> is None, use default configure. Or you can initialize it by set <config>. Try to use ExKaldi.check_config('MLP') function to get configure information you could set.
 
 
 ### LSTM
 
 < class >
 
-Get a chainer LSTM model. If <config> is None, use default configure. Or you can initialize it by set <config>. Try to use pythonkaldi.check_config('LSTM') function to get configure information you could set.
+Get a chainer LSTM model. If <config> is None, use default configure. Or you can initialize it by set <config>. Try to use ExKaldi.check_config('LSTM') function to get configure information you could set.
 
 
 ### DataIterator
