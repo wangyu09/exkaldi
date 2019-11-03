@@ -1,29 +1,32 @@
-# ExKaldi
-This is a tool which introduce kaldi tools into python in a easy-use way.
+# ExKaldi Automatic Speech Recognition Toolkit
+ExKaldi toolkit is an extension package for Kaldi speech recognition toolkit. It is developed to build an interface between the Kaldi toolkit and deep learning frameworks, 
+such as PyTorch and Chainer, with Python language and further help users customize speech recognition system easily. 
+A set of functions of ExKaldi are implemented by Kaldi, and serval Input-Output interfaces are designed to transform their data format so that it is flexible to process speech waveform, 
+extract acoustic features, perform speech decoding and even deal with lattices produced by the decoder, with Python. 
+Based on this, ExKaldi further provides tools to support training a DNN-based acoustic model, and improve their performance by, for example, multiple tasks with different labels. 
+With jointing Kaldi and deep learning frameworks, integrated solutions are presented in ExKaldi from feature extracting to decoding to put up a customized speech recognition system quickly. 
 
 ## ExKaldi at a Glance
 
-1. Clone the PythonKaldi project.
+1. Clone the ExKaldi project.
 ```
-git clone https://github.com/wangyu09/pythonkaldi
+git clone https://github.com/wangyu09/exkaldi
 ```
 
-2. We need  some dependent packages. So run this command to check and install them.  
-
+2. Some dependent packages are required, and run this command to check and install them.  
 ```
 pip install -r requirement.txt
 ```
 
-3. In the file < CSJsample.py >, there is a sample chainer program  that showed how to use the PythonKaldi tool. Exchange the parameter < CSJpath > for yours and also other parameters such as < epoch > if you want. Then run it.
-```
-python CSJsample.py
-```
-Especially, there are three sections in this sample program: first, train chainer neural network as acoustic model, and then use this pretrained AM to forward test data and decode them by generating lattice and further compute the WER. In the third step function < OnlineRecognize >, although we wrote it, I am sorry that it cannot be used now because of debugging.
+3. In < sample >, there are some sample programs basid on TIMIT corpus that showed how to use the ExKaldi tools to train a neural network acoustic model with Chainer and Pytorch framework, and build a ASR system quickly. Before you run them, please ensure that you already have prepared feature files and alignment files. 
 
 ## Concepts and Usage
 Most of functions in PythonKaldi tool are performed with using "subprocess" to run shell cmd of kaldi tools. But we design a series of classes and functions to use them in a flexible way and it is more familiar for python programmer. PythonKaldi tool consist of three parts: < Basis Tools > to cover kaldi functions, < Speek client > to realize online-recognization, and < Chainer Tools > to give some useful tools to help train neural network acoustic model.
 
-
+4. ExKaldi has also been released as pipy package. Run this command to install it so as to use it more conceniently.
+```
+pip install exkaldi
+```
 _-----------------------------------------------< Basis Tools >-----------------------------------------------------_
 ### KaldiArk   
 
