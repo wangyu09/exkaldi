@@ -29,7 +29,7 @@ pip install exkaldi
 The core functions in ExKaldi tool are performed with using "subprocess" to run shell cmd of Kaldi tools. Based on this, we designed a series of classes and approaches to use them in a flexible way and it is more familiar for python programmer. ExKaldi toolkit of current version mainly consists of one part which implements Kaldi functions such as processing feature and lattice, and another part which supports training DNN-based acoustic model with deep learning framework such as Chainer and Pytorch, and the other part which simply allows user record their voice from microphone and recognize it with their customized ASR system. 
 
 _-----------------------------------------------< ExKAldi API >-----------------------------------------------------_
-- [class: KaldiArk](#KaldiArk())
+- [class: KaldiArk](#KaldiArk)
 - [class: KaldiDict](#KaldiDict())
 - [class: KaldiLattice](#KaldiLattice(lat=None,hmm=None,wordSymbol=None))
 - [function: save](#save(data,fileName,chunks=1))
