@@ -32,6 +32,7 @@ _-----------------------------------------------< ExKAldi API >-----------------
 - [class: KaldiArk](#kaldiark)
 - [class: KaldiDict](#kaldidict)
 - [class: KaldiLattice](#kaldilatticelatnonehmmnonewordsymbolnone)
+- [function: load](#loadfilenameother-parameters)
 - [function: save](#savedatafileNamechunks1)
 - [function: concat](#concatdatasaxis)
 - [function: cut](#cutdatamaxFrames)
@@ -43,8 +44,30 @@ _-----------------------------------------------< ExKAldi API >-----------------
 - [function: select](#selectdatadimsreserveFalse)
 - [function: splice](#splicedataleft4rightNone)
 - [function: to_dtype](#to_dtypedatadtype)
-- [function: compute_mfcc](#compute_mfccwavFile_otherparameters)
-
+- [function: compute_mfcc](#compute_mfccwavfileother-parameters)
+- [function: compute_fbank](#compute_fbankwavfileother-parameters)
+- [function: compute_plp](#compute_plpwavfileother-parameters)
+- [function: compute_spectrogram](#compute_spectrogramwavfileother-parameters)
+- [function: use_cmvn](#use_cmvnfeatother-parameters)
+- [function: compute_cmvn_stats](#compute_cmvn_statsfeatoutfileother-parameters)
+- [function: use_cmvn_sliding](#use_cmvn_slidingfeatother-parameters)
+- [function: add_delta](#add_deltafeatother-parameters)
+- [function: get_ali](#get_alialifilehmmother-parameters)
+- [function: analyze_counts](#analyze_countsalifileoutfileother-parameters)
+- [function: decompress](#decompressdata)
+- [function: decode_lattice](#decode_latticeamphmmhclgwordsymbolother-parameters)
+- [function: run_shell_cmd](#run_shell_cmdcmdother-parameters)
+- [function: get_kaldi_path](#get_kaldi_path)
+- [function: check_config](#check_confignameconfignone)
+- [function: split_file](#split_filefilepathother-parameters)
+- [function: pad_sequence](#pad_sequencedataother-parameters)
+- [function: unpack_padded_sequence](#unpack_padded_sequencedatalengthsother-parameters)
+- [function: wer](#werhyprefother-parameters)
+- [function: accuracy](#accuracypredictlabelother-parameters)
+- [function: edit_distance](#edit_distancexyother-parameters)
+- [function: log_softmax](#log_softmaxdataother-parameters_)
+- [class: DataIterator](#dataiteratorscpfilesprocessfuncbatchsizechunksautootherargsnoneshufflefalsevaliddataratio00)
+- [class: Supporter](#supporteroutdirresult)
 ### KaldiArk()   
 
 < class description >  
@@ -174,7 +197,17 @@ Return a KaldiDict object. if std == True, do _alpha*(x-mean)/(std+epsilon)+belt
 `.cut(maxFrames)`    
 return a KaldiDict object: traverse all utterances, and if one is longer than 1.25*maxFrames, cut it with a threshold length of maxFrames.
 
-### KaldiLattice(lat=None,hmm=None,wordSymbol=None) 
+### load(fileName,_**other parameters_) 
+
+< function description >
+
+Load Kaldi ark feat file, Kaldi scp feat file, KaldiArk ark file, or KaldiDict npy file. 
+Return KaldiArk or KaldiDict object.
+
+< Parameters >  
+
+`filePath` _file path with a suffix '.ark' or '.scp' or '.npy'_
+`useSuffix`  _when file has another suffix, you can declare it, default = None_### KaldiLattice(lat=None,hmm=None,wordSymbol=None) 
 
 < class description >
 
@@ -217,6 +250,8 @@ save lattice as .gz file. If < copyFile > is True, will copy HMM file and wordSy
 
 `__add__`  
 add another lattice. Note that it is just a simple addtional operation to intergrat several lattices as a big one.
+
+
 
 ### save(data,fileName,chunks=1)
 
@@ -478,18 +513,6 @@ This function is a cover of kaldi-io-for-python tools. For more information abou
 < Parameters >  
 
 `data` _the binary data of kaldi compressed feature_
-
-### load(fileName,_**other parameters_) 
-
-< function description >
-
-Load Kaldi ark feat file, Kaldi scp feat file, KaldiArk ark file, or KaldiDict npy file. 
-Return KaldiArk or KaldiDict object.
-
-< Parameters >  
-
-`filePath` _file path with a suffix '.ark' or '.scp' or '.npy'_
-`useSuffix`  _when file has another suffix, you can declare it, default = None_
 
 ### decode_lattice(amp,hmm,hclg,wordSymbol,_**other parameters_) 
 
