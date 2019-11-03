@@ -38,10 +38,10 @@ _-----------------------------------------------< ExKaldi API >-----------------
 - [function: cut](#cutdatamaxFrames)
 - [function: normalize](#normalizedatastdtruealpha10beta00epsilon1e-6axis0)
 - [function: subset](#subsetdatanhead0chunks1uttlistnone)
-- [function: merge](mergedatakeepdimfalsesortfalse)
+- [function: merge](#mergedatakeepdimfalsesortfalse)
 - [function: remerge](#remergematrixuttLens)
 - [function: sort](#sortdatabyframereversefalse)
-- [function: select](#selectdatadimsreserveFalse)
+- [function: select](#selectdatadimsreservefalse)
 - [function: splice](#splicedataleft4rightNone)
 - [function: to_dtype](#to_dtypedatadtype)
 - [function: compute_mfcc](#compute_mfccwavfileother-parameters)
@@ -309,7 +309,7 @@ return a kaldiDict object.It is the same as .remerge method of KaldiDict.
 return a KaldiDict object. It is the same as .sort method of KaldiDict. 
 < data > is expected as KaldiArk or KaldiDict object(s).
 
-### select(data, dims,reserve=False)
+### select(data,dims,reserve=False)
 
 < function description >
 
@@ -666,7 +666,7 @@ It will shuffle the original scp file and split again while new epoch.
 
 < init Parameters >
 
-`scpFiles` _scp file(s)_
+`scpFiles` _scp file(s)_ 
 `processFunc` _function to process data from scp file to iterative data format, data ierator itself and scp file name will be introduced into defautly_    
 `batchSize` _mini batch size_      
 `chunks` _chunk number. if chunks=='auto', compute the chunks automatically. default="auto"_    
