@@ -22,6 +22,7 @@ import queue,tempfile
 import numpy as np
 from io import BytesIO
 import configparser
+from collections import Iterable
 
 class PathError(Exception):pass
 class UnsupportedDataType(Exception):pass
@@ -1862,7 +1863,7 @@ class DataIterator(object):
                 sampleFile.seek(0)
                 sampleChunkData = load(sampleFile.name)
             meanLength = int(np.mean(sampleChunkData.lens[1]))
-            autoChunkSize = math.ceil(30000/meanLength)  # Use 30000 frames as threshold 
+            autoChunkSize = math.ceil(50000/meanLength)  # Use 30000 frames as threshold 
             self._chunks = len(self.allFiles)//autoChunkSize
             if self._chunks == 0: 
                 self._chunks = 1
@@ -4149,38 +4150,85 @@ def wer(ref,hyp,mode='present',ignore=None, p=True):
 
         return score
 
-def accuracy(predict,label,ignore=None):
-    # 把他们展平
-    # ignore后再比较长度
+def accuracy(predict,label,ignore=None,mode='all'):
+    '''
+    Useage:  score = accuracy(predict,label,ignore=0)
 
-    if len(predict) != len(label):
-        raise WrongOperation("Expected same length between <predict> and <label> but {}!={}.".format(len(x),len(y)))
-    score = []
-    for i,j in zip(predict,label):
-        if len(i) != len(j):
-            raise WrongDataFormat('Expected same element length but {}!={}.'.format(len(i),len(j)))
-        elif len(i) == 1:
-            if int(j) == ignore:
-                continue
-            elif int(i) == int(j):
-                score.append(1)
-            else:
-                score.append(0)
-        else:
-            for k,l in zip(i,j):
-                if int(l) == ignore:
+    Compute one-one match score. for example predict is (1,2,3,4), and label is (1,2,2,4), the score will be 0.75.
+    Both <predict> and <label> are expected list, tuple or NumPy array with int members. They will be flatten before score.
+    Ignoring value can be assigned with <ignore>.
+    If <mode> is all, it will raise ERROR when the length of predict and label is different.
+    If <mode> is present, compare depending on the shorter one.
+    '''
+    assert mode in ['all','present'], 'Expected <mode> is present or all.'
+
+    def flatten(iterableObj):
+        new = []
+        for i in iterableObj:
+            if ignore != None:
+                if isinstance(i,np.ndarray):
+                    if i.all() == ignore:
+                        continue
+                elif i == ignore:
                     continue
-                elif int(k) == int(l):
-                    score.append(1)
-                else:
-                    score.append(0)
+            if isinstance(i,str) and len(i) <= 1:
+                new.append(i)
+            elif not isinstance(i,Iterable):
+                new.append(i)
+            else:
+                new.extend(flatten(i))
+        return new
 
-    return sum(score)/len(score)
+    x = flatten(predict)
+    y = flatten(label)
 
-def edit_distance(x, y):
-    #加入ignore
+    i = 0
+    score = []
+    while True:
+        if i >= len(x) or i >= len(y):
+            break
+        elif x[i] == y[i]:
+            score.append(1)
+        else:
+            score.append(0)
+        i += 1
+   
+    if mode == 'present':
+        return float(np.mean(score))
+    else:
+        if i < len(predict) or i < len(label):
+            raise WrongOperation('<present> and <label> have different length to score.')
+        else:
+            return float(np.mean(score))
 
-    assert isinstance(x,str) and isinstance(y,str), "Expected both <x> and <y> are string."
+def edit_distance(predict,label,ignore=None):
+    '''
+    Useage:  score = edit_distance(predict,label,ignore=0)
+
+    Compute edit distance score. 
+    Both <predict> and <label> can be string, list, tuple, or NumPy array.
+    '''
+    #assert isinstance(x,str) and isinstance(y,str), "Expected both <x> and <y> are string."
+    
+    def flatten(iterableObj):
+        new = []
+        for i in iterableObj:
+            if ignore != None:
+                if isinstance(i,np.ndarray):
+                    if i.all() == ignore:
+                        continue
+                elif i == ignore:
+                    continue
+            if isinstance(i,str) and len(i) <= 1:
+                new.append(i)
+            elif not isinstance(i,Iterable):
+                new.append(i)
+            else:
+                new.extend(flatten(i))
+        return new
+
+    x = flatten(predict)
+    y = flatten(label)
 
     lenX = len(x)
     lenY = len(y)
@@ -4210,7 +4258,7 @@ def log_softmax(data,axis=1):
     tShape = list(data.shape)
     tShape[axis] = 1
     data = np.array(data,dtype='float32')
-    dataExp = np.exp(data,axis)
+    dataExp = np.exp(data)
     dataExpLog = np.log(np.sum(dataExp,axis)).reshape(tShape)
 
     return data - dataExpLog
