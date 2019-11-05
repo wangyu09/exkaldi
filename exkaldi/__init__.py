@@ -7,8 +7,6 @@ from exkaldi.core import KaldiDict
 from exkaldi.core import KaldiLattice
 from exkaldi.core import Supporter
 from exkaldi.core import DataIterator
-from exkaldi.core import SpeakClient
-from exkaldi.core import RemoteServer
 from exkaldi.core import save
 from exkaldi.core import concat
 from exkaldi.core import cut
