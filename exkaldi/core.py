@@ -23,6 +23,7 @@ import numpy as np
 from io import BytesIO
 import configparser
 from collections import Iterable
+import importlib
 
 class PathError(Exception):pass
 class UnsupportedDataType(Exception):pass
@@ -2645,7 +2646,7 @@ class RemoteServer(object):
                     if i == 5:
                         raise NetworkError('Communicate between server and remote client worked anomaly.')
                 vertification = vertification.decode().strip().split(',')
-                self._config_wave_format(idMe[0],None,int(idMe[1]),int(idMe[2]),int(idMe[3]))
+                self._config_wave_format(vertification[0],None,int(vertification[1]),int(vertification[2]),int(vertification[3]))
             except Exception as e:
                 self.localErrFlag = True
                 raise e                    
@@ -3807,99 +3808,40 @@ def decode_lattice(amp,hmm,hclg,wordSymbol,minActive=200,maxActive=7000,maxMem=5
 
 def check_config(name,config=None):
     '''
-    Useage:  configure = check_config(name='compute_mfcc')  or  check_config(name='compute_mfcc',config=configure)
+    Useage:  configure = check_config(name='compute_mfcc')  or  check_config(name='compute_mfcc',config=your_configure)
     
     Get default configure if < config > is None, or check if given < config > has a right format.
-    This function will read "conf" file which is placed in "./", so if there is not, will raise error.
-    Also you can change the content of "conf" file.
 
     '''
 
     assert isinstance(name,str), "<name> should be a name-like string."
 
-    cFile = './conf'
+    module = importlib.import_module('exkaldi.function_config')
+    c = module.configure(name)
 
-    if not os.path.isfile(cFile):
-        raise PathError("Miss the global configure file. Please download it again from https://github.com/wangyu09/pythonkaldi.")
-
-    c = configparser.ConfigParser()
-    c.read(cFile)
-
-    if not name in c:
+    if c is None:
         print("Warning: no default configure for name {}.".format(name))
-        return None 
-
-    def transType(proto,value=''):
-        value = value.strip().lower()
-        if value == 'none':
-            return None
-        
-        proto = proto.strip().lower()
-        if proto == 'float':
-            if value != '':
-                return float(value)
-            else:
-                return float
-        elif proto == 'int':
-            if value != '':
-                return int(value)
-            else:
-                return int
-        elif proto == 'bool':
-            if value == 'false':
-                return False
-            elif value != '':
-                return True
-            else:
-                return bool
-        elif proto == 'str':
-            if value != '':
-                return value
-            else:
-                return str
-        else:
-            raise UnsupportedDataType('{} is unsupported type.')       
+        return None
 
     if config == None:
         new = {}
-        for key,values in c.items(name):
-            values = values.split(',')
-            proto = values[-1]
-            if len(values) == 2:
-                new[key] = transType(proto,values[0])
-            else:
-                for index,value in enumerate(values[0:-1]):
-                    values[index] = transType(proto,value)
-                new[key] = values[0:-1]
+        for key,value in c.items():
+            new[key] = value[0]
         return new
     else:
         if not isinstance(config,dict):
-            raise WrongOperation("<config> has a wrong format. You can use PythonKaldi.check_config({}) to look expected configure format.".format(name))
-
-        if len(config.keys()) < len(c.items(name)):
-            reKeys = []
-            for k,v in c.items(name):
-                if not k in config.keys():
-                    reKeys.append(k)
-            raise WrongOperation('Missing configure of keys: {}.'.format(','.join(reKeys)))
-        else:
-
-            for k in config.keys():
-                if k in c[name]:
-                    value = c.get(name,k)
-                else:
-                    raise WrongOperation('No such configure value: < {} > in {}.'.format(k,name))
-                
-                proto = value.split(',')[-1]
-
-                if isinstance(config[k],(list,tuple)):
-                    for v in config[k]:
-                        if v != None and not isinstance(v,transType(proto)):
-                            raise WrongDataFormat("configure < {} > is expected {} but got {}.".format(k,proto,type(v)))
-                else:
-                    if config[k] != None and not isinstance(config[k],transType(proto)):
-                        raise WrongDataFormat("configure < {} > is expected {} but got {}.".format(k,proto,type(config[k])))
-
+            raise WrongOperation("<config> has a wrong format. You can use exkaldi.check_config({}) to look expected configure format.".format(name))
+        for k in config.keys():
+            if not k in c.keys():
+                raise WrongOperation('No such key: < {} > in {}.'.format(k,name))
+            else:
+                proto = c[k][1]
+                #if isinstance(config[k],(list,tuple)):
+                #    for vt in config[k]:
+                #        if not isinstance(vt,proto):
+                #            raise WrongDataFormat("configure < {} > is expected {} but got {}.".format(k,proto,type(vt)))
+                if not isinstance(config[k],proto):
+                    raise WrongDataFormat("configure < {} > is expected {} but got {}.".format(k,proto,config[k]))
             return True
 
 def run_shell_cmd(cmd,inputs=None):

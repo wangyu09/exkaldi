@@ -16,7 +16,7 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/wangyu09/exkaldi",
     packages=find_packages(),
-    install_requires=["python>=3.5","numpy>=1.16","PyAudio>=0.2"],
+    install_requires=["numpy>=1.16","PyAudio>=0.2"],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: Apache License:: 2.0",
