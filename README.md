@@ -25,25 +25,16 @@ Or you can install it directly by runing:
 pip install chainer
 ```
 
-4. Taking A Chainer DNN model based on TIMIT corpus  example. 
-
-4. 
-
-1. Clone the ExKaldi project.
+4. Taking a Chainer DNN model based on TIMIT corpus example. Fmllr feature file, alignment file and decoding graph are required.
+After finishing main run script, use the follow scipts to obtain them respectively.
 ```
-git clone https://github.com/wangyu09/exkaldi
+local/nnet/run_dnn.sh
+steps/nnet/align.sh
 ```
 
-2. Some dependent packages are required, and run this command to check and install them.  
+5. After finishing all work above, run the example python program.
 ```
-pip install -r requirement.txt
-```
-
-3. In < sample >, there are some sample programs basid on TIMIT corpus that showed how to use the ExKaldi tools to train a neural network acoustic model with Chainer and Pytorch framework, and build a ASR system quickly. Before you run them, please ensure that you already have prepared feature files and alignment files. 
-
-4. ExKaldi has also been released as pipy package. Run this command to install it so as to use it more conceniently.
-```
-pip install exkaldi
+python TIMIT_DNN_fmllr_chainer.py -TIMITROOT <your path>
 ```
 
 ## Concepts and Usage
