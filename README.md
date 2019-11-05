@@ -8,6 +8,8 @@ With jointing Kaldi and deep learning frameworks, integrated solutions are prese
 
 ## Start with ExKaldi
 
+The use of ExKaldi tools is based on that Kaldi ASR toolkit has already been correctly installed and compiled.
+
 1. Run his command to install ExKaldi package.
 ```
 pip install exkaldi
