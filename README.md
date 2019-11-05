@@ -489,7 +489,6 @@ Add n-orders delta to feature. Return KaldiArk object or file path if < outFile 
 `order`   _the times of delta, default = 2_ 
 `outFile`   _if it is a file name, save result as file and return file path, or return KaldiArk, default = False_  
 
-
 ### get_ali(aliFile,hmm,_**other parameters_) 
 
 < function description >

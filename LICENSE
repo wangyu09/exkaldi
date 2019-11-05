@@ -187,7 +187,7 @@
       same "printed page" as the copyright notice for easier
       identification within third-party archives.
 
-   Copyright 2019 University of Yamanashi, Japan (Author: Yu Wang)
+   Copyright 2019 Yu Wang, University of Yamanashi, Japan
 
    Individual Contributors
 
@@ -224,4 +224,19 @@
   
       https://github.com/vesis84/kaldi-io-for-python/blob/master/LICENSE
 
+ -------------------------------------------------------------------------
+
+  This software includes material from the Pytorch-Kaldi Library available at
+  https://github.com/mravanelli/pytorch-kaldi and released under the 
+  Creative Commons Attribution 4.0 International license. 
+  You can copy, distribute, modify the code for research, commercial and non-commercial purposes. 
+  We only ask to cite our paper referenced above.
+  ```
+  @inproceedings{pytorch-kaldi,
+   title    = {The PyTorch-Kaldi Speech Recognition Toolkit},
+   author    = {M. Ravanelli and T. Parcollet and Y. Bengio},
+   booktitle    = {In Proc. of ICASSP},
+   year    = {2019}
+   }
+  ```
 
