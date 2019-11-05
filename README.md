@@ -638,6 +638,7 @@ Both < hyp > and < ref > can be text file or list object.
 < function description >
 
 Compute one-one match score. for example predict is (1,2,3,4), and label is (1,2,2,4), the score will be 0.75.
+Both < predict > and < label > will be flattened before scoring. 
 
 < Parameters >  
 
@@ -645,16 +646,17 @@ Compute one-one match score. for example predict is (1,2,3,4), and label is (1,2
 `label` _iterative object which must has the same length _     
 `ignore` _ignore some symbol such as padded 0, default=None_  
 
-### edit_distance(x,y,_**other parameters_) 
+### edit_distance(predict,label,_**other parameters_) 
 
 < function description >
 
-Compute edit distance score between two string.
+Compute edit distance score between two objects.
+Both < predict > and < label > will be flattened before scoring.
 
 < Parameters >  
 
-`x` _string_       
-`y` _string_     
+`predict` _string_       
+`label` _string_     
 `ignore` _ignore some symbol, default=None_  
 
 ### log_softmax(data,**other parameters_) 
