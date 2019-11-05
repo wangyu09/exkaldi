@@ -6,7 +6,28 @@ extract acoustic features, perform speech decoding and even deal with lattices p
 Based on this, ExKaldi further provides tools to support training a DNN-based acoustic model, and improve their performance by, for example, multiple tasks with different labels. 
 With jointing Kaldi and deep learning frameworks, integrated solutions are presented in ExKaldi from feature extracting to decoding to put up a customized speech recognition system quickly. 
 
-## ExKaldi at a Glance
+## Start with ExKaldi
+
+1. Run his command to install ExKaldi package.
+```
+pip install exkaldi
+```
+
+2. We prepared some sample programs to show how to use ExKaldi to train a coustic model and build a ASR system.
+Please download them from https://github.com/wangyu09/exkaldi/examplecode or clone ExKaldi project.
+```
+git clone https://github.com/wangyu09/exkaldi
+```
+
+3. Framework, Chainer or Pytorch, is expected in you machine. Concerning Chainer, know more about it from https://chainer.org/ .
+Or you can install it directly by runing:
+```
+pip install chainer
+```
+
+4. Taking A Chainer DNN model based on TIMIT corpus  example. 
+
+4. 
 
 1. Clone the ExKaldi project.
 ```
