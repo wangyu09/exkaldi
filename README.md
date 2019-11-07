@@ -84,9 +84,9 @@ _-----------------------------------------------< ExKaldi API >-----------------
     - [function: log_softmax](#log_softmaxdataother-parameters_)
     - [class: DataIterator](#dataiteratorscpfilesprocessfuncbatchsizechunksautootherargsnoneshufflefalsevaliddataratio00)
     - [class: Supporter](#supporteroutdirresult)
-- [Addition](#kaldiark)
-    - [class: Client](#kaldiark)
-    - [class: Server](#kaldiark)
+- [Addition](#client)
+    - [class: Client](#client)
+    - [class: Server](#server)
 ### KaldiArk()   
 
 < class description >  
@@ -758,5 +758,10 @@ If < byDeltaRate > is True, use 1-order delta to judge. Or use value itself.
 `dump(logFile=None)`   
 Return training information of each epoch reported. If < logFile > is not None, read these information from file.
 
+### Client()
 
+< class description >
 
+### Server()
+
+< class description >
