@@ -21,7 +21,7 @@ kaldi/tools/INSTALL
 kaldi/src/INSTALL
 ```
 
-2. Install ExKaldi toolkit from PyPi library.
+2. Install ExKaldi toolkit from PyPi library (It has not been released now, so install it in the follow way please).
 ```
 pip install exkaldi
 ```
