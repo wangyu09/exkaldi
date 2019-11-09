@@ -35,15 +35,14 @@ pip install exkaldi/dist/*
 ```
 
 3. We prepared some sample programs to show how to use ExKaldi to train a coustic model and build a ASR system.
-Please download them from https://github.com/wangyu09/exkaldi/examplecode (or clone ExKaldi project).
-
-4. Framework, Chainer or Pytorch, is expected in you machine. Concerning Chainer framework, know more about it from https://chainer.org/ .
+Please download them from https://github.com/wangyu09/exkaldi/examplecode (or clone the ExKaldi source code). 
+Framework, Chainer or Pytorch, is expected in you machine. Concerning Chainer framework, know more about it from https://chainer.org/ .
 You can install it directly by runing:
 ```
 pip install chainer
 ```
 
-5. Taking a Chainer DNN model based on TIMIT corpus example. Before this, fmllr feature file, alignment file and decoding graph are required.
+4. Taking a Chainer DNN model based on TIMIT corpus example. Before this, fmllr feature file, alignment file and decoding graph are required.
 Run the follow scipts to obtain them respectively. Please prepare TIMIT corpus in advance.
 ```
 cd kaldi/egs/timit/s5
@@ -59,7 +58,7 @@ steps/nnet/align.sh --nj 4 data-fmllr-tri3/train data/lang exp/dnn4_pretrain-dbn
 steps/nnet/align.sh --nj 4 data-fmllr-tri3/dev data/lang exp/dnn4_pretrain-dbn_dnn exp/dnn4_pretrain-dbn_dnn_ali_dev
 ```
 
-6. After finishing all work above, run the example python program. You can adjust more configure as well.
+5. After finishing all work above, run the example python program. You can adjust more configure as well.
 ```
 python TIMIT_DNN_fmllr_chainer.py -TIMITROOT <your path>
 ```
