@@ -16,7 +16,7 @@ import argparse
 
 parser = argparse.ArgumentParser(description='LSTM Acoustic model on TIMIT corpus')
 parser.add_argument('--decodeMode', type=bool, default=False, help='If false, run train recipe.')
-parser.add_argument('--TIMITpath', '-t', type=str, default='/misc/Work18/wangyu/kaldi/egs/timit/demo', help='Kaldi timit rescipe folder')
+parser.add_argument('--TIMITpath', '-t', type=str, default='/kaldi/egs/timit/demo', help='Kaldi timit rescipe folder')
 parser.add_argument('--randomSeed', '-r', type=int, default=1234)
 parser.add_argument('--batchSize', '-b', type=int, default=8)
 parser.add_argument('--gpu', '-g', type=int, default=0, help='GPU id (We defaultly use gpu)')
@@ -337,7 +337,7 @@ def train_model():
             # Compute time cost
             ut = time.time() - start
             usedTime += ut
-            print("Epoch:{} Epoch-progress:{}% Using-chunk:{} Chunk-progress:{}% Iter-times:{} used-seconds:{}s".format(e,train.epochProgress,train.chunk,train.chunkProgress,i,int(usedTime)),' Speed:%.2fs/iter. (training)'%(1/ut), end=" "*50+'\r')
+            print("Epoch:{} Epoch-progress:{}% Using-chunk:{} Chunk-progress:{}% Iter-times:{} used-seconds:{}s".format(e,100*train.epochProgress,train.chunk,100*train.chunkProgress,i,int(usedTime)),' Speed:%.2fs/iter. (training)'%(1/ut), end=" "*50+'\r')
             i += 1
             supporter.send_report({'train_loss':loss,'train_acc':acc})
             # If forward all data, break
@@ -356,7 +356,7 @@ def train_model():
             # Compute time cost
             ut = time.time() - start
             usedTime += ut
-            print("Epoch:{} Epoch-progress:{}% Using-chunk:{} Chunk-progress:{}% Iter-times:{} used-seconds:{}s".format(e,dev.epochProgress,dev.chunk,dev.chunkProgress,i,int(usedTime)),' Speed:%.2fs/iter. (Validating)'%(1/ut), end=" "*50+'\r')
+            print("Epoch:{} Epoch-progress:{}% Using-chunk:{} Chunk-progress:{}% Iter-times:{} used-seconds:{}s".format(e,100*dev.epochProgress,dev.chunk,100*dev.chunkProgress,i,int(usedTime)),' Speed:%.2fs/iter. (Validating)'%(1/ut), end=" "*50+'\r')
             i += 1
             supporter.send_report({'dev_loss':loss,'dev_acc':acc})
             # If forward all data, break
