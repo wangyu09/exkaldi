@@ -1622,7 +1622,7 @@ class Supporter(object):
         if not os.path.isdir(self.outDir):
             os.mkdir(self.outDir)
 
-        self.logFile = self.outDir+'/log'
+        self.logFile = self.outDir+'/train.log'
 
         with open(self.logFile,'w'):
             pass
@@ -1906,6 +1906,7 @@ class DataIterator(object):
         self.currentEpochPosition = 0
         self._isNewEpoch = False
         self._isNewChunk = False
+        self.datasetIndex = 0
 
         if self._chunks > 1:
             self.datasetIndex = 1
@@ -1961,9 +1962,11 @@ class DataIterator(object):
                 self.currentEpochPosition = self.currentPosition
                 self._epoch += 1
                 self._isNewEpoch = True
+                self._isNewChunk = True
             else:
                 self.currentPosition = iEnd
                 self._isNewEpoch = False
+                self._isNewChunk = False
         else:
             if iEnd >= N:
                 rest = iEnd - N
@@ -2010,6 +2013,13 @@ class DataIterator(object):
         return self._chunks
 
     @property
+    def chunk(self):
+        if self.datasetIndex == 0:
+            return self._chunks - 1
+        else:
+            return self.datasetIndex - 1
+
+    @property
     def epoch(self):
         return self._epoch
 
@@ -2020,6 +2030,20 @@ class DataIterator(object):
     @property
     def isNewChunk(self):
         return self._isNewChunk
+
+    @property
+    def epochProgress(self):
+        if self._isNewEpoch is True:
+            return 1.
+        else:
+            return float('%.2f'%(self.currentEpochPosition/self.epochSize))
+    
+    @property
+    def chunkProgress(self):
+        if self._isNewChunk is True:
+            return 1.
+        else:
+            return float('%.2f'%(self.currentPosition/len(self.currentDataset)))
 
     def getValiData(self,processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False):
 
