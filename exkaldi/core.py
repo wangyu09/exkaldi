@@ -677,6 +677,24 @@ class KaldiDict(dict):
         return _dim
 
     @property
+    def targets(self):
+        '''
+        Useage:  dim = obj.targets
+        
+        Return an int: the maxinum value of alignment data.
+
+        '''        
+        if self.dtype == 'int32':
+            maxValue = None
+            for utt,matrix in self.items():
+                t = np.max(matrix)
+                if maxValue == None or t > maxValue:
+                    maxValue = t
+            return int(maxValue) + 1
+        else:
+            raise WrongOperation('Can not obtain the targets from non-int data.')    
+
+    @property
     def lens(self):
         '''
         Useage:  lens = obj.lens

@@ -10,34 +10,61 @@ With jointing Kaldi and deep learning frameworks, integrated solutions are prese
 
 The use of ExKaldi tools is based on that Kaldi ASR toolkit has already been correctly installed and compiled.
 
-1. Run his command to install ExKaldi package.
+1. Download the Kaldi ASR toolkit.
+```
+git clone https://github.com/kaldi-asr/kaldi.git kaldi --origin upstream
+```
+Following these three tutorial files to install and compile it.
+```
+kaldi/INSTALL
+kaldi/tools/INSTALL
+kaldi/src/INSTALL
+```
+
+2. Install ExKaldi toolkit from PyPi library.
 ```
 pip install exkaldi
 ```
-
-2. We prepared some sample programs to show how to use ExKaldi to train a coustic model and build a ASR system.
-Please download them from https://github.com/wangyu09/exkaldi/examplecode or clone ExKaldi project.
+You can also clone the ExKaldi source code from our github project, then make it a pypi package and install it.
 ```
-git clone https://github.com/wangyu09/exkaldi
+git clone https://github.com/wangyu09/exkaldi.git
+cd exkaldi
+python setup.py sdist bdist_wheel
+cd ..
+pip install exkaldi/dist/*
 ```
 
-3. Framework, Chainer or Pytorch, is expected in you machine. Concerning Chainer, know more about it from https://chainer.org/ .
-Or you can install it directly by runing:
+3. We prepared some sample programs to show how to use ExKaldi to train a coustic model and build a ASR system.
+Please download them from https://github.com/wangyu09/exkaldi/examplecode (or clone ExKaldi project).
+
+4. Framework, Chainer or Pytorch, is expected in you machine. Concerning Chainer framework, know more about it from https://chainer.org/ .
+You can install it directly by runing:
 ```
 pip install chainer
 ```
 
-4. Taking a Chainer DNN model based on TIMIT corpus example. Fmllr feature file, alignment file and decoding graph are required.
-After finishing main run script, use the follow scipts to obtain them respectively.
+5. Taking a Chainer DNN model based on TIMIT corpus example. Before this, fmllr feature file, alignment file and decoding graph are required.
+Run the follow scipts to obtain them respectively. Please prepare TIMIT corpus in advance.
 ```
+cd kaldi/egs/timit/s5
+```
+Modify the TIMIT path, cmd and path cofigure and then run script up to Karel's DNN.
+```
+./run.sh
 local/nnet/run_dnn.sh
-steps/nnet/align.sh
+```
+Then get alignment.
+```
+steps/nnet/align.sh --nj 4 data-fmllr-tri3/train data/lang exp/dnn4_pretrain-dbn_dnn exp/dnn4_pretrain-dbn_dnn_ali
+steps/nnet/align.sh --nj 4 data-fmllr-tri3/dev data/lang exp/dnn4_pretrain-dbn_dnn exp/dnn4_pretrain-dbn_dnn_ali_dev
 ```
 
-5. After finishing all work above, run the example python program.
+6. After finishing all work above, run the example python program. You can adjust more configure as well.
 ```
 python TIMIT_DNN_fmllr_chainer.py -TIMITROOT <your path>
 ```
+Results will be save in out directory.
+
 
 ## Concepts and Usage
 The core functions in ExKaldi tool are performed with using "subprocess" to run shell cmd of Kaldi tools. Based on this, we designed a series of classes and approaches to use them in a flexible way and it is more familiar for python programmer. ExKaldi toolkit of current version mainly consists of one part which implements Kaldi functions such as processing feature and lattice, and another part which supports training DNN-based acoustic model with deep learning framework such as Chainer and Pytorch, and the other part which simply allows user record their voice from microphone and recognize it with their customized ASR system. 
