@@ -1105,9 +1105,9 @@ class KaldiDict(dict):
         items = self.items()
 
         if by == 'name':
-            sorted(items,key=lambda x:x[0],reverse=reverse)
+            items = sorted(items,key=lambda x:x[0],reverse=reverse)
         else:
-            sorted(items,key=lambda x:len(x[1]),reverse=reverse)
+            items = sorted(items,key=lambda x:len(x[1]),reverse=reverse)
         
         newData = KaldiDict()
         for key, value in items:
@@ -2934,55 +2934,71 @@ def decompress(data):
     return KaldiArk(b''.join(newData))
 
 def load(fileName,useSuffix=None):
+    # Bug '*.ark'
     '''
     Useage:  obj = load('feat.npy') or obj = load('feat.ark') or obj = load('feat.scp') or obj = load('feat.lst', useSuffix='scp')
 
     Load kaldi ark feat file, kaldi scp feat file, KaldiArk file, or KaldiDict file. Return KaldiArk or KaldiDict object.
 
-    '''      
+    '''
 
     if KALDIROOT == None:
         raise kaldiNotFoundError
 
     if isinstance(fileName,str):
-        if not os.path.isfile(fileName):
-            raise PathError("No such file:{}.".format(fileName))
+        if os.path.isdir(fileName):
+            raise WrongOperation('Expected file name but got a directory name:{}.'.format(fileName))
+        else:
+            p = subprocess.Popen('ls {}'.format(fileName),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            (out,err) = p.communicate()
+            if out == b'':
+                raise PathError("No such file:{}".format(fileName))
+            else:
+                out = out.decode().strip().split('\n')
+        
     else:
         raise UnsupportedDataType('Expected feature file.')
 
-    if useSuffix == 'npy' or fileName.endswith('.npy'):
-
-        temp = np.load(fileName)
-        datas = KaldiDict()
-        try:
-            totalSize = 0
-            for utt_mat in temp:
-                datas[utt_mat[0]] = utt_mat[1]
-                totalSize += sys.getsizeof(utt_mat[1])
-            if totalSize > 10000000000:
-                print('Warning: Data is extramely large. It could not be used correctly sometimes.')                
-        except:
-            raise UnsupportedDataType("It is not KaldiDict data.")
-        else:
-            return datas
+    if ( useSuffix != None and 'npy' in useSuffix ) or out[0].endswith('.npy'):
+        allData = KaldiDict()
+        for fileName in out:
+            try:
+                temp = np.load(fileName)
+                data = KaldiDict()
+                totalSize = 0
+                for utt_mat in temp:
+                    data[utt_mat[0]] = utt_mat[1]
+                    totalSize += sys.getsizeof(utt_mat[1])
+                if totalSize > 10000000000:
+                    print('Warning: Data is extramely large. It could not be used correctly sometimes.')                
+            except:
+                raise UnsupportedDataType("It is wrong KaldiDict npy data.")
+            else:
+                allData += data
+        return allData
     else:
-        if useSuffix == 'ark' or fileName.endswith('.ark'):
-            cmd = 'copy-feats ark:{} ark:-'.format(fileName)
-        elif useSuffix == 'scp' or fileName.endswith('.scp'):
-            cmd = 'copy-feats scp:{} ark:-'.format(fileName)
+        if ( useSuffix != None and 'ark' in useSuffix ) or out[0].endswith('.ark'):
+            cmd = 'copy-feats ark:'
+        elif ( useSuffix != None and 'scp' in useSuffix ) or out[0].endswith('.scp'):
+            cmd = 'copy-feats scp:'
         else:
             raise UnsupportedDataType('Unknown suffix. You can assign useSuffix=<scp> <ark> or <npy>.')
 
-        p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out,err) = p.communicate()
-        if out == b'':
-            err = err.decode()
-            print(err)
-            raise KaldiProcessError('Copy feat defeated.')
-        else:
-            if sys.getsizeof(out) > 10000000000:
-                print('Warning: Data is extramely large. It could not be used correctly sometimes.') 
-            return KaldiArk(out)
+        allData = []
+        for fileName in out:
+            cmd1 = cmd + '{} ark:-'.format(fileName)
+            p = subprocess.Popen(cmd1,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            (out,err) = p.communicate()
+            if out == b'':
+                err = err.decode()
+                print(err)
+                raise KaldiProcessError('Copy feat defeated.')
+            else:
+                if sys.getsizeof(out) > 10000000000:
+                    print('Warning: Data is extramely large. It could not be used correctly sometimes.') 
+                allData.append(out)
+    
+        return KaldiArk(b''.join(allData))
 
 # ---------- Decode Funtions -----------
 
