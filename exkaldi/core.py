@@ -420,7 +420,7 @@ class KaldiArk(bytes):
             else:
                 newData = self
             for other in others:
-                with tempfile.NamedTemporaryFile(mode='w+b') as fn:
+                with tempfile.NamedTemporaryFile(mode='w+b',encoding='utf-8') as fn:
                     otherDtype = other.dtype
                     if otherDtype == 'int32':
                         other = other.to_dtype('float32')
@@ -1501,7 +1501,7 @@ class KaldiLattice(object):
                     else:
                         return (outFile, outAliFile)
             else:
-                with tempfile.NamedTemporaryFile('w+') as outAliFile:
+                with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as outAliFile:
                     cmd += KALDIROOT+'/src/latbin/nbest-to-linear ark:- ark:{} "ark,t:|{}/egs/wsj/s5/utils/int2sym.pl -f 2- {} > {}"'.format(outAliFile.name,KALDIROOT,self._word2id,outFile)
                     if requreCost:
                         outCostFile = outFile+'.cost'
@@ -1517,8 +1517,8 @@ class KaldiLattice(object):
                     else:
                         return outFile
         else:
-            with tempfile.NamedTemporaryFile('w+') as outCostFile_lm:  
-                with tempfile.NamedTemporaryFile('w+') as outCostFile_ac:
+            with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as outCostFile_lm:  
+                with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as outCostFile_ac:
                     if outAliFile != None:
                         assert isinstance(outAliFile,str), 'Expected string-like alignment file name but got {}.'.format(outAliFile)
                         if not outAliFile.endswith('.gz'):
@@ -1529,7 +1529,7 @@ class KaldiLattice(object):
                         p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
                         (out,err) = p.communicate(input=self._lat)
                     else:
-                        with tempfile.NamedTemporaryFile('w+') as outAliFile:
+                        with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as outAliFile:
                             cmd += KALDIROOT+'/src/latbin/nbest-to-linear ark:- ark:{} "ark,t:|{}/egs/wsj/s5/utils/int2sym.pl -f 2- {}"'.format(outAliFile.name,KALDIROOT,self._word2id)    
                             if requreCost:
                                 cmd += ' ark,t:{} ark,t:{}'.format(outCostFile_lm.name,outCostFile_ac.name)
@@ -1882,7 +1882,7 @@ class DataIterator(object):
         if chunks == 'auto':
             #Compute the chunks automatically
             sampleChunk = random.sample(self.allFiles,10)
-            with tempfile.NamedTemporaryFile('w',suffix='.scp') as sampleFile:
+            with tempfile.NamedTemporaryFile('w',encoding='utf-8',suffix='.scp') as sampleFile:
                 sampleFile.write('\n'.join(sampleChunk))
                 sampleFile.seek(0)
                 sampleChunkData = load(sampleFile.name)
@@ -2064,7 +2064,7 @@ class DataIterator(object):
         if otherArgs == None:
             otherArgs = self.otherArgs
 
-        with tempfile.NamedTemporaryFile('w',suffix='.scp') as validScpFile:
+        with tempfile.NamedTemporaryFile('w',encoding='utf-8',suffix='.scp') as validScpFile:
             validScpFile.write('\n'.join(self.validFiles))
             validScpFile.seek(0)                
             validIterator = DataIterator(validScpFile.name,processFunc,batchSize,chunks,otherArgs,shuffle,0)
@@ -2557,7 +2557,7 @@ def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,outFile=No
     else:
         raise UnsupportedDataType("Expected KaldiArk KaldiDict but got {}.".format(type(feat)))
 
-    fw = tempfile.NamedTemporaryFile('w+b',suffix='ark')
+    fw = tempfile.NamedTemporaryFile('w+b',encoding='utf-8',suffix='ark')
 
     try:
         if cmvnStatFile == None:
@@ -3331,7 +3331,7 @@ def wer(ref,hyp,mode='present',ignore=None, p=True):
 
         out2 = out2.decode()
 
-    with tempfile.NamedTemporaryFile('w+') as fw:
+    with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as fw:
         fw.write(out2)
         fw.seek(0)
         cmd = 'compute-wer --text --mode={} ark:{} ark,p:-'.format(mode,fw.name)
