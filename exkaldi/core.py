@@ -1376,7 +1376,7 @@ class KaldiLattice(object):
                 if not os.path.isfile('{}.{}'.format(outFile,LMWT)):
                     err = err.decode()
                     logFile = '{}.{}.log'.format(outFile,LMWT)
-                    with open(logFile,'w') as fw:
+                    with open(logFile,'w',encoding='utf-8') as fw:
                         fw.write(err)
                     raise KaldiProcessError('Lattice to 1-best Defeated. Look the log file {}.'.format(logFile))
                 else:
@@ -1396,7 +1396,7 @@ class KaldiLattice(object):
                 if out == b'':
                     err = err.decode()
                     logFile = '{}.{}.log'.format(outFile,LMWT)
-                    with open(logFile,'w') as fw:
+                    with open(logFile,'w',encoding='utf-8') as fw:
                         fw.write(err)
                     raise KaldiProcessError('Lattice to 1-best Defeated. Look the log file {}.'.format(logFile))
                 else:
@@ -1624,7 +1624,7 @@ class Supporter(object):
 
         self.logFile = self.outDir+'/train.log'
 
-        with open(self.logFile,'w'):
+        with open(self.logFile,'w',encoding='utf-8'):
             pass
         
         self.lastSavedModel = {}
@@ -1697,7 +1697,7 @@ class Supporter(object):
         #self.log.append('    }')
         #self.log.append(']')
 
-        with open(self.logFile,'a') as fw:
+        with open(self.logFile,'a',encoding='utf-8') as fw:
             fw.write(message + '\n')
         
         # Print to screen
@@ -1811,7 +1811,7 @@ class Supporter(object):
             if not os.path.isfile(logFile):
                 raise PathError('No such file:{}.'.format(logFile))
             else:
-                with open(logFile) as fr:
+                with open(logFile,'r',encoding='utf-8') as fr:
                     lines = fr.readlines()
                 allData = []
                 for line in lines:
@@ -1873,7 +1873,7 @@ class DataIterator(object):
 
         temp = []
         for scpFile in out:
-            with open(scpFile,'r') as fr:
+            with open(scpFile,'r',encoding='utf-8') as fr:
                 temp.extend(fr.read().strip().split('\n'))
         K = int(len(temp)*(1-validDataRatio))
         self.validFiles = temp[K:]
@@ -3145,7 +3145,7 @@ def split_file(filePath,chunks=2):
     if not os.path.isfile(filePath):
         raise PathError("No such file:{}.".format(filePath))
 
-    with open(filePath) as fr:
+    with open(filePath,'r',encoding='utf-8') as fr:
         data = fr.readlines()
     lines = len(data)
     chunkLines = lines//chunks
@@ -3170,7 +3170,7 @@ def split_file(filePath,chunks=2):
             chunkData = data[i*(chunkLines+1):(i+1)*(chunkLines+1)]
         else:
             chunkData = data[i*chunkLines:(i+1)*chunkLines]
-        with open(newFile%(i),'w') as fw:
+        with open(newFile%(i),'w',encoding='utf-8') as fw:
             fw.write(''.join(chunkData))
         files.append(newFile%(i))
     
@@ -3278,7 +3278,7 @@ def wer(ref,hyp,mode='present',ignore=None, p=True):
         if isinstance(hyp,list):
             out1 = "\n".join(hyp)
         elif isinstance(hyp,str) and os.path.isfile(hyp):
-            with open(hyp,'r') as fr:
+            with open(hyp,'r',encoding='utf-8') as fr:
                 out1 = fr.read()
         else:
             raise UnsupportedDataType('Hyp is not a result-list or file avalible.')
@@ -3291,7 +3291,7 @@ def wer(ref,hyp,mode='present',ignore=None, p=True):
         if isinstance(ref,list):
             out2 = "\n".join(ref)
         elif isinstance(ref,str) and os.path.isfile(ref):
-            with open(ref,'r') as fr:
+            with open(ref,'r',encoding='utf-8') as fr:
                 out2 = fr.read()
         else:
             raise UnsupportedDataType('Ref is not a result-list or file avalible.')
