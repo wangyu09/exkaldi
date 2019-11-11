@@ -2036,14 +2036,14 @@ class DataIterator(object):
         if self._isNewEpoch is True:
             return 1.
         else:
-            return float('%.2f'%(self.currentEpochPosition/self.epochSize))
+            return self.currentEpochPosition/self.epochSize
     
     @property
     def chunkProgress(self):
         if self._isNewChunk is True:
             return 1.
         else:
-            return float('%.2f'%(self.currentPosition/len(self.currentDataset)))
+            return self.currentPosition/len(self.currentDataset)
 
     def getValiData(self,processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False):
 

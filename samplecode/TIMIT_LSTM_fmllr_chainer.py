@@ -1,7 +1,35 @@
 ####################### Version Information ################################
-# DNN sample model based on: exkaldi V1.8 and chainer
-# WangYu, University of Yamanashi 
-# Oct 16, 2019
+# LSTM example model based on: exkaldi V0.1 and chainer V5.3
+# Yu Wang, University of Yamanashi 
+# Nov 9, 2019
+############################################################################
+
+############################################################################
+# Before you run this script, the follow files are expected to have:
+
+# 1,Fmllr Data file: 
+#                    < TIMIT Root Path >/data-fmllr-tri3/train/feats.scp. 
+#                    < TIMIT Root Path >/data-fmllr-tri3/dev/feats.scp. 
+#                    < TIMIT Root Path >/data-fmllr-tri3/test/feats.scp. 
+# You can obtain it by runing: 
+#                    <TIMIT Root Path>/local/nnet/run_dnn.sh
+
+# 2, Alignment file: 
+#                    < TIMIT Root Path >/exp/dnn4_pretrain-dbn_dnn_ali/ali.*.gz. 
+#                    < TIMIT Root Path >/exp/dnn4_pretrain-dbn_dnn_ali_dev/ali.*.gz. 
+# You can obtain it by runing: 
+#                    <TIMIT Root Path>/steps/nnet/align.sh --nj 4 data-fmllr-tri3/train data/lang exp/dnn4_pretrain-dbn_dnn exp/dnn4_pretrain-dbn_dnn_ali
+#                    <TIMIT Root Path>/steps/nnet/align.sh --nj 4 data-fmllr-tri3/dev data/lang exp/dnn4_pretrain-dbn_dnn exp/dnn4_pretrain-dbn_dnn_ali_dev
+
+# 3,If using CMVN, please prepare CMVN state file: 
+#                    < TIMIT Root Path >/data-fmllr-tri3/train/cmvn.ark
+#                    < TIMIT Root Path >/data-fmllr-tri3/dev/cmvn.ark
+#                    < TIMIT Root Path >/data-fmllr-tri3/test/cmvn.ark
+# You can obtain it by runing: 
+#                    <TIMIT Root Path>/local/nnet/run_dnn.sh
+# Or compute them with exkaldi tool:
+#                    exkaldi.compute_cmvn_stats
+#
 ############################################################################
 
 from __future__ import print_function
@@ -19,7 +47,7 @@ parser.add_argument('--decodeMode', type=bool, default=False, help='If false, ru
 parser.add_argument('--TIMITpath', '-t', type=str, default='/kaldi/egs/timit/demo', help='Kaldi timit rescipe folder')
 parser.add_argument('--randomSeed', '-r', type=int, default=1234)
 parser.add_argument('--batchSize', '-b', type=int, default=8)
-parser.add_argument('--gpu', '-g', type=int, default=0, help='GPU id (We defaultly use gpu)')
+parser.add_argument('--gpu', '-g', type=int, default=0, help='GPU id (Negative number stands for CPU)')
 parser.add_argument('--epoch', '-e', type=int, default=20)
 parser.add_argument('--layer', '-l', type=int, default=4)
 parser.add_argument('--hiddenNode', '-hn', type=int, default=512)
@@ -180,7 +208,7 @@ def train_model():
         datas,_ = datas.merge(keepDim=True,sort=True)
         return datas
     # Make data iterator
-    train = E.DataIterator(trainScpFile,loadChunkData,args.batchSize,chunks=5,shuffle=True,otherArgs=(trainUttSpk,trainCmvnState,trainLabelPdf,trainLabelPho,'train'))
+    train = E.DataIterator(trainScpFile,loadChunkData,args.batchSize,chunks=5,shuffle=False,otherArgs=(trainUttSpk,trainCmvnState,trainLabelPdf,trainLabelPho,'train'))
     print('Generate train dataset done. Chunks:{} / Batch size:{}'.format(train.chunks,train.batchSize))
     dev = E.DataIterator(devScpFile,loadChunkData,args.batchSize,chunks=1,shuffle=False,otherArgs=(devUttSpk,devCmvnState,devLabelPdf,devLabelPho,'dev'))
     print('Generate validation dataset done. Chunks:{} / Batch size:{}.'.format(dev.chunks,dev.batchSize))
@@ -250,7 +278,7 @@ def train_model():
         global args
         # Use decode test data to forward network
         temp = E.KaldiDict()
-        print('Compute Test WER: Forward network',end=" "*50+'\r')
+        print('Computing WER of Test Dataset: Forward network',end=" "*50+'\r')
         with chainer.using_config('train',False),chainer.no_backprop_mode():
             for utt in feat.keys():
                 data = [cp.array(feat[utt],dtype=cp.float32)]
@@ -259,16 +287,16 @@ def train_model():
                 out.to_cpu()
                 temp[utt] = out.array - normalizeBias
         # Tansform KaldiDict to KaldiArk format
-        print('Compute Test WER: Transform to ark',end=" "*50+'\r')
+        print('Computing WER of Test Dataset: Transform to ark',end=" "*50+'\r')
         amp = temp.ark
         # Decode and obtain lattice
         hmm = args.TIMITpath + '/exp/dnn4_pretrain-dbn_dnn_ali_test/final.mdl'
         hclg = args.TIMITpath + '/exp/tri3/graph/HCLG.fst'
         lexicon = args.TIMITpath + '/exp/tri3/graph/words.txt'
-        print('Compute Test WER: Generate Lattice',end=" "*50+'\r')
+        print('Computing WER of Test Dataset: Generate Lattice',end=" "*50+'\r')
         lattice = E.decode_lattice(amp,hmm,hclg,lexicon,args.minActive,args.maxActive,args.maxMemory,args.beam,args.latBeam,args.acwt)
         # Change language weight from 1 to 10, get the 1best words.
-        print('Compute Test WER: Get 1Best',end=" "*50+'\r')
+        print('Computing WER of Test Dataset: Get 1-best words',end=" "*50+'\r')
         outs = lattice.get_1best(lmwt=args.minLmwt,maxLmwt=args.maxLmwt,outFile=args.outDir+'/outRaw.txt')
         # If reference file is not existed, make it.
         phonemap = args.TIMITpath + '/conf/phones.60-48-39.map'
@@ -278,7 +306,7 @@ def train_model():
             cmd = 'cat {} | {} > {}/test_filt.txt'.format(refText,outFilter,args.outDir)
             (_,_) = E.run_shell_cmd(cmd)
         # Score WER and find the smallest one.
-        print('Compute Test WER: compute WER',end=" "*50+'\r')
+        print('Computing WER of Test Dataset: Score WER',end=" "*50+'\r')
         minWER = None
         for k in range(args.minLmwt,args.maxLmwt+1,1):
             cmd = 'cat {} | {} > {}/test_prediction_filt.txt'.format(outs[k],outFilter,args.outDir)
@@ -316,6 +344,7 @@ def train_model():
 
     # Start training loop
     for e in range(args.epoch):
+        print()
         supporter.send_report({'epoch':e})
         i = 1
         usedTime = 0
@@ -337,12 +366,15 @@ def train_model():
             # Compute time cost
             ut = time.time() - start
             usedTime += ut
-            print("Epoch:{} Epoch-progress:{}% Using-chunk:{} Chunk-progress:{}% Iter-times:{} used-seconds:{}s".format(e,100*train.epochProgress,train.chunk,100*train.chunkProgress,i,int(usedTime)),' Speed:%.2fs/iter. (training)'%(1/ut), end=" "*50+'\r')
+            print("(training) Epoch:{}/{}% Chunk:{}/{}% Iter:{} Used-time:{}s Batch-loss:{} Speed:{}iters/s".format(e,int(100*train.epochProgress),train.chunk,int(100*train.chunkProgress),i,int(usedTime),"%.4f"%(float(loss.array)),"%.2f"%(1/ut)), end=" "*5+'\r')
             i += 1
             supporter.send_report({'train_loss':loss,'train_acc':acc})
             # If forward all data, break
             if train.isNewEpoch:
                 break
+        print()
+        i = 1
+        usedTime = 0
         # Validate
         while True:
             start = time.time()
@@ -356,7 +388,7 @@ def train_model():
             # Compute time cost
             ut = time.time() - start
             usedTime += ut
-            print("Epoch:{} Epoch-progress:{}% Using-chunk:{} Chunk-progress:{}% Iter-times:{} used-seconds:{}s".format(e,100*dev.epochProgress,dev.chunk,100*dev.chunkProgress,i,int(usedTime)),' Speed:%.2fs/iter. (Validating)'%(1/ut), end=" "*50+'\r')
+            print("(Validating) Epoch:{}/{}% Chunk:{}/{}% Iter:{} Used-time:{}s Batch-loss:{} Speed:{}iters/s".format(e,int(100*dev.epochProgress),dev.chunk,int(100*dev.chunkProgress),i,int(usedTime),"%.4f"%(float(loss.array)),"%.2f"%(1/ut)), end=" "*5+'\r')
             i += 1
             supporter.send_report({'dev_loss':loss,'dev_acc':acc})
             # If forward all data, break
