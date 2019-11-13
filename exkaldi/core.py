@@ -1846,7 +1846,7 @@ class DataIterator(object):
     It will shuffle the original scp file and split again while new epoch.
 
     '''
-    def __init__(self,scpFiles,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,validDataRatio=0.0):
+    def __init__(self,scpFiles,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,reserveData=0.0):
 
         self.fileProcessFunc = processFunc
         self._batchSize = batchSize
@@ -1875,8 +1875,8 @@ class DataIterator(object):
         for scpFile in out:
             with open(scpFile,'r',encoding='utf-8') as fr:
                 temp.extend(fr.read().strip().split('\n'))
-        K = int(len(temp)*(1-validDataRatio))
-        self.validFiles = temp[K:]
+        K = int(len(temp)*(1-reserveData))
+        self.reservedFiles = temp[K:]
         self.allFiles = temp[0:K]
 
         if chunks == 'auto':
@@ -2045,9 +2045,9 @@ class DataIterator(object):
         else:
             return self.currentPosition/len(self.currentDataset)
 
-    def getValiData(self,processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False):
+    def get_reserved_data(self,processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False,reserveData=0.0):
 
-        if len(self.validFiles) == 0:
+        if len(self.reservedFiles) == 0:
             raise WrongOperation('No reserved validation data.')   
 
         if processFunc == None:
@@ -2064,12 +2064,12 @@ class DataIterator(object):
         if otherArgs == None:
             otherArgs = self.otherArgs
 
-        with tempfile.NamedTemporaryFile('w',encoding='utf-8',suffix='.scp') as validScpFile:
-            validScpFile.write('\n'.join(self.validFiles))
-            validScpFile.seek(0)                
-            validIterator = DataIterator(validScpFile.name,processFunc,batchSize,chunks,otherArgs,shuffle,0)
+        with tempfile.NamedTemporaryFile('w',encoding='utf-8',suffix='.scp') as reScpFile:
+            reScpFile.write('\n'.join(self.reservedFiles))
+            reScpFile.seek(0)  
+            reIterator = DataIterator(reScpFile.name,processFunc,batchSize,chunks,otherArgs,shuffle,reserveData)
 
-        return validIterator
+        return reIterator
 
 # ---------- Basic Class Functions ------- 
 
