@@ -3,7 +3,7 @@
 # University of Yamanashi (Yu Wang, Chee Siang Leow, Hiromitsu Nishizaki, University of Yamanashi)
 # Tsukuba University of Technology (Akio Kobayashi)
 # University of Tsukuba (Takehito Utsuro)
-# Oct, 31, 2019
+# Nov, 13, 2019
 #
 # ExKaldi Automatic Speech Recognition tookit is designed to build a interface between Kaldi and Deep Learning frameworks with Python Language.
 # The main functions are implemented by Kaldi command, and based on this, we developed some extension tools:
@@ -44,7 +44,7 @@ def get_kaldi_path():
         return out.decode().strip()[0:-23]
 
 KALDIROOT = get_kaldi_path()
-kaldiNotFoundError = PathError('Please make sure Kaldi ASR toolkit has been installed correctly.')
+kaldiNotFoundError = PathError('Please make sure Kaldi ASR toolkit has been installed and compiled correctly.')
 
 # ------------ Basic Class ------------
 #DONE
@@ -293,9 +293,7 @@ class KaldiArk(bytes):
                 newMatrix = np.frombuffer(buf, dtype=np.int32)
             else:
                 newMatrix = np.frombuffer(buf, dtype=np.float64)
-            if cols > 1:
-                newMatrix = np.reshape(newMatrix,(rows,cols))
-            newDict[utt] = newMatrix
+            newDict[utt] = np.reshape(newMatrix,(rows,cols))
         sp.close()
         return newDict
     
@@ -657,6 +655,13 @@ class KaldiDict(dict):
     '''
     def __init__(self,*args):
         super(KaldiDict,self).__init__(*args)
+        self.__add_dim_to_1dimData()
+
+    def __add_dim_to_1dimData(self):
+        for utt in self.keys():
+            temp = self[utt]
+            if len(temp.shape) == 1:
+                self[utt] = temp[None,:]
 
     @property
     def dim(self):
@@ -665,15 +670,14 @@ class KaldiDict(dict):
         
         Return an int: feature dimensional. If it is alignment data, dim will be 1.
 
-        '''        
+        '''
         _dim = None
         if len(self.keys()) != 0:
             utt = list(self.keys())[0]
-            shape = self[utt].shape
-            if len(shape) == 1:
-                _dim = 1
-            else:
-                _dim = shape[1]
+            matrix = self[utt]
+            if len(matrix.shape) == 1:
+                self.__add_dim_to_1dimData()
+            _dim = matrix.shape[1]
         return _dim
 
     @property
@@ -686,7 +690,10 @@ class KaldiDict(dict):
         '''        
         if self.dtype == 'int32':
             maxValue = None
-            for utt,matrix in self.items():
+            for utt in self.keys():
+                matrix = self[utt] 
+                if len(matrix.shape) == 1:
+                    self[utt] = matrix[None,:]
                 t = np.max(matrix)
                 if maxValue == None or t > maxValue:
                     maxValue = t
@@ -708,6 +715,8 @@ class KaldiDict(dict):
         if len(allUtts) != 0:
             _lens = []
             for utt in allUtts:
+                if len(self[utt].shape) == 1:
+                    self[utt] = self[utt][None,:]
                 _lens.append(len(self[utt]))
         if _lens == None:
             return (0,None)
@@ -725,7 +734,9 @@ class KaldiDict(dict):
         _dtype = None
         if len(self.keys()) != 0:
             utt = list(self.keys())[0]
-            _dtype = str(self[utt].dtype)            
+            _dtype = str(self[utt].dtype)   
+            if len(self[utt].shape) == 1:
+                self.__add_dim_to_1dimData() 
         return _dtype
     
     def to_dtype(self,dtype):
@@ -734,7 +745,8 @@ class KaldiDict(dict):
         
         Return a new KaldiArk object. 'float' will be treated as 'float32' and 'int' will be 'int32'.
 
-        '''        
+        '''
+        self.__add_dim_to_1dimData()      
         if self.dtype != dtype:
             assert dtype in ['int','int32','float','float32','float64'],'Expected dtype==<int><int32><float><float32><float64> but got {}.'.format(dtype)
             if dtype == 'int': 
@@ -755,7 +767,9 @@ class KaldiDict(dict):
         
         Return a list: including all utterance id.
 
-        '''        
+        '''
+        self.__add_dim_to_1dimData()
+
         return list(self.keys())
     
     def check_format(self):
@@ -767,6 +781,7 @@ class KaldiDict(dict):
         '''        
         if len(self.keys()) != 0:
             _dim = 'unknown'
+            self.__add_dim_to_1dimData()
             for utt in self.keys():
                 if not isinstance(utt,str):
                     raise WrongDataFormat('Expected <utt id> is str but got {}.'.format(type(utt)))
@@ -774,17 +789,12 @@ class KaldiDict(dict):
                     raise WrongDataFormat('Exprcted numpy ndarray but got {}.'.format(type(self[utt])))
                 matrixShape = self[utt].shape
                 if len(matrixShape) > 2:
-                    raise WrongDataFormat('Expected matrix shape=[Frames,Feature-dims] or [Frames] but got {}.'.format(matrixShape))
+                    raise WrongDataFormat('Expected matrix shape=[frames,dims] or [dims] but got {}.'.format(matrixShape))
                 if len(matrixShape) == 2:
                     if _dim == 'unknown':
                         _dim = matrixShape[1]
                     elif matrixShape[1] != _dim:
                         raise WrongDataFormat("Expected uniform data dim {} but got {} at utt {}.".format(_dim,matrixShape[1],utt))
-                else:
-                    if _dim == 'unknown':
-                        _dim = 1
-                    elif _dim != 1:
-                        raise WrongDataFormat("Expected uniform data dim {} but got 1-dim data at utt {}.".format(_dim,utt))
             return True
         else:
             return False
@@ -796,7 +806,9 @@ class KaldiDict(dict):
         
         Return a KaldiArk object. Transform numpy array data into ark binary data.
 
-        '''    
+        '''
+        self.__add_dim_to_1dimData()  
+        
         totalSize = 0
         for u in self.keys():
             totalSize += sys.getsizeof(self[u])
@@ -807,8 +819,6 @@ class KaldiDict(dict):
         for utt in self.keys():
             data = b''
             matrix = self[utt]
-            if len(matrix.shape) == 1:
-                matrix = matrix[:,np.newaxis]
             data += (utt+' ').encode()
             data += '\0B'.encode()
             if matrix.dtype == 'float32':
@@ -834,7 +844,7 @@ class KaldiDict(dict):
         
         Save as .npy file. If chunks is larger than 1, split it averagely and save them.
 
-        '''          
+        '''      
         if len(self.keys()) == 0:
             raise WrongOperation('No data to save.')
 
@@ -888,6 +898,9 @@ class KaldiDict(dict):
         if self.dim != other.dim:
             raise WrongDataFormat('Expected unified dim but {}!={}.'.format(self.dim,other.dim))
 
+        self.__add_dim_to_1dimData()
+        other.__add_dim_to_1dimData()
+
         temp = self.copy()
         selfUtts = list(self.keys())
         for utt in other.keys():
@@ -901,6 +914,7 @@ class KaldiDict(dict):
         
         Return a new KaldiDict object. obj2,obj3... can be KaldiArk or KaldiDict objects.
         Note that only these utterance ids which appeared in all objects can be retained in concat result. 
+        When one member of the data only has a dim or only have one frames and axis is 1, it will be concatenated to all frames.
 
         ''' 
         if axis != 1 and axis != 0:
@@ -916,37 +930,55 @@ class KaldiDict(dict):
                 others[index] = other.array       
             else:
                 raise UnsupportedDataType('Excepted KaldiArk KaldiDict but got {}.'.format(type(other))) 
-        
+
         newDict = KaldiDict()
         for utt in self.keys():
             newMat=[]
+
+            adjustFrameIndexs = []
+
             if len(self[utt].shape) == 1:
-                newMat.append(self[utt][:,np.newaxis])
-            else:
-                newMat.append(self[utt])
+                self[utt] = self[utt][None,:]
+            if self[utt].shape[0] == 1:
+                adjustFrameIndexs.append(0)
+            maxFrames = self[utt].shape[0]
+            #    newMat.append(self[utt][:,np.newaxis])
+            #else:
+            newMat.append(self[utt])
             length = self[utt].shape[0]
             dim = self[utt].shape[1]
-            for other in others:
+            
+            for index,other in enumerate(others,start=1):
                 if utt in other.keys():
-                    temp = other[utt]
-                    if len(temp.shape) == 1:
-                        temp = temp[:,np.newaxis]
-                    if axis == 1 and temp.shape[0] != length:
-                        raise WrongDataFormat("Feature frames {}!={} at utt {}.".format(length,temp.shape[0],utt))
-                    elif axis == 0 and temp.shape[1] != dim:
-                        raise WrongDataFormat("Feature dims {}!={} on utt {}.".format(dim,temp.shape[1],utt))
-                    else:
-                        newMat.append(temp)                 
+                    if len(other[utt].shape) == 1:
+                        other[utt] = other[utt][None,:]
+                    if other[utt].shape[0] == 1:
+                        adjustFrameIndexs.append(index)
+                    if other[utt].shape[0] > maxFrames:
+                        maxFrames = other[utt].shape[0]
+
+                    if axis == 1:
+                        if other[utt].shape[0] == 1:
+                            pass
+                        elif other[utt].shape[0] != length:
+                            raise WrongDataFormat("Feature frames {}!={} at utt {}.".format(length,other[utt].shape[0],utt))
+                    elif axis == 0 and other[utt].shape[1] != dim:
+                        raise WrongDataFormat("Feature dims {}!={} on utt {}.".format(dim,other[utt].shape[1],utt))
+                    
+                    newMat.append(other[utt])              
                 else:
                     #print("Concat Warning: Miss data of utt id {} in later dict".format(utt))
                     break
             if len(newMat) < len(others) + 1:
                 #If any member miss the data of current utt id, abandon data of this utt id of all menbers
-                continue 
-            newMat = np.concatenate(newMat,axis=axis)
-            if newMat.shape[1] == 1:
-                newMat = newMat.reshape(-1)
-            newDict[utt] = newMat
+                continue
+            if len(adjustFrameIndexs) > 0:
+                for index in adjustFrameIndexs:
+                    new = []
+                    for i in range(maxFrames):
+                        new.append(newMat[index][0])
+                    newMat[index] = np.row_stack(new)
+            newDict[utt] = np.concatenate(newMat,axis=axis)
         return newDict
 
     def splice(self,left=4,right=None):
@@ -962,13 +994,13 @@ class KaldiDict(dict):
         matrixes = []
         utts = self.keys()
 
-        matrixes.append(utts[0][0:left,:])
-        for utt in utts:
+        for utt in self.keys():
+            if len(self[utt].shape) == 1:
+                self[utt] = self[utt][None,:]
             lengths.append((utt,len(self[utt])))
             matrixes.append(self[utt])
-        matrixes.append(utts[-1][(0-right):,:])
 
-        matrixes = np.concatenate(matrixes,axis=0)
+        matrixes = np.concatenate([matrixes[0][0:left,:],*matrixes,matrixes[-1][(0-right):,:]],axis=0)
         N = matrixes.shape[0]
         dim = matrixes.shape[1]
 
@@ -1011,20 +1043,22 @@ class KaldiDict(dict):
                     selectFlag.extend([x for x in range(int(i[0]),int(i[1])+1)])
         else:
             raise WrongOperation('Expected int or string like 1,4-9,12 but got {}.'.format(type(dims)))
-        
+
         reserveFlag = list(set(selectFlag))
         seleDict = KaldiDict()
         if reserve:
             reseDict = KaldiDict()
         for utt in self.keys():
+            if len(self[utt].shape) == 1:
+                self[utt] = self[utt][None,:]
             newMat = []
             for index in selectFlag:
                 newMat.append(self[utt][:,index][:,np.newaxis])
             newMat = np.concatenate(newMat,axis=1)
             seleDict[utt] = newMat
             if reserve:
-                reseDict[utt] = np.delete(self[utt],reserveFlag,1)
-
+                matrix = self[utt].copy()
+                reseDict[utt] = np.delete(matrix,reserveFlag,1)
         if reserve:
             return seleDict,reseDict
         else:
@@ -1040,6 +1074,8 @@ class KaldiDict(dict):
         Or If uttList != None, select utterances if appeared in obj. Return selected data.
         
         ''' 
+        self.__add_dim_to_1dimData()
+
         if nHead > 0:
             newDict = KaldiDict()
             utts = list(self.keys())
@@ -1102,6 +1138,8 @@ class KaldiDict(dict):
 
         assert by=='frame' or by=='name', 'We only support sorting by <name> or <frame>.'
 
+        self.__add_dim_to_1dimData()
+
         items = self.items()
 
         if by == 'name':
@@ -1126,7 +1164,10 @@ class KaldiDict(dict):
         ''' 
         uttLens = []
         matrixs = []
-        if sort:
+
+        self.__add_dim_to_1dimData()
+
+        if sort:          
             items = sorted(self.items(), key=lambda x:len(x[1]))
         else:
             items = self.items()
@@ -1134,7 +1175,7 @@ class KaldiDict(dict):
             uttLens.append((utt,len(mat)))
             matrixs.append(mat)
         if not keepDim:
-            matrixs = np.concatenate(matrixs,axis=0)
+            matrixs = np.row_stack(matrixs)
         return matrixs,uttLens
 
     def remerge(self,matrix,uttLens):
@@ -1211,6 +1252,8 @@ class KaldiDict(dict):
         cutThreshold = maxFrames + maxFrames//4
 
         for key in self.keys():
+            if len(self[key].shape) == 1:
+                self[key] = self[key][None,:]
             matrix = self[key]
             if len(matrix) <= cutThreshold:
                 newData[key] = matrix
@@ -1225,6 +1268,49 @@ class KaldiDict(dict):
                     newData[key+"_"+str(i)] = matrix[i*maxFrames:]
         
         return KaldiDict(newData)
+
+    def tuple_value(self,others,sort=False):
+        '''
+        Useage:  data = obj1.tuple_value(obj1)
+        
+        Return a list.
+        Tuple the data of the same utt from different Kaldidict or KaldiArk objects.
+        If <sort> is True, sort the data by frames length.
+        '''         
+
+        if not isinstance(others,(list,tuple)):
+            others = [others,]
+
+        for index,other in enumerate(others):
+            if isinstance(other,KaldiDict):                   
+                pass
+            elif isinstance(other,KaldiArk):
+                others[index] = other.array       
+            else:
+                raise UnsupportedDataType('Excepted KaldiArk KaldiDict but got {}.'.format(type(other)))
+
+        new = []
+        for utt in self.keys():
+            if len(self[utt].shape) == 1:
+                self[utt] = self[utt][None,:]
+            temp = (self[utt],)
+            for other in others:
+                if len(other[utt].shape) == 1:
+                    other[utt] = other[utt][None,:]
+                if not utt in other:
+                    break
+                else:
+                    temp += (other[utt],)
+            if len(temp) < len(others) + 1:
+                continue
+            else:
+                new.append(temp)
+        
+        if sort is True:
+            new = sorted(new, key=lambda x:len(x[0]))
+        
+        return new
+
 #DONE
 class KaldiLattice(object):
     '''
@@ -2801,7 +2887,7 @@ def get_ali(aliFile,hmm=None,returnPhone=False):
             line = line.decode()
             line = line.strip().split()
             utt = line[0]
-            matrix = np.array(line[1:],dtype=np.int32)
+            matrix = np.array(line[1:],dtype=np.int32)[:,None]
             ali_dict[utt] = matrix
         return KaldiDict(ali_dict)
 
