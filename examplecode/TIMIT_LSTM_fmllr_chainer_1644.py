@@ -1,7 +1,7 @@
 ####################### Version Information ################################
-# DNN example model based on: exkaldi V0.1 and chainer V5.3
+# LSTM example model based on: exkaldi V0.1 and chainer V5.3
 # Yu Wang, University of Yamanashi 
-# Nov 7, 2019
+# Nov 11, 2019
 ############################################################################
 
 ############################################################################
@@ -37,85 +37,90 @@ import exkaldi as E
 import chainer
 import chainer.functions as F
 import chainer.links as L
-import numpy as np, cupy as cp
 import random
+import numpy as np
 import os, datetime, socket, time
 import argparse
 
-parser = argparse.ArgumentParser(description='DNN Acoustic model on TIMIT corpus')
+parser = argparse.ArgumentParser(description='LSTM Acoustic model on TIMIT corpus')
 parser.add_argument('--decodeMode', type=bool, default=False, help='If false, run train recipe.')
-parser.add_argument('--TIMITpath', '-t', type=str, default='/kaldi/egs/timit/demo', help='Kaldi timit rescipe folder')
+parser.add_argument('--TIMITpath', '-t', type=str, default='/misc/Work18/wangyu/kaldi/egs/timit/demo', help='Kaldi timit rescipe folder')
 parser.add_argument('--randomSeed', '-r', type=int, default=1234)
-parser.add_argument('--batchSize', '-b', type=int, default=128)
-parser.add_argument('--gpu', '-g', type=int, default=0, help='GPU id (We defaultly use gpu)')
-parser.add_argument('--epoch', '-e', type=int, default=30)
-parser.add_argument('--outDir','-o', type=str, default='TIMIT_DNN_fmllr_exp')
-parser.add_argument('--useCMVN', '-u', type=bool, default=False)
-parser.add_argument('--splice', '-s', type=int, default=10)
+parser.add_argument('--batchSize', '-b', type=int, default=8)
+parser.add_argument('--gpu', '-g', type=int, default=0, help='GPU id (Negative number stands for CPU)')
+parser.add_argument('--epoch', '-e', type=int, default=10)
+parser.add_argument('--layer', '-l', type=int, default=4)
+parser.add_argument('--hiddenNode', '-hn', type=int, default=512)
+parser.add_argument('--dropout', '-do', type=float, default=0)
+parser.add_argument('--outDir','-o', type=str, default='TIMIT_LSTM_fmllr_exp')
+parser.add_argument('--useCMVN', '-u', type=bool, default=True)
+parser.add_argument('--splice', '-s', type=int, default=0)
 parser.add_argument('--delta', '-d', type=int, default=2)
-parser.add_argument('--normalizeChunk', '-nc', type=bool, default=True)
-parser.add_argument('--normalizeAMP', '-no', type=bool, default=False)
+parser.add_argument('--normalizeChunk', '-nC', type=bool, default=True)
+parser.add_argument('--normalizeAMP', '-nA', type=bool, default=True)
 parser.add_argument('--minActive', '-minA', type=int, default=200)
 parser.add_argument('--maxActive', '-maxA', type=int, default=7000)
 parser.add_argument('--maxMemory', '-maxM', type=int, default=50000000)
 parser.add_argument('--beam', '-beam', type=int, default=13)
 parser.add_argument('--latBeam', '-latB', type=int, default=8)
-parser.add_argument('--acwt', '-acwt', type=float, default=0.2)
+parser.add_argument('--acwt', '-acwt', type=float, default=1.0)
 parser.add_argument('--minLmwt', '-minL', type=int, default=1)
-parser.add_argument('--maxLmwt', '-maxL', type=int, default=10)
+parser.add_argument('--maxLmwt', '-maxL', type=int, default=15)
 parser.add_argument('--preModel', '-p', type=str, default='')
 args = parser.parse_args()
 
 if args.outDir.endswith('/'):
     args.outDir = args.outDir[0:-1]
+
+if args.TIMITpath.endswith('/'):
+    args.TIMITpath = args.TIMITpath[0:-1]
+
 if not os.path.isdir(args.outDir):
     os.mkdir(args.outDir)
 
 random.seed(args.randomSeed)
 np.random.seed(args.randomSeed)
-cp.random.seed(args.randomSeed)
 chainer.configuration.config.deterministic = True
 chainer.configuration.config.cudnn_deterministic = True
 
-class MLP(chainer.Chain):
-    def __init__(self,inputDim,outDimPdf,outDimPho):
-        super(MLP,self).__init__()
+if args.gpu >= 0:
+    import cupy as cp
+    cp.random.seed(args.randomSeed)
+else:
+    cp = np
+
+class LSTM(chainer.Chain):
+    def __init__(self,inputDim, outDimPdf, outDimPho):
+        super(LSTM,self).__init__()
         with self.init_scope():
+            
+            global args
 
-            initializerW = None
-            initializerBias = None
+            self.nl = L.NStepBiLSTM(args.layer,inputDim,args.hiddenNode,args.dropout)
 
-            self.ln1 = L.Linear(inputDim,1024,nobias=True,initialW=initializerW)
-            self.bn1 = L.BatchNormalization(1024,0.95)
+            self.bn = L.BatchNormalization(args.hiddenNode*2,0.95)
 
-            self.ln2 = L.Linear(1024,1024,nobias=True,initialW=initializerW)
-            self.bn2 = L.BatchNormalization(1024,0.95)
+            #for param in self.params():
+            #    param.array[...] = np.random.uniform(-0.1, 0.1, param.shape)
 
-            self.ln3 = L.Linear(1024,1024,nobias=True,initialW=initializerW)
-            self.bn3 = L.BatchNormalization(1024,0.95) 
-
-            self.ln4 = L.Linear(1024,1024,nobias=True,initialW=initializerW)
-            self.bn4 = L.BatchNormalization(1024,0.95) 
-
-            self.ln5 = L.Linear(1024,1024,nobias=True,initialW=initializerW)
-            self.bn5 = L.BatchNormalization(1024,0.95) 
-
-            self.ln7 = L.Linear(1024,outDimPdf,initialW=initializerW,initial_bias=initializerBias) 
-
-            self.ln8 = L.Linear(1024,outDimPho,initialW=initializerW,initial_bias=initializerBias)
+            initializerW = None #chainer.initializers.HeNormal()
+            initializerBias = None #chainer.initializers.Zero()
+            
+            self.ln1 = L.Linear(None,outDimPdf,initialW=initializerW,initial_bias=initializerBias)
+            self.ln2 = L.Linear(None,outDimPho,initialW=initializerW,initial_bias=initializerBias)
 
     def __call__(self,x):
 
-        h = F.dropout(F.relu(self.bn1(self.ln1(x))),0.15)
-        h = F.dropout(F.relu(self.bn2(self.ln2(h))),0.15)
-        h = F.dropout(F.relu(self.bn3(self.ln3(h))),0.15)
-        h = F.dropout(F.relu(self.bn4(self.ln4(h))),0.15)
-        h = F.dropout(F.relu(self.bn5(self.ln5(h))),0.15)
+        hy, cy, ys = self.nl(None,None,x)
 
-        h1 = self.ln7(h)
-        h2 = self.ln8(h)
+        h = F.concat(ys,axis=0)
 
-        return h1,h2
+        h = self.bn(h)
+
+        h1 = self.ln1(h)
+        h2 = self.ln2(h)
+
+        return h1 ,h2
 
 def train_model():
 
@@ -134,6 +139,9 @@ def train_model():
     configLog('GPU ID:{}'.format(args.gpu),f)
     configLog('Train Epochs:{}'.format(args.epoch),f)
     configLog('Output Folder:{}'.format(args.outDir),f)
+    configLog('LSTM layers:{}'.format(args.layer),f)
+    configLog('LSTM hidden nodes:{}'.format(args.hiddenNode),f)
+    configLog('LSTM dropout:{}'.format(args.dropout),f)
     configLog('Use CMVN:{}'.format(args.useCMVN),f)
     configLog('Splice N Frames:{}'.format(args.splice),f)
     configLog('Add N Deltas:{}'.format(args.delta),f)
@@ -149,7 +157,7 @@ def train_model():
     configLog('Decode maximum Language Weight:{}'.format(args.maxLmwt),f) 
     f.close()
 
-    print("\n############## Train DNN Acoustic Model ##############")
+    print("\n############## Train LSTM Acoustic Model ##############")
 
     #------------------------ STEP 1: Prepare Train and Validation Data -----------------------------
 
@@ -176,32 +184,44 @@ def train_model():
     devCmvnState = args.TIMITpath + '/data-fmllr-tri3/dev/cmvn.ark'    
     # Design a process function
     def loadChunkData(iterator, feat, otherArgs):
-        # <feat> is a KaldiArk object
+        # <feat> is KaldiArk object
         global args
-        uttSpk, cmvnState, labelPdf, labelPho = otherArgs
+        uttSpk, cmvnState, labelPdf, labelPho, toDo = otherArgs
         # use CMVN
-        if args.useCMVN:
+        if args.useCMVN: 
             feat = E.use_cmvn(feat,cmvnState,uttSpk)
         # Add delta
-        if args.delta > 0:  
+        if args.delta > 0:
             feat = E.add_delta(feat,args.delta)
         # Splice front-back n frames
-        if args.splice > 0:   
+        if args.splice > 0: 
             feat = feat.splice(args.splice)
-        # Transform to KaldiDict
+        # Transform to KaldiDict and sort them by frame length
         feat = feat.array
         # Normalize
-        if args.normalizeChunk:   
+        if args.normalizeChunk: 
             feat = feat.normalize()
-        # Concatenate label           
+        # Concatenate label
         datas = feat.concat([labelPdf,labelPho],axis=1)
+        # cut frames
+        if toDo == 'train':
+            if iterator.epoch >= 4:
+                datas = datas.cut(1000)
+            elif iterator.epoch >= 3:
+                datas = datas.cut(800)
+            elif iterator.epoch >= 2:
+                datas = datas.cut(400)
+            elif iterator.epoch >= 1:
+                datas = datas.cut(200)
+            elif iterator.epoch >= 0:
+                datas = datas.cut(100)
         # Transform trainable numpy data
-        datas,_ = datas.merge(keepDim=False,sort=False)
+        datas,_ = datas.merge(keepDim=True,sort=True)
         return datas
     # Make data iterator
-    train = E.DataIterator(trainScpFile,loadChunkData,args.batchSize,chunks=5,shuffle=True,otherArgs=(trainUttSpk,trainCmvnState,trainLabelPdf,trainLabelPho))
+    train = E.DataIterator(trainScpFile, loadChunkData, args.batchSize, chunks=5, shuffle=False, otherArgs=(trainUttSpk,trainCmvnState,trainLabelPdf,trainLabelPho,'train'))
     print('Generate train dataset done. Chunks:{} / Batch size:{}'.format(train.chunks,train.batchSize))
-    dev = E.DataIterator(devScpFile,loadChunkData,args.batchSize,chunks=1,shuffle=False,otherArgs=(devUttSpk,devCmvnState,devLabelPdf,devLabelPho))
+    dev = E.DataIterator(devScpFile, loadChunkData, args.batchSize, chunks=1, shuffle=False, otherArgs=(devUttSpk,devCmvnState,devLabelPdf,devLabelPho,'dev'))
     print('Generate validation dataset done. Chunks:{} / Batch size:{}.'.format(dev.chunks,dev.batchSize))
     
     #--------------------------------- STEP 2: Prepare Model --------------------------
@@ -213,14 +233,16 @@ def train_model():
         featDim *= (args.delta + 1)
     if args.splice > 0:
         featDim *= ( 2 * args.splice + 1 ) 
-    #model = MLP(featDim,trainLabelPdf.targets,trainLabelPho.targets)
-    model = MLP(featDim, trainLabelPdf.targets, trainLabelPho.targets)
+    print()
+    model = LSTM(featDim, trainLabelPdf.target, trainLabelPho.target)
     if args.gpu >=0:
         model.to_gpu(args.gpu)
     # Initialize model
-    lr = [(0,0.08),(10,0.04),(15,0.02),(17,0.01),(19,0.005),(22,0.0025),(25,0.001)]
+    #lr = [(0,0.5),(10,0.25),(15,0.125),(17,0.07),(19,0.035),(22,0.02),(25,0.01)]
+    lr = [(0,0.0004)]
     print('Learning Rate (epoch,newLR):',lr)
-    optimizer = chainer.optimizers.MomentumSGD(lr[0][1],momentum=0.0)
+    optimizer = chainer.optimizers.RMSprop(lr=lr[0][1],alpha=0.95, eps=1e-8)
+    #optimizer = chainer.optimizers.MomentumSGD(lr[0][1],momentum=0.0)
     lr.pop(0)
     optimizer.setup(model)
     optimizer.add_hook(chainer.optimizer_hooks.WeightDecay(0.0))
@@ -264,29 +286,29 @@ def train_model():
     else:
         normalizeBias = 0
     # Now Design a function to compute WER score
-    def wer_fun(model,feat,normalizeBias):
+    def wer_fun(model,testFeat,normalizeBias):
         global args
         # Use decode test data to forward network
         temp = E.KaldiDict()
-        print('Compute Test WER: Forward network',end=" "*50+'\r')
+        print('(testing) Forward network',end=" "*20+'\r')
         with chainer.using_config('train',False),chainer.no_backprop_mode():
-            for utt in feat.keys():
-                data = cp.array(feat[utt],dtype=cp.float32)
+            for utt in testFeat.keys():
+                data = [cp.array(testFeat[utt],dtype=cp.float32)]
                 out1,out2 = model(data)
                 out = F.log_softmax(out1,axis=1)
                 out.to_cpu()
                 temp[utt] = out.array - normalizeBias
         # Tansform KaldiDict to KaldiArk format
-        print('Compute Test WER: Transform to ark',end=" "*50+'\r')
+        print('(testing) Transform to ark',end=" "*20+'\r')
         amp = temp.ark
         # Decode and obtain lattice
         hmm = args.TIMITpath + '/exp/dnn4_pretrain-dbn_dnn_ali_test/final.mdl'
         hclg = args.TIMITpath + '/exp/tri3/graph/HCLG.fst'
         lexicon = args.TIMITpath + '/exp/tri3/graph/words.txt'
-        print('Compute Test WER: Generate Lattice',end=" "*50+'\r')
+        print('(testing) Generate Lattice',end=" "*20+'\r')
         lattice = E.decode_lattice(amp,hmm,hclg,lexicon,args.minActive,args.maxActive,args.maxMemory,args.beam,args.latBeam,args.acwt)
         # Change language weight from 1 to 10, get the 1best words.
-        print('Compute Test WER: Get 1Best',end=" "*50+'\r')
+        print('(testing) Get 1-best words',end=" "*20+'\r')
         outs = lattice.get_1best(lmwt=args.minLmwt,maxLmwt=args.maxLmwt,outFile=args.outDir+'/outRaw')
         # If reference file is not existed, make it.
         phonemap = args.TIMITpath + '/conf/phones.60-48-39.map'
@@ -296,7 +318,7 @@ def train_model():
             cmd = 'cat {} | {} > {}/test_filt.txt'.format(refText,outFilter,args.outDir)
             (_,_) = E.run_shell_cmd(cmd)
         # Score WER and find the smallest one.
-        print('Compute Test WER: compute WER',end=" "*50+'\r')
+        print('(testing) Score WER',end=" "*20+'\r')
         minWER = None
         for k in range(args.minLmwt,args.maxLmwt+1,1):
             cmd = 'cat {} | {} > {}/test_prediction_filt.txt'.format(outs[k],outFilter,args.outDir)
@@ -315,11 +337,15 @@ def train_model():
     print('Note that: We will evaluate the WER of test dataset after epoch which will cost a few seconds.')
     # Preprocessing batch data which is getten from data iterator
     def convert(batch):
-        batch = cp.array(batch,dtype=cp.float32)
-        data = batch[:,0:-2]
-        label1 = cp.array(batch[:,-2],dtype=cp.int32)
-        label2 = cp.array(batch[:,-1],dtype=cp.int32)
-        return data,label1,label2
+        data = []
+        label1 = []
+        label2 = []
+        for x in batch:
+            data.append(cp.array(x[:,0:-2],dtype=cp.float32))
+            label1.append(cp.array(x[:,-2],dtype=cp.int32))
+            label2.append(cp.array(x[:,-1],dtype=cp.int32))
+        return data,cp.concatenate(label1,axis=0),cp.concatenate(label2,axis=0)
+
     # We will save model during training loop, so prepare a model-save function 
     def saveFunc(fileName,model):
         global args
@@ -327,8 +353,10 @@ def train_model():
         if args.gpu >= 0:
             copymodel.to_cpu()
         chainer.serializers.save_npz(fileName, copymodel)
+
     # Start training loop
     for e in range(args.epoch):
+        print()
         supporter.send_report({'epoch':e})
         i = 1
         usedTime = 0
@@ -350,12 +378,15 @@ def train_model():
             # Compute time cost
             ut = time.time() - start
             usedTime += ut
-            print("Epoch:{} Iter:{} usedTime:{}s".format(e,i,int(usedTime)),' Speed:%.2fs/iter. (training)'%(1/ut), end=" "*50+'\r')
+            print("(training) Epoch:{}/{}% Chunk:{}/{}% Iter:{} Used-time:{}s Batch-loss:{} Speed:{}iters/s".format(e,int(100*train.epochProgress),train.chunk,int(100*train.chunkProgress),i,int(usedTime),"%.4f"%(float(loss.array)),"%.2f"%(1/ut)), end=" "*5+'\r')
             i += 1
             supporter.send_report({'train_loss':loss,'train_acc':acc})
             # If forward all data, break
             if train.isNewEpoch:
                 break
+        print()
+        i = 1
+        usedTime = 0
         # Validate
         while True:
             start = time.time()
@@ -369,7 +400,7 @@ def train_model():
             # Compute time cost
             ut = time.time() - start
             usedTime += ut
-            print("Epoch:{} Iter:{} usedTime:{}s".format(e,i,int(usedTime)),' Speed:%.2fs/iter. (Validating)'%(1/ut), end=" "*50+'\r')
+            print("(Validating) Epoch:{}/{}% Chunk:{}/{}% Iter:{} Used-time:{}s Batch-loss:{} Speed:{}iters/s".format(e,int(100*dev.epochProgress),dev.chunk,int(100*dev.chunkProgress),i,int(usedTime),"%.4f"%(float(loss.array)),"%.2f"%(1/ut)), end=" "*5+'\r')
             i += 1
             supporter.send_report({'dev_loss':loss,'dev_acc':acc})
             # If forward all data, break
@@ -382,17 +413,17 @@ def train_model():
         # Collect all information of this epoch that is reported before, and show them at display
         supporter.collect_report(plot=True)
         # Save model
-        supporter.save_model(saveFunc,models={'MLP':model})
+        supporter.save_model(saveFunc,models={'LSTM':model})
         # Change learning rate 
         if len(lr) > 0 and supporter.judge('epoch','>=',lr[0][0]):
             optimizer.lr = lr[0][1]
             lr.pop(0)
 
-    print("DNN Acoustic Model training done.")
+    print("LSTM Acoustic Model training done.")
     print("The final model has been saved as:",supporter.finalModel)
     print('Over System Time:',datetime.datetime.now().strftime("%Y-%m-%d %X"))
 
-def decode_test():
+def decode_test(outDimPdf=1968,outDimPho=48):
 
     global args
 
@@ -419,7 +450,7 @@ def decode_test():
     configLog('Normalize Chunk:{}'.format(args.normalizeChunk),f)
     configLog('Normalize AMP:{}'.format(args.normalizeAMP),f)
     configLog('Decode Minimum Active:{}'.format(args.minActive),f)
-    configLog('Decode Maximum Active:{}'.format(args.maxActive),f)  
+    configLog('Decode Maximum Active:{}'.format(args.maxActive),f)
     configLog('Decode Maximum Memory:{}'.format(args.maxMemory),f)  
     configLog('Decode Beam:{}'.format(args.beam),f)   
     configLog('Decode Lattice Beam:{}'.format(args.latBeam),f) 
@@ -439,7 +470,7 @@ def decode_test():
         featDim *= (args.delta + 1)
     if args.splice > 0:
         featDim *= ( 2 * args.splice + 1 ) 
-    model = MLP(featDim,1968,48)
+    model = LSTM(featDim, outDimPdf, outDimPho)
     chainer.serializers.load_npz(args.preModel,model)
     if args.gpu >=0:
         model.to_gpu(args.gpu)
@@ -485,26 +516,26 @@ def decode_test():
     #------------------ STEP 3: Decode  ------------------
 
     temp = E.KaldiDict()
-    print('Compute Test WER: Forward network',end=" "*50+'\r')
     with chainer.using_config('train',False),chainer.no_backprop_mode():
-        for utt in testFeat.keys():
-            data = cp.array(testFeat[utt],dtype=cp.float32)
+        for i,utt in enumerate(testFeat.keys()):
+            data = [cp.array(testFeat[utt],dtype=cp.float32)]
             out1,out2 = model(data)
             out = F.log_softmax(out1,axis=1)
             out.to_cpu()
             temp[utt] = out.array - normalizeBias
+            print('Compute Test WER: Forward network {}/{}'.format(i,testFeat.lens[0]),end=" "*20+'\r')
     # Tansform KaldiDict to KaldiArk format
-    print('Compute Test WER: Transform to ark',end=" "*50+'\r')
+    print('Compute Test WER: Transform to ark',end=" "*20+'\r')
     amp = temp.ark
     # Decode and obtain lattice
     hmm = args.TIMITpath + '/exp/dnn4_pretrain-dbn_dnn_ali_test/final.mdl'
     hclg = args.TIMITpath + '/exp/tri3/graph/HCLG.fst'
     lexicon = args.TIMITpath + '/exp/tri3/graph/words.txt'
-    print('Compute Test WER: Generate Lattice',end=" "*50+'\r')
-    lattice = E.decode_lattice(amp,hmm,hclg,lexicon,args.minActive,args.maxActive,args.maxMemory,args.beam,args.latBeam,acwt=0.2)
+    print('Compute Test WER: Generate Lattice',end=" "*20+'\r')
+    lattice = E.decode_lattice(amp,hmm,hclg,lexicon,args.minActive,args.maxActive,args.maxMemory,args.beam,args.latBeam,args.acwt)
     # Change language weight from 1 to 10, get the 1best words.
-    print('Compute Test WER: Get 1Best',end=" "*50+'\r')
-    outs = lattice.get_1best(minLmwt=args.minLmwt,maxLmwt=args.maxLmwt,outFile=args.outDir+'/outRaw.txt')
+    print('Compute Test WER: Get 1Best',end=" "*20+'\r')
+    outs = lattice.get_1best(lmwt=args.minLmwt,maxLmwt=args.maxLmwt,outFile=args.outDir+'/outRaw.txt')
 
     #------------------ STEP 4: Score  ------------------
 
@@ -516,9 +547,9 @@ def decode_test():
         cmd = 'cat {} | {} > {}/test_filt.txt'.format(refText,outFilter,args.outDir)
         (_,_) = E.run_shell_cmd(cmd)
     # Score WER and find the smallest one.
-    print('Compute Test WER: compute WER',end=" "*50+'\r')
+    print('Compute Test WER: compute WER',end=" "*20+'\r')
     minWER = (None,None)
-    for k in range(args.minLmwt,args.maxLmwt+1,1):
+    for k in range(1,11,1):
         cmd = 'cat {} | {} > {}/tanslation_{}.txt'.format(outs[k],outFilter,args.outDir,k)
         (_,_) = E.run_shell_cmd(cmd)
         os.remove(outs[k])

@@ -412,16 +412,20 @@ class KaldiArk(bytes):
                 raise UnsupportedDataType('Expect KaldiArk or KaldiDict but got {}.'.format(type(other))) 
 
         if axis == 1:
+            allIntFlag = True
             dataType = self.dtype
             if dataType == 'int32':
                 newData = self.to_dtype('float32')
             else:
+                allIntFlag = False
                 newData = self
             for other in others:
-                with tempfile.NamedTemporaryFile(mode='w+b',encoding='utf-8') as fn:
+                with tempfile.NamedTemporaryFile(mode='w+b') as fn:
                     otherDtype = other.dtype
                     if otherDtype == 'int32':
                         other = other.to_dtype('float32')
+                    else:
+                        allIntFlag = False
                     fn.write(other)
                     fn.seek(0)
                     cmd = 'paste-feats ark:- ark:{} ark:-'.format(fn.name)
@@ -430,8 +434,8 @@ class KaldiArk(bytes):
                     if newData == b'':
                         err = err.decode()
                         raise KaldiProcessError(err)
-                    elif dataType == 'int32' and otherDtype == 'int32':
-                        newData = bytes(KaldiArk(newData).to_dtype('int32'))
+            if allIntFlag is True:
+                newData = KaldiArk(newData).to_dtype('int32')
         else:
             sp = BytesIO(self)
             op = [BytesIO(x) for x in others]
@@ -659,9 +663,8 @@ class KaldiDict(dict):
 
     def __add_dim_to_1dimData(self):
         for utt in self.keys():
-            temp = self[utt]
-            if len(temp.shape) == 1:
-                self[utt] = temp[None,:]
+            if len(self[utt].shape) == 1:
+                self[utt] = self[utt][None,:]
 
     @property
     def dim(self):
@@ -674,32 +677,29 @@ class KaldiDict(dict):
         _dim = None
         if len(self.keys()) != 0:
             utt = list(self.keys())[0]
-            matrix = self[utt]
-            if len(matrix.shape) == 1:
+            if len(self[utt].shape) == 1:
                 self.__add_dim_to_1dimData()
-            _dim = matrix.shape[1]
+            _dim = self[utt].shape[1]
         return _dim
 
     @property
-    def targets(self):
+    def target(self):
         '''
         Useage:  dim = obj.targets
         
         Return an int: the maxinum value of alignment data.
 
         '''        
-        if self.dtype == 'int32':
-            maxValue = None
-            for utt in self.keys():
-                matrix = self[utt] 
-                if len(matrix.shape) == 1:
-                    self[utt] = matrix[None,:]
-                t = np.max(matrix)
-                if maxValue == None or t > maxValue:
-                    maxValue = t
-            return int(maxValue) + 1
-        else:
-            raise WrongOperation('Can not obtain the targets from non-int data.')    
+        maxValue = None
+        for utt in self.keys():
+            if not self[utt].dtype in ['int8','int16','int32','int64']:
+                raise WrongOperation('Cannot obtain targets from float data.')
+            if len(self[utt].shape) == 1:
+                self[utt] = self[utt][None,:]
+            t = np.max(self[utt])
+            if maxValue == None or t > maxValue:
+                maxValue = t
+        return int(maxValue) + 1 
 
     @property
     def lens(self):
@@ -781,12 +781,13 @@ class KaldiDict(dict):
         '''        
         if len(self.keys()) != 0:
             _dim = 'unknown'
-            self.__add_dim_to_1dimData()
             for utt in self.keys():
                 if not isinstance(utt,str):
                     raise WrongDataFormat('Expected <utt id> is str but got {}.'.format(type(utt)))
                 if not isinstance(self[utt],np.ndarray):
                     raise WrongDataFormat('Exprcted numpy ndarray but got {}.'.format(type(self[utt])))
+                if len(self[utt].shape) == 1:
+                    self[utt] = self[utt][None,:]
                 matrixShape = self[utt].shape
                 if len(matrixShape) > 2:
                     raise WrongDataFormat('Expected matrix shape=[frames,dims] or [dims] but got {}.'.format(matrixShape))
@@ -807,8 +808,7 @@ class KaldiDict(dict):
         Return a KaldiArk object. Transform numpy array data into ark binary data.
 
         '''
-        self.__add_dim_to_1dimData()  
-        
+
         totalSize = 0
         for u in self.keys():
             totalSize += sys.getsizeof(self[u])
@@ -818,6 +818,8 @@ class KaldiDict(dict):
         newData = []
         for utt in self.keys():
             data = b''
+            if len(self[utt].shape) == 1:
+                self[utt] = self[utt][None,:]
             matrix = self[utt]
             data += (utt+' ').encode()
             data += '\0B'.encode()
@@ -825,10 +827,11 @@ class KaldiDict(dict):
                 data += 'FM '.encode()
             elif matrix.dtype == 'float64':
                 data += 'DM '.encode()
-            elif matrix.dtype == 'int32':
+            elif matrix.dtype in ['int8','int16','int32','int64']:
+                matrix = np.array(matrix,dtype='int32')
                 data += 'IM '.encode()
             else:
-                raise UnsupportedDataType("Expected int32 float32 float64 data, but got {}.".format(matrix.dtype))
+                raise UnsupportedDataType("Expected int float32 float64 data, but got {}.".format(matrix.dtype))
             data += '\04'.encode()
             data += struct.pack(np.dtype('uint32').char, matrix.shape[0])
             data += '\04'.encode()
@@ -999,8 +1002,11 @@ class KaldiDict(dict):
                 self[utt] = self[utt][None,:]
             lengths.append((utt,len(self[utt])))
             matrixes.append(self[utt])
-
-        matrixes = np.concatenate([matrixes[0][0:left,:],*matrixes,matrixes[-1][(0-right):,:]],axis=0)
+        matrixes = np.concatenate(matrixes,axis=0)
+        if left > len(matrixes) or right > len(matrixes):
+            raise WrongOperation('Total Frames {} is shorter than splice length.'.format(len(matrixes)))
+        
+        matrixes = np.concatenate([matrixes[0:left,:],matrixes,matrixes[(0-right):,:]],axis=0)
         N = matrixes.shape[0]
         dim = matrixes.shape[1]
 
@@ -2643,7 +2649,7 @@ def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,outFile=No
     else:
         raise UnsupportedDataType("Expected KaldiArk KaldiDict but got {}.".format(type(feat)))
 
-    fw = tempfile.NamedTemporaryFile('w+b',encoding='utf-8',suffix='ark')
+    fw = tempfile.NamedTemporaryFile('w+b',suffix='ark')
 
     try:
         if cmvnStatFile == None:
