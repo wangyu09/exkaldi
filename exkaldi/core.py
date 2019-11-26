@@ -16,29 +16,30 @@
 ######################################################
 
 import os,sys
-import struct,copy,re,time
-import math,random
-import subprocess,threading
 import tempfile
+import importlib
+import math,random
 import numpy as np
 from io import BytesIO
+import struct,copy,re,time
+import subprocess,threading
 from collections import Iterable
-import importlib
 
 class PathError(Exception):pass
-class UnsupportedDataType(Exception):pass
+class WrongOperation(Exception):pass
 class WrongDataFormat(Exception):pass
 class KaldiProcessError(Exception):pass
-class WrongOperation(Exception):pass
+class UnsupportedDataType(Exception):pass
 
-KALDIROOT = None
 ENV = None
+KALDIROOT = None
 kaidiNotFoundError = PathError('Kaldi ASR toolkit has not been found.')
 
 def get_env():
 	'''
 	Usage:  ENV = get_env()
-	Return the current environment which exkaldi is running at.
+
+	Return the current environment which ExKaldi is running at.
 	'''
 	global ENV
 
@@ -49,7 +50,8 @@ def get_env():
 
 def get_kaldi_path():
 	'''
-	Usage:  KALDIROOT = get_kaldi_path() 
+	Usage:  kaldiRoot = get_kaldi_path() 
+
 	Return the root directory of Kaldi toolkit. If the Kaldi has not been found, return None.
 	'''
 	global KALDIROOT
@@ -58,7 +60,7 @@ def get_kaldi_path():
 		p = subprocess.Popen('which copy-feats',shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 		(out,err) = p.communicate()
 		if out == b'':
-			print("Warning: Kaldi not found. You can set it with .set_kaldi_path() function. If not, ERROR will occur when implementing part of core functions.")
+			print("Warning: Kaldi has not been found. You can set it with .set_kaldi_path() function. If not, ERROR will occur when implementing part of core functions.")
 		else:
 			KALDIROOT = out.decode().strip()[0:-23]
 	
@@ -68,14 +70,16 @@ _ = get_kaldi_path()
 
 def set_kaldi_path(path):
 	'''
-	Usage:  set_kaldi_path(path='/kaldi')
-	Set the root path of Kaldi toolkit manually.
+	Usage: set_kaldi_path(path='/kaldi')
+
+	Set the root directory of Kaldi toolkit manually.
 	'''
-	assert isinstance(path,str), '<path> should be a path-like string.'
+	assert isinstance(path,str), '<path> should be a directory name-like string.'
 
 	if not os.path.isdir(path):
 		raise PathError('No such directory:{}.'.format(path))
-	path = os.path.abspath(path.strip())
+	else:
+		path = os.path.abspath(path.strip())
 
 	p = subprocess.Popen('ls {}/src/featbin/copy-feats'.format(path),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 	(out,err) = p.communicate()
@@ -86,6 +90,7 @@ def set_kaldi_path(path):
 
 	KALDIROOT = path
 	ENV = os.environ.copy()
+
 	systemPATH = []
 	for i in ENV['PATH'].split(':'):
 		if i.endswith('/tools/openfst'):
@@ -96,13 +101,15 @@ def set_kaldi_path(path):
 			continue
 		elif i.endswith('/src/nnetbin'):
 			continue
+		elif i.endswith('/src/bin'):
+			continue
 		else:
 			systemPATH.append(i)
+	systemPATH.append(path+'/src/bin')
 	systemPATH.append(path+'/tools/openfst')
 	systemPATH.append(path+'/src/featbin')
 	systemPATH.append(path+'/src/Gambian')
 	systemPATH.append(path+'/src/nnetbin')
-
 	ENV['PATH'] = ":".join(systemPATH)
 
 # ------------ Basic Classes ------------
@@ -111,17 +118,15 @@ class KaldiArk(bytes):
 	'''
 	Usage: obj = KaldiArk(binaryData) or obj = KaldiArk()
 	
-	KaldiArk is a subclass of bytes. It holds the Kaldi ark data in binary type. 
-	KaldiArk and KaldiDict object have some the same attributes and methods.
+	KaldiArk is a subclass of bytes. It holds the Kaldi's ark data in binary type. 
+	KaldiArk object can be transformed to visible form, KaldiDict object.
 	'''
 	def __init__(self,*args):
 		super(KaldiArk,self).__init__()
 	
 	def _read_one_record(self,fp):
 		'''
-		Usage:  (utt,dataType,rows,cols,buf) = _read_one_record(binaryPointer)
-		
-		Read one piece of data. Return a tuple: (utterance id, dtype, rows of data, clos of data, object of binary data)
+		Read a utterance.
 		'''
 		utt = ''
 		while True:
@@ -134,7 +139,7 @@ class KaldiArk(bytes):
 				return (None,None,None,None,None)
 			else:
 				fp.close()
-				raise WrongDataFormat('Miss <utt id> in front of utterance.')
+				raise WrongDataFormat('Miss utterance ID before utterance.')
 		binarySymbol = fp.read(2).decode()
 		if binarySymbol == '\0B':
 			dataType = fp.read(3).decode() 
@@ -149,13 +154,13 @@ class KaldiArk(bytes):
 			else:
 				fp.close()
 				raise WrongDataFormat('Expected data type FM(float32),DM(float64),IM(int32),UM(int64),CM(compressed ark data) but got {}.'.format(dataType))
-			s1, rows, s2, cols = np.frombuffer(fp.read(10), dtype='int8,int32,int8,int32', count=1)[0]
+			s1,rows,s2,cols = np.frombuffer(fp.read(10), dtype='int8,int32,int8,int32', count=1)[0]
 			rows = int(rows)
 			cols = int(cols)
 			buf = fp.read(rows * cols * sampleSize)
 		else:
 			fp.close()
-			raise WrongDataFormat('Miss <binary symbol> in front of utterance.')
+			raise WrongDataFormat('Miss binary symbol before utterance.')
 		return (utt,dataType,rows,cols,buf)
 	
 	def __str__(self):
@@ -166,22 +171,23 @@ class KaldiArk(bytes):
 		'''
 		Usage:  lengths = obj.lens
 		
-		Return a tuple: (the numbers of all utterances, the utt ID and frames of each utterance).
-		If there is not any data, return (0,None).
+		Return a tuple: (the numbers of all utterances, the utterance ID and frames of each utterance).
+		If there is not any data, return (0, None).
 		'''
-		_lens = None
-		if self != b'':
+		if self == b"":
+			lengths = (0, None)
+		else:
 			with BytesIO(self) as sp:
 				_lens = {}
 				while True:
 					(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
 					if utt == None:
 						break
-					_lens[utt] = rows
-		if _lens == None:
-			return (0,_lens)
-		else:
-			return (len(_lens),_lens)
+					else:
+						_lens[utt] = rows
+			lengths = (len(_lens), _lens)
+		
+		return lengths
 	
 	@property
 	def dim(self):
@@ -190,12 +196,14 @@ class KaldiArk(bytes):
 		
 		Return an int value: data dimension.
 		'''
-		_dim = None
-		if self != b'':
+		if self == b"":
+			dimension = None
+		else:
 			with BytesIO(self) as sp:
 				(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
-				_dim = cols
-		return _dim
+			dimension = cols
+		
+		return dimension
 	
 	@property
 	def dtype(self):
@@ -204,8 +212,9 @@ class KaldiArk(bytes):
 		
 		Return a string: data type. We only use 'float32', 'float64', 'int32', 'int64'.
 		'''
-		_dtype = None
-		if self != b'':
+		if self == b"":
+			_dtype = None
+		else:
 			with BytesIO(self) as sp:
 				(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
 			if dataType == 'FM ':
@@ -224,6 +233,9 @@ class KaldiArk(bytes):
 		
 		Return a new KaldiArk object. 'float' will be treated as 'float32' and 'int' will be 'int32'.
 		'''
+		assert isinstance(dtype,str) and (dtype in ["int", "int32", "int64", "float", "float32", "float64"]), 'Expected \
+						<dtype> is string from "int", "int32", "int64", "float", "float32" or "float64" but got "{}"'.format(dtype)
+
 		if self == b"" or self.dtype == dtype:
 			result = copy.deepcopy(self)
 		else:
@@ -233,10 +245,8 @@ class KaldiArk(bytes):
 				newDataType = 'DM '
 			elif dtype == 'int32' or dtype == 'int':
 				newDataType = 'IM '
-			elif dtype == 'int64':
-				newDataType = 'UM '
 			else:
-				raise WrongOperation('Expected <dtype> is "int", "int32", "int64", "float", "float32" or "float64" but got "{}"'.format(dtype))
+				newDataType = 'UM '
 			
 			result = []
 			with BytesIO(self) as sp:
@@ -277,12 +287,13 @@ class KaldiArk(bytes):
 				(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
 				if utt == None:
 					break
-				allUtts.append(utt)
+				else:
+					allUtts.append(utt)
 		return allUtts
 	
 	def check_format(self):
 		'''
-		Usage:  obj.check_format()
+		Usage: obj.check_format()
 		
 		Check whether data has a correct format of Kaldi ark data. If having, return True, or raise ERROR.
 		'''
@@ -298,9 +309,9 @@ class KaldiArk(bytes):
 						_dim = cols
 						_dataType = dataType
 					elif cols != _dim:
-						raise WrongDataFormat("Expect dim {} but got {} at utterance ID {}".format(_dim,cols,utt))
+						raise WrongDataFormat("Expected dimension {} but got {} at utterance {}.".format(_dim,cols,utt))
 					elif _dataType != dataType:
-						raise WrongDataFormat("Expect data type {} but got {} at uttwerance ID {}".format(_dataType,dataType,utt))                    
+						raise WrongDataFormat("Expected data type {} but got {} at uttwerance {}.".format(_dataType,dataType,utt))                    
 					else:
 						try:
 							if dataType == 'FM ':
@@ -312,7 +323,7 @@ class KaldiArk(bytes):
 							else:
 								vec = np.frombuffer(buf, dtype=np.int64)
 						except Exception as e:
-							print("Wrong matrix data format at utterance ID:{}.".format(utt))
+							print("Wrong matrix data format at utterance {}.".format(utt))
 							raise e
 			return True
 		else:
@@ -335,15 +346,20 @@ class KaldiArk(bytes):
 					(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
 					if utt == None:
 						break
-					if dataType == 'FM ': 
-						newMatrix = np.frombuffer(buf, dtype=np.float32)
-					elif dataType == 'DM ':
-						newMatrix = np.frombuffer(buf, dtype=np.float64)
-					elif dataType == 'IM ':
-						newMatrix = np.frombuffer(buf, dtype=np.int32)
-					else:
-						newMatrix = np.frombuffer(buf, dtype=np.int64)
-					newDict[utt] = np.reshape(newMatrix,(rows,cols))
+					try:
+						if dataType == 'FM ': 
+							newMatrix = np.frombuffer(buf, dtype=np.float32)
+						elif dataType == 'DM ':
+							newMatrix = np.frombuffer(buf, dtype=np.float64)
+						elif dataType == 'IM ':
+							newMatrix = np.frombuffer(buf, dtype=np.int32)
+						else:
+							newMatrix = np.frombuffer(buf, dtype=np.int64)
+					except Exception as e:
+						print("Wrong matrix data format at utterance {}.".format(utt))
+						raise e	
+					else:				
+						newDict[utt] = np.reshape(newMatrix,(rows,cols))
 		return newDict
 	
 	def save(self,fileName,chunks=1,outScpFile=False):
@@ -382,20 +398,20 @@ class KaldiArk(bytes):
 					return fileName
 		
 		if self.dtype == 'int32':
-			temp = self.to_dtype('float32')
+			savingData = self.to_dtype('float32')
 		elif self.dtype == 'int64':
-			temp = self.to_dtype('float64')
+			savingData = self.to_dtype('float64')
 		else:
-			temp = self
+			savingData = self
 
 		if chunks == 1:
 			if not fileName.strip().endswith('.ark'):
 				fileName += '.ark'
-			savedFilesName = save_chunk_data(temp,fileName,outScpFile)		
+			savedFilesName = save_chunk_data(savingData,fileName,outScpFile)		
 		else:
 			if fileName.strip().endswith('.ark'):
 				fileName = fileName[0:-4]
-			with BytesIO(temp) as sp:
+			with BytesIO(savingData) as sp:
 				uttLens = []
 				while True:
 					(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
@@ -438,7 +454,7 @@ class KaldiArk(bytes):
 		''' 
 		if isinstance(other,KaldiArk):
 			pass
-		elif isinstance(other,KaldiDict):          
+		elif isinstance(other,KaldiDict):
 			other = other.ark
 		else:
 			raise UnsupportedDataType('Excepted a KaldiArk or KaldiDict object but got {}.'.format(type(other)))
@@ -1908,6 +1924,7 @@ class Supporter(object):
 		self.currentField = {}
 		self.globalField = []
 
+		assert isinstance(outDir,str), "<outDir> should be a name-like string."
 		if not os.path.isdir(outDir):
 			os.mkdir(outDir)
 		self.outDir = os.path.abspath(outDir)
@@ -1929,7 +1946,6 @@ class Supporter(object):
 		Send information and these will be retained untill you do the statistics by using .collect_report().
 		<info> should be a dict of names and their values with int or float type. 
 		'''
-
 		assert isinstance(info,dict), "Expected <info> is a Python dict object."
 
 		keys = list(info)
@@ -1952,7 +1968,7 @@ class Supporter(object):
 		If <keys> is not "None", only collect the data in <keys>. 
 		If <plot> is "True", print the statistics result to standard output.
 		'''
-		if keys == None:
+		if keys is None:
 			keys = list(self.currentField)
 		elif isinstance(keys,str):
 			keys = [keys,]
@@ -1963,14 +1979,14 @@ class Supporter(object):
 	
 		self.globalField.append({})
 
-		allKeys = list(self.currentField)
+		allKeys = list(self.currentField.keys())
 		self._allKeys.extend(allKeys)
 		self._allKeys = list(set(self._allKeys))
 
 		message = ''
 		for i in keys:
 			if i in allKeys:
-				mn = float(np.mean(self.currentField[i]))
+				mn = sum(self.currentField[i])/len(self.currentField[i])
 				if type(self.currentField[i][0]) == int:
 					mn = int(mn)
 					message += (i + ':%d    '%(mn))
@@ -1982,9 +1998,8 @@ class Supporter(object):
 
 		with open(self.logFile,'a',encoding='utf-8') as fw:
 			fw.write(message + '\n')
-		
 		# Print to screen
-		if plot:
+		if plot is True:
 			print(message)
 		# Clear
 		self.currentField = {}
@@ -1997,14 +2012,10 @@ class Supporter(object):
 		If you use <byKey> and set <byMax>,  will be saved only while meeting the condition. 
 		<archs> will be sent to <saveFunc> but with new name.
 		''' 
-		assert isinstance(arch,dict), "Expected <arch> is dict whose key is architecture-name and value is architecture-object."
+		assert isinstance(arch,dict), "Expected <arch> is dict whose keys are architecture-names and values are architecture-objects."
 
 		if self.currentField != {}:
 			self.collect_report(plot=False)
-
-		#if 'epoch' in self.globalField[-1].keys() and self._iterSymbol < 0:
-		#    suffix = '_'+str(self.globalField[-1]['epoch'])+'_'   
-		#else:
 		
 		suffix = "_"+str(self._iterSymbol)
 		self._iterSymbol += 1
@@ -2020,7 +2031,7 @@ class Supporter(object):
 				if isinstance(value,float):
 					suffix += ( "_" + i + ("%.4f"%(value)).replace(".",""))
 				else:
-					suffix += ( "_" + i + '%d'%(value))                
+					suffix += ( "_" + i + '%d'%(value))             
 
 		if byKey == None:
 			newArchs = []
@@ -2041,18 +2052,18 @@ class Supporter(object):
 
 			save = False
 
-			if self.savingThreshold == None:
+			if self.savingThreshold is None:
 				self.savingThreshold = value
 				save = True
 			else:
-				if byMax == True and value > self.savingThreshold:
+				if byMax is True and value > self.savingThreshold:
 					self.savingThreshold = value
 					save = True
-				elif byMax == False and value < self.savingThreshold:
+				elif byMax is False and value < self.savingThreshold:
 					self.savingThreshold = value
 					save = True
 
-			if save:
+			if save is True:
 				newArchs = []
 				for name in arch.keys():
 					if isinstance(value,float):
