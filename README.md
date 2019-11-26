@@ -75,7 +75,7 @@ _-----------------------------------------------< ExKaldi API >-----------------
     - [class: KaldiDict](#kaldidict)
     - [class: KaldiLattice](#kaldilatticelatnonehmmnonewordsymbolnone)
     - [function: load](#loadfilenameother-parameters)
-    - [function: save](#savedatafileNamechunks1)
+    - [function: save](#savedataother-parameters)
     - [function: concat](#concatdatasaxis)
     - [function: cut](#cutdatamaxFrames)
     - [function: normalize](#normalizedatastdtruealpha10beta00epsilon1e-6axis0)
