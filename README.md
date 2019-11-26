@@ -79,13 +79,10 @@ _-----------------------------------------------< ExKaldi API >-----------------
     - [function: concat](#concatdatasaxis)
     - [function: cut](#cutdatamaxFrames)
     - [function: normalize](#normalizedatastdtruealpha10beta00epsilon1e-6axis0)
-    - [function: subset](#subsetdatanhead0chunks1uttlistnone)
     - [function: merge](#mergedatakeepdimfalsesortfalse)
     - [function: remerge](#remergematrixuttLens)
     - [function: sort](#sortdatabyframereversefalse)
-    - [function: select](#selectdatadimsreservefalse)
     - [function: splice](#splicedataleft4rightNone)
-    - [function: to_dtype](#to_dtypedatadtype)
     - [function: compute_mfcc](#compute_mfccwavfileother-parameters)
     - [function: compute_fbank](#compute_fbankwavfileother-parameters)
     - [function: compute_plp](#compute_plpwavfileother-parameters)
@@ -94,21 +91,24 @@ _-----------------------------------------------< ExKaldi API >-----------------
     - [function: compute_cmvn_stats](#compute_cmvn_statsfeatoutfileother-parameters)
     - [function: use_cmvn_sliding](#use_cmvn_slidingfeatother-parameters)
     - [function: add_delta](#add_deltafeatother-parameters)
-    - [function: get_ali](#get_alialifilehmmother-parameters)
+    - [function: load_ali](#load_alialifilehmmother-parameters)
+    - [function: load_lat](#load_latlatfilehmmwordsymbol)
     - [function: analyze_counts](#analyze_countsalifileoutfileother-parameters)
     - [function: decompress](#decompressdata)
     - [function: decode_lattice](#decode_latticeamphmmhclgwordsymbolother-parameters)
     - [function: run_shell_cmd](#run_shell_cmdcmdother-parameters)
     - [function: get_kaldi_path](#get_kaldi_path)
+    - [function: get_env](#get_env)
+    - [function: set_kaldi_path](#set_kaldi_pathpath)
     - [function: check_config](#check_confignameconfignone)
     - [function: split_file](#split_filefilepathother-parameters)
     - [function: pad_sequence](#pad_sequencedataother-parameters)
     - [function: unpack_padded_sequence](#unpack_padded_sequencedatalengthsother-parameters)
-    - [function: wer](#werhyprefother-parameters)
-    - [function: accuracy](#accuracypredictlabelother-parameters)
-    - [function: edit_distance](#edit_distancexyother-parameters)
+    - [function: wer](#werrefhypother-parameters)
+    - [function: accuracy](#accuracyrefhypother-parameters)
+    - [function: edit_distance](#edit_distancerefhypother-parameters)
     - [function: log_softmax](#log_softmaxdataother-parameters_)
-    - [class: DataIterator](#dataiteratorscpfilesprocessfuncbatchsizechunksautootherargsnoneshufflefalsevaliddataratio00)
+    - [class: DataIterator](#dataiteratorscpfilesprocessfuncbatchsizechunksautootherargsnoneshufflefalseretaindata00)
     - [class: Supporter](#supporteroutdirresult)
 - [Addition](#client)
     - [class: Client](#client)
@@ -122,7 +122,7 @@ _-----------------------------------------------< ExKaldi API >-----------------
 < Attributes >  
 
 `.lens`   
-return a tuple: ( the numbers of all utterances, the frames of each utterance ).  
+return a tuple: ( the numbers of all utterances, the utterance ID and its frames of each utterance ).  
 
 `.dim`    
 return an int number: the dimensions of data.  
@@ -144,22 +144,18 @@ change data dtype and return a new KaldiArk object.
 `.check_format()`    
 check whether data has a correct Kaldi ark format. If had, return True. Or raise error.  
 
-`.save(fileName,chunks=1)`   
-save as .ark file. If chunks>1, split it averagely and save them.  
+`.save(fileName,chunks=1,outScpFile=False)`   
+save as .ark (and scp) file. If chunks>1, split it averagely and save them.  
 
 `__add__` 
 return a new KaldiArk object: use < + > operator to plus another KaldiArk object or KaldiDict object.  
 
-`.concat(others,axis=1)`  
-return a KaldiArk object. If any member has a dtype of float, the result will be float, or it will be int.  
-It only return the concat results whose utterance ID appeared in all members.
-
 `.splice(left,right=None)`  
 return a KaldiArk object. Splice front-behind frames. if right is None, we define right = left.  
 
-`.select(left,dims,reserve=False)`  
+`.select(left,dims,retain=False)`  
 return KaldiArk object(s): select data according to dims. < dims > should be an int or string like "1,5-20".
-If reserve ==  True, return both selected data and non-selected data, or return only selected data.
+If retain ==  True, return both selected data and non-selected data, or return only selected data.
 
 `.subset(nHead=0,chunks=1,uttList=None)`  
 if nhead > 0, return a KaldiArk object which only has start-n utterances.  
@@ -178,7 +174,7 @@ Note that **KaldiDict** has a part of functions which **KaldiArk** dosen't have.
 < Attributes >  
 
 `.lens`    
-return a tuple: ( the numbers of all utterances, the frames of each utterance ).  
+return a tuple: ( the numbers of all utterances, the utterance ID and its frames of each utterance ).  
 
 `.dim`   
 return an int number: the dimensions of data.  
@@ -191,6 +187,9 @@ return a list: all utterance names.
 
 `.ark`   
 return a KaldiArk object: transform numpy array data into Kaldi's binary format.  
+
+`.target`   
+If it is alignment data, return the target classes that is maximum value+1.  
 
 < Methods >    
 
@@ -209,13 +208,15 @@ return a new KaldiDict object: use < + > operator to plus another KaldiArk objec
 `.concat(others,axis=1)`    
 return a KaldiDict object. If any member has a dtype of float, the result will be float type, or it will be int type.  
 It only returns the concat results whose utterance IDs appeared in all members.
+If axis is 1 and some utterance only has 1 dimension or 1 frame, it will be concat to all frames of others.
 
 `.splice(left,right=None)`    
-return a KaldiDict object. Splice front-behind frames. if right is None, we define right = left.  
+return a KaldiDict object. Splice front-behind frames. if right is None, we define right = left.
+This result is kind of different from KaidiArk().splice() function.
 
-`.select(left,dims,reserve=False)`  
+`.select(left,dims,retain=False)`  
 return KaldiDict object(s): select data according to dims. < dims > should be an int or string like "1,5-20".
-If reserve ==  True, return both selected data and non-selected data, or return only selected data.
+If retain ==  True, return both selected data and non-selected data, or return only selected data.
 
 `.subset(nHead=0,chunks=1,uttList=None)`    
 if nhead > 0, return a KaldiArk object which only has start-n utterances.  
@@ -227,11 +228,11 @@ only one of these three options will works by order.
 return a KaldiDict object: sort data by utterance IDs or the length of utterances.
 if reverse == True, do descending order.
 
-`.merge(keepDim=False,sort=False)`    
+`.merge(keepDim=False,sortFrame=False)`    
 return a tuple. if keepDim == True, the first member is list whose content are NumPy arrays with 2-dimensions of all utterances, and if keepDim == False, 
 it is a integrated NumPy array with 3-dimensions of all utterances. 
 the second member is utterance IDs and their respective frame length. 
-if sort == True , it will sort all utterances by length with ascending order before merging.
+if sortFrame == True , it will sort all utterances by length with ascending order before merging.
 
 `.remerge(matrix,uttLens)`    
 If self has not any data, do not return, or return a new KaldiDict object: this is a inverse operation of .merge function.
@@ -242,6 +243,8 @@ Return a KaldiDict object. if std == True, do _alpha*(x-mean)/(std+epsilon)+belt
 `.cut(maxFrames)`    
 return a KaldiDict object: traverse all utterances, and if one is longer than 1.25*maxFrames, cut it with a threshold length of maxFrames.
 
+`.tuple_value(others,sort=False)`    
+Tuple the utterance of the same ID from different objects. Return a list whose members are tuple: (utterance IDs, the utterances of others)
 
 ### KaldiLattice(lat=None,hmm=None,wordSymbol=None) 
 
@@ -259,7 +262,13 @@ Aslo, you can define a empty KaldiLattice object and load its data later.
 < Attributes >  
 
 `.value`    
-return a tuple: (lattice with a binary data type, hmm file path, wordSymbol file path.
+return binary data of lattice.
+
+`.model`    
+return HMM file path.
+
+`.lexicon`    
+return word-to-id file path.
 
 < Methods >  
 
@@ -299,18 +308,23 @@ Return KaldiArk or KaldiDict object.
 `filePath` _file path with a suffix '.ark' or '.scp' or '.npy'_
 `useSuffix`  _when file has another suffix, you can declare it, default = None_
 
-### save(data,fileName,chunks=1)
+### save(data,_**other parameters_)
 
 < function description >
 
 It is the same as .save method of KaldiArk or KaldiDict. 
 < data > is expected as KaldiArk or KaldiDict object.
 
+< Parameters >  
+
+`data` _KaldiArk, KaldiDict, or KaldiLattice object_
+`*params`  _If data is KaldiArk, or KaldiDict object, params should be filename and chunks, If KaldiLattice, fileName and copyFile shou be given_
+
 ### concat(datas,axis)
 
 < function description >
 
-return KaldiArk or KaldiDict object. It is the same as .concat method of KaldiArk or KaldiDict. 
+return a KaldiDict object. It is the same as .concat method of KaldiDict. 
 < datas > is expected as KaldiArk or KaldiDict object(s).
 
 ### cut(data,maxFrames)
@@ -326,13 +340,6 @@ return KaldiDict object. It is he same as .cut method of KaldiDict.
 
 return KaldiDict object. It is he same as .normalize method of KaldiDict. 
 < data > is expected as KaldiArk or KaldiDict object.
-
-### subset(data,nHead=0,chunks=1,uttList=None)
-
-< function description >
-
-return KaldiArk or KaldiDict object(s). It is the same as .subset method of KaldiArk or KaldiDict. 
-< data > is expected as KaldiArk or KaldiDict object(s).
 
 ### merge(data,keepDim=False,sort=False)
 
@@ -354,13 +361,6 @@ return a kaldiDict object.It is the same as .remerge method of KaldiDict.
 return a KaldiDict object. It is the same as .sort method of KaldiDict. 
 < data > is expected as KaldiArk or KaldiDict object(s).
 
-### select(data,dims,reserve=False)
-
-< function description >
-
-return KaldiArk or KaldiDict object(s). It is the same as .select method of KaldiArk or KaldiDict. 
-< datas > is expected as KaldiArk or KaldiDict object.
-
 ### splice(data,left=4,right=None)
 
 < function description >
@@ -368,19 +368,11 @@ return KaldiArk or KaldiDict object(s). It is the same as .select method of Kald
 return KaldiArk or KaldiDict object. It is the same as .splice method of KaldiArk or KaldiDict. 
 < datas > is expected as KaldiArk or KaldiDict object.
 
-### to_dtype(data,dtype)
-
-< function description >
-
-return KaldiArk or KaldiDict object. It is the same as .to_dtype method of KaldiArk or KaldiDict. 
-< datas > is expected as KaldiArk or KaldiDict object.
-
-
 ### compute_mfcc(wavFile,_**other parameters_)
 
 < function >
 
-Compute mfcc feature. Return KaldiArk object or file path if < outFile > is True. We provide some common options, 
+Compute mfcc feature. Return KaldiArk object or file path if < asFile > is True. We provide some common options, 
 If you want to use more options, set < config > = your-configure but note that if you do this, these usual configures we provided will be ignored. 
 You can use ExKaldi.check_config('compute_mfcc') function to get configure information you could set. 
 Also run shell command "compute-mfcc-feats" to check their meaning. 
@@ -394,12 +386,10 @@ Also run shell command "compute-mfcc-feats" to check their meaning.
 `melBins`   _numbers of mel bins, default = 23_  
 `featDim`   _dimendionality of mfcc feature, default = 13_  
 `windowType`   _window function, default = 'povey'_  
-`useUtt`   _when file is a WAV file, you can name its utterance id, default = "MAIN"_  
 `useSuffix`   _when file is a scp file but without 'scp' suffix, you can declare its file suffix, or error will be raised, default = None_  
 `config`   _another configure setting method_  
-`outFile`   _if it is a file name, save result as file and return file path. Or return KaldiArk, default = None_  
+`asFile`   _if it is True, save result as file and return file path. Or return KaldiArk, default = False_  
   
-
 ### compute_fbank(wavFile,_**other parameters_)
 
 < function >
@@ -417,10 +407,9 @@ Also run shell command "compute-fbank-feats" to check their meaning.
 `frameShift`   _stride windows width, milliseconds, default = 10_  
 `melBins`   _numbers of mel bins, default = 23_  
 `windowType`   _window function, default = 'povey'_  
-`useUtt`   _when file is a wave file, you can name its utterance id, default = "MAIN"_  
 `useSuffix`   _when file is a scp file but withou 'scp' suffix, you can declare its file suffix, default = None_  
 `config`   _another configure setting method_  
-`outFile`   _if it is file name, save result as file and return file path. Or return KaldiArk, default = False_  
+`asFile`   _if it is true, save result as file and return file path. Or return KaldiArk, default = False_  
 
 
 ### compute_plp(wavFile,_**other parameters_)  
@@ -441,10 +430,9 @@ Also run shell command "compute-plp-feats" to check their meaning.
 `melBins`   _numbers of mel bins, default = 23_  
 `featDim`   _dimendionality of mfcc feature, default = 13_  
 `windowType`   _window function, default = 'povey'_  
-`useUtt`   _when file is a wave file, you can name its utterance id, default = "MAIN"_  
 `useSuffix`   _when file is a scp file but withou 'scp' suffix, you can declare its file suffix, default = None_  
 `config`   _another configure setting method_  
-`outFile`   _if it is a file name, save result as file and return file path, or return KaldiArk, default = False_  
+`asFile`   _if it is True, save result as file and return file path, or return KaldiArk, default = False_  
 
 
 ### compute_spectrogram(wavFile,_**other parameters_) 
@@ -463,10 +451,9 @@ Also run shell command "compute-spectrogram-feats" to check their meaning.
 `frameWidth`   _stride windows width, milliseconds, default = 25_  
 `frameShift`   _stride windows width, milliseconds, default = 10_  
 `windowType`   _window function, default = 'povey'_  
-`useUtt`   _when file is a wave file, you can name its utterance id, default = "MAIN"_  
 `useSuffix`   _when file is a scp file but withou 'scp' suffix, you can declare its file suffix, default = None_  
 `config`   _another configure setting method_  
-`outFile`   _if it is a file name, save result as file and return file path, or return KaldiArk, default = False_  
+`asFile`   _if it is True, save result as file and return file path, or return KaldiArk, default = False_  
 
 
 ### use_cmvn(feat,_**other parameters_) 
@@ -522,7 +509,7 @@ Add n-orders delta to feature. Return KaldiArk object or file path if < outFile 
 `order`   _the times of delta, default = 2_ 
 `outFile`   _if it is a file name, save result as file and return file path, or return KaldiArk, default = False_  
 
-### get_ali(aliFile,hmm,_**other parameters_) 
+### load_ali(aliFile,hmm,_**other parameters_) 
 
 < function description >
 
@@ -533,6 +520,13 @@ Get alignment from ali file. Return a KaldiDict object.
 `aliFile` _kaldi alignment file path_
 `hmm`   _HMM file path_ 
 `returnPhoneme`   _if True, return phoneme IDs, or return pdf IDs, default = False_
+
+### load_lat(latFile,hmm,wordSymbol) 
+
+< function description >
+
+Get alignment from ali file. Return a KaldiDict object.
+The same as KaldiLattice().load() method.
 
 ### analyze_counts(aliFile,outFile,_**other parameters_) 
 
@@ -599,8 +593,20 @@ We provided a basic way to run shell command. Return binary string (out,err).
 
 < function description >
 
-return Kaldi toolkit root path if it had been installed correctlly, or raise error.
-It is a initialized action implemented automatically when importing ExKaldi toolkit. 
+return Kaldi toolkit root path if Kaldi has been found or set up, or return None.
+It is a initialized action implemented automatically when importing ExKaldi toolkit.
+
+### get_env() 
+
+< function description >
+
+return the current environment which exkaldi is running at.
+
+### set_kaldi_path(path) 
+
+< function description >
+
+set kaldi root path manually. If another Kaldi had already been running rightly. replace it. 
 
 ### check_config(name,config=None) 
 
@@ -647,9 +653,9 @@ It is a reverse operation of ExKaldi.pad_sequence function.
 
 `data` _NumPy array which the first dimension is expected as sequence or batch size_       
 `lengths` _It should has the same format of the lengths-output of pad_sequence function_
-`batchSizeFirst` _if True, assign that the first dimension is batch size. Or sequence. default=False_   
+`batchSizeDim` _assign the dimension that batch size is. default=1_   
 
-### wer(hyp,ref,_**other parameters_) 
+### wer(ref,hyp,_**other parameters_) 
 
 < function description >
 
@@ -663,32 +669,32 @@ Both < hyp > and < ref > can be text file or list object.
 `ref` _reference text file or result-like-list_     
 `mode` _score mode, default=present_  
 `ignore` _ignore some symbol such as "sil", default=None_  
-`p` _if True, score quietly without any print information, default=True_  
 
-### accuracy(predict,label,_**other parameters_) 
+### accuracy(ref,hyp,_**other parameters_) 
 
 < function description >
 
 Compute one-one match score. for example predict is (1,2,3,4), and label is (1,2,2,4), the score will be 0.75.
-Both < predict > and < label > will be flattened before scoring. 
+Both < ref > and < hyp > will be flattened before scoring. 
 
 < Parameters >  
 
-`predict` _iterative object such as list, tuple or flattened NumPy array_       
-`label` _iterative object which must has the same length _     
+`ref` _iterative object such as list, tuple or flattened NumPy array_       
+`hyp` _iterative object like ref_     
 `ignore` _ignore some symbol such as padded 0, default=None_  
+`mode` _if mode == all, compute one-one matching score. if present, compute appearing score. default=all_  
 
-### edit_distance(predict,label,_**other parameters_) 
+### edit_distance(ref,hyp,_**other parameters_) 
 
 < function description >
 
 Compute edit distance score between two objects.
-Both < predict > and < label > will be flattened before scoring.
+Both < ref > and < hyp > will be flattened before scoring.
 
 < Parameters >  
 
-`predict` _string_       
-`label` _string_     
+`ref` _iterative object such as list, tuple or flattened NumPy array_       
+`hyp` _iterative object like ref_  
 `ignore` _ignore some symbol, default=None_  
 
 ### log_softmax(data,**other parameters_) 
@@ -703,7 +709,7 @@ Compute the log-softmax value of a NumPy array data.
 `axis` _demension, default=1_ 
 
 
-### DataIterator(scpFiles,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,validDataRatio=0.0)
+### DataIterator(scpFiles,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,retainData=0.0)
 
 < class description >
 
@@ -718,7 +724,7 @@ It will shuffle the original scp file and split again while new epoch.
 `chunks` _chunk number. if chunks=='auto', compute the chunks automatically. default="auto"_    
 `otherArgs` _introduce other parameters into process function_      
 `shuffle` _shuffle batch data, default=False_         
-`validDataRatio` _if > 0 , will reserve a part of data as valid data, default=0.0_    
+`retainData` _if > 0 , will reserve a part of data as valid data, default=0.0_    
 
 < Attributes >
 
@@ -728,8 +734,11 @@ return mini batch size value.
 `.chunks`    
 return the number of chunks.
 
+`.chunk`    
+return the index of current chunk.
+
 `.epoch`    
-return the value of current epoch.
+return the index of current epoch.
 
 `.isNewEpoch`    
 If finishing iterating all data of current epoch, return True. Or return False
@@ -740,13 +749,19 @@ If finishing iterating all data of current chunk, return True. Or return False
 `.currentEpochPosition`    
 Return the index position of current iteration corresponding to entire epoch.
 
+`.epochProgress`    
+Return the progress of current epoch.
+
+`.chunkProgress`    
+Return the progress of current chunk.
+
 < Methods >  
 
 `.next()`        
 Return a batch of data. it is a list object.
 
-`.getValiData(processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False)`        
-Return a new DataIterator object if validation data was reserved before.Oor raise error.
+`.get_retained_data(processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False,retainData=0.0)`        
+Return a new DataIterator object if data was retained before. Or raise error.
 If these parameters are None, use the same value with main iterator.
 
 ### Supporter(outDir='Result')
@@ -761,7 +776,7 @@ Supporter is a class to help to manage training information such as the change o
 
 < Attributes >
 
-`finalModel`   
+`finalArch`   
 _return the last saved model path_  
 
 < Methods >
@@ -773,16 +788,17 @@ Send information and these information will be retained untill count the statist
 Do the statistics of retaining information which are reported since from last statistics. The result will be saved in outDir/log file. 
 If < keys > is not None, only collect the data in keys. If < plot > is True, print the statistics result to standard output.
 
-`save_model(saveFunc,models,byKey=None,maxValue=True)`   
-Save model. < saveFunc > is expected and (model name, model object) will be introduced into this function. 
-If you use < byKey > and set < maxValue >, model will be saved only while meeting the condition. 
+`save_arch(saveFunc,archs,byKey=None,byMax=True)`   
+Save model. < saveFunc > is expected and < arch > will be introduced into this function with a format (new name, object). 
+If you use < byKey > and set < byMax >, model will be saved only while meeting the condition. 
 
 `judge(key,condition,threshold,byDeltaRate=False)`   
 Acording to the value reported before, judge whether condition is right. 
 If < byDeltaRate > is True, use 1-order delta to judge. Or use value itself.
 
-`dump(logFile=None)`   
-Return training information of each epoch reported. If < logFile > is not None, read these information from file.
+`dump(keepItems=False,fromLogFile=None)`   
+Return training information of each epoch reported. If < fromLogFile > is not None, read these information from file.
+If < keepitems > is True, return information by name of items.
 
 ### Client()
 

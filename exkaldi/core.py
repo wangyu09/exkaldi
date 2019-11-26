@@ -1,16 +1,18 @@
+
+# -*- coding: UTF-8 -*-
 ################# Version Information ################
-# exkaldi V0.1
-# University of Yamanashi (Yu Wang, Chee Siang Leow, Hiromitsu Nishizaki, University of Yamanashi)
-# Tsukuba University of Technology (Akio Kobayashi)
-# University of Tsukuba (Takehito Utsuro)
-# Nov, 13, 2019
+# ExKaldi, version 0.2.1
+# Yu Wang, Chee Siang Leow, Hiromitsu Nishizaki (University of Yamanashi)
+# Akio Kobayashi (Tsukuba University of Technology)
+# Takehito Utsuro (University of Tsukuba)
+# Nov, 19, 2019
 #
 # ExKaldi Automatic Speech Recognition tookit is designed to build a interface between Kaldi and Deep Learning frameworks with Python Language.
 # The main functions are implemented by Kaldi command, and based on this, we developed some extension tools:
 # 1, Transform and deal with feature and label data of both Kaldi data format and NumPy format.
 # 2, Design and train a neural network acoustic model.
 # 3, Build a customized ASR system.
-# 4, Recognize you voice from microphone. 
+# More information in https://github.com/wangyu09/exkaldi
 ######################################################
 
 import os,sys
@@ -27,3546 +29,3973 @@ class PathError(Exception):pass
 class UnsupportedDataType(Exception):pass
 class WrongDataFormat(Exception):pass
 class KaldiProcessError(Exception):pass
-class WrongOperation(Exception):pass  
+class WrongOperation(Exception):pass
+
+KALDIROOT = None
+ENV = None
+kaidiNotFoundError = PathError('Kaldi ASR toolkit has not been found.')
+
+def get_env():
+	'''
+	Usage:  ENV = get_env()
+	Return the current environment which exkaldi is running at.
+	'''
+	global ENV
+
+	if ENV is None:
+		ENV = os.environ.copy()
+
+	return ENV
 
 def get_kaldi_path():
-    '''
-    Useage:  KALDIROOT = get_kaldi_path() 
-    Return Kaldi root path. If the Kaldi toolkit is not found, it will raise Error.
-    '''
-    p = subprocess.Popen('which copy-feats',shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    (out,err) = p.communicate()
-    if out == b'':
-        #raise PathError('Kaldi was not found. Make sure it has been installed correctly.')
-        print("Warning: Kaldi was not found. You still can use ExKaldi tools but Error will occur when implementing part of core functions.")
-        return None
-    else:
-        return out.decode().strip()[0:-23]
+	'''
+	Usage:  KALDIROOT = get_kaldi_path() 
+	Return the root directory of Kaldi toolkit. If the Kaldi has not been found, return None.
+	'''
+	global KALDIROOT
 
-KALDIROOT = get_kaldi_path()
-kaldiNotFoundError = PathError('Please make sure Kaldi ASR toolkit has been installed and compiled correctly.')
+	if KALDIROOT == None:
+		p = subprocess.Popen('which copy-feats',shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+		(out,err) = p.communicate()
+		if out == b'':
+			print("Warning: Kaldi not found. You can set it with .set_kaldi_path() function. If not, ERROR will occur when implementing part of core functions.")
+		else:
+			KALDIROOT = out.decode().strip()[0:-23]
+	
+	return KALDIROOT
 
-# ------------ Basic Class ------------
-#DONE
+_ = get_kaldi_path()
+
+def set_kaldi_path(path):
+	'''
+	Usage:  set_kaldi_path(path='/kaldi')
+	Set the root path of Kaldi toolkit manually.
+	'''
+	assert isinstance(path,str), '<path> should be a path-like string.'
+
+	if not os.path.isdir(path):
+		raise PathError('No such directory:{}.'.format(path))
+	path = os.path.abspath(path.strip())
+
+	p = subprocess.Popen('ls {}/src/featbin/copy-feats'.format(path),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+	(out,err) = p.communicate()
+	if out == b'':
+		raise WrongOperation("{} is not a Kaldi root directory avaliable.".format(path))
+	
+	global KALDIROOT, ENV
+
+	KALDIROOT = path
+	ENV = os.environ.copy()
+	systemPATH = []
+	for i in ENV['PATH'].split(':'):
+		if i.endswith('/tools/openfst'):
+			continue
+		elif i.endswith('/src/featbin'):
+			continue
+		elif i.endswith('/src/Gambian'):
+			continue
+		elif i.endswith('/src/nnetbin'):
+			continue
+		else:
+			systemPATH.append(i)
+	systemPATH.append(path+'/tools/openfst')
+	systemPATH.append(path+'/src/featbin')
+	systemPATH.append(path+'/src/Gambian')
+	systemPATH.append(path+'/src/nnetbin')
+
+	ENV['PATH'] = ":".join(systemPATH)
+
+# ------------ Basic Classes ------------
+
 class KaldiArk(bytes):
-    '''
-    Useage: obj = KaldiArk(binaryData) or obj = KaldiArk()
-    
-    KaldiArk is a subclass of bytes. It holds the Kaldi ark data in binary type. 
-    KaldiArk and KaldiDict object have almost the same attributes and methods, and they can do some mixed operations such as "+" and "concat" and so on.
-    Moreover, forced-alignment can also be held by KaldiArk and KaldiDict object, and we defined it as int32 data type that is new of tranditional Kaldi data format.
+	'''
+	Usage: obj = KaldiArk(binaryData) or obj = KaldiArk()
+	
+	KaldiArk is a subclass of bytes. It holds the Kaldi ark data in binary type. 
+	KaldiArk and KaldiDict object have some the same attributes and methods.
+	'''
+	def __init__(self,*args):
+		super(KaldiArk,self).__init__()
+	
+	def _read_one_record(self,fp):
+		'''
+		Usage:  (utt,dataType,rows,cols,buf) = _read_one_record(binaryPointer)
+		
+		Read one piece of data. Return a tuple: (utterance id, dtype, rows of data, clos of data, object of binary data)
+		'''
+		utt = ''
+		while True:
+			char = fp.read(1).decode()
+			if (char == '') or (char == ' '):break
+			utt += char
+		utt = utt.strip()
+		if utt == '':
+			if fp.read() == b'':
+				return (None,None,None,None,None)
+			else:
+				fp.close()
+				raise WrongDataFormat('Miss <utt id> in front of utterance.')
+		binarySymbol = fp.read(2).decode()
+		if binarySymbol == '\0B':
+			dataType = fp.read(3).decode() 
+			if dataType == 'CM ':
+				fp.close()
+				raise UnsupportedDataType('This is compressed ark data. Use load(<arkFile>) function to load ark file again or \
+											use decompress(<KaldiArk>) function to decompress it firstly.')                    
+			elif dataType == 'FM ' or dataType == 'IM ':
+				sampleSize = 4
+			elif dataType == 'DM ' or dataType == 'UM ':
+				sampleSize = 8
+			else:
+				fp.close()
+				raise WrongDataFormat('Expected data type FM(float32),DM(float64),IM(int32),UM(int64),CM(compressed ark data) but got {}.'.format(dataType))
+			s1, rows, s2, cols = np.frombuffer(fp.read(10), dtype='int8,int32,int8,int32', count=1)[0]
+			rows = int(rows)
+			cols = int(cols)
+			buf = fp.read(rows * cols * sampleSize)
+		else:
+			fp.close()
+			raise WrongDataFormat('Miss <binary symbol> in front of utterance.')
+		return (utt,dataType,rows,cols,buf)
+	
+	def __str__(self):
+		return "This is a KaldiArk object with unviewable binary data. To looking its content, please use .array method."
 
-    '''
-    def __init__(self,*args):
-        if KALDIROOT == None:
-            raise kaldiNotFoundError
-        super(KaldiArk,self).__init__()
-    
-    def _read_one_record(self,fp):
-        '''
-        Useage:  (utt,dataType,rows,cols,buf) = _read_one_record(binaryPointer)
-        
-        Read one piece of record from binary ark data. Return (utterance id, dtype of data, rows of data, clos of data, object of binary data)
-        We don't support to use it in external way.
+	@property
+	def lens(self):
+		'''
+		Usage:  lengths = obj.lens
+		
+		Return a tuple: (the numbers of all utterances, the utt ID and frames of each utterance).
+		If there is not any data, return (0,None).
+		'''
+		_lens = None
+		if self != b'':
+			with BytesIO(self) as sp:
+				_lens = {}
+				while True:
+					(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
+					if utt == None:
+						break
+					_lens[utt] = rows
+		if _lens == None:
+			return (0,_lens)
+		else:
+			return (len(_lens),_lens)
+	
+	@property
+	def dim(self):
+		'''
+		Usage:  dimension = obj.dim
+		
+		Return an int value: data dimension.
+		'''
+		_dim = None
+		if self != b'':
+			with BytesIO(self) as sp:
+				(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
+				_dim = cols
+		return _dim
+	
+	@property
+	def dtype(self):
+		'''
+		Usage:  dataType = obj.dtype
+		
+		Return a string: data type. We only use 'float32', 'float64', 'int32', 'int64'.
+		'''
+		_dtype = None
+		if self != b'':
+			with BytesIO(self) as sp:
+				(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
+			if dataType == 'FM ':
+				_dtype = 'float32'
+			elif dataType == 'DM ':
+				_dtype = 'float64'
+			elif dataType == 'IM ':
+				_dtype = 'int32'
+			else:
+				_dtype = 'int64'                
+		return _dtype
 
-        '''
-        utt = ''
-        while True:
-            char = fp.read(1).decode()
-            if (char == '') or (char == ' '):break
-            utt += char
-        utt = utt.strip()
-        if utt == '':
-            if fp.read() == b'':
-                return (None,None,None,None,None)
-            else:
-                fp.close()
-                raise WrongDataFormat('Miss <utt id> in front of utterance.')
-        binarySymbol = fp.read(2).decode()
-        if binarySymbol == '\0B':
-            dataType = fp.read(3).decode() 
-            if dataType == 'CM ':
-                fp.close()
-                raise UnsupportedDataType('This is compressed ark data. Use load(<arkFile>) function to load ark file again or \
-                                            use decompress(<KaldiArk>) function to decompress it firstly.')                    
-            elif dataType == 'FM ' or dataType == 'IM ':
-                sampleSize = 4
-            elif dataType == 'DM ':
-                sampleSize = 8
-            else:
-                fp.close()
-                raise WrongDataFormat('Expected data type FM(float32),DM(float64),IM(int32),CM(compressed ark data) but got {}.'.format(dataType))
-            s1, rows, s2, cols = np.frombuffer(fp.read(10), dtype='int8,int32,int8,int32', count=1)[0]
-            rows = int(rows)
-            cols = int(cols)
-            buf = fp.read(rows * cols * sampleSize)
-        else:
-            fp.close()
-            raise WrongDataFormat('Miss <binary symbol> in front of utterance.')
-        return (utt,dataType,rows,cols,buf)
-    
-    def __str__(self):
-        return "KaldiArk object with unviewable binary data. To looking its content, please use .array method."
+	def to_dtype(self,dtype):
+		'''
+		Usage:  newObj = obj.to_dtype('float64')
+		
+		Return a new KaldiArk object. 'float' will be treated as 'float32' and 'int' will be 'int32'.
+		'''
+		if self == b"" or self.dtype == dtype:
+			result = copy.deepcopy(self)
+		else:
+			if dtype == 'float32' or dtype == 'float':
+				newDataType = 'FM '
+			elif dtype == 'float64':
+				newDataType = 'DM '
+			elif dtype == 'int32' or dtype == 'int':
+				newDataType = 'IM '
+			elif dtype == 'int64':
+				newDataType = 'UM '
+			else:
+				raise WrongOperation('Expected <dtype> is "int", "int32", "int64", "float", "float32" or "float64" but got "{}"'.format(dtype))
+			
+			result = []
+			with BytesIO(self) as sp:
+				while True:
+					(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
+					if utt == None:
+						break
+					if dataType == 'FM ': 
+						matrix = np.frombuffer(buf, dtype=np.float32)
+					elif dataType == 'DM ':
+						matrix = np.frombuffer(buf, dtype=np.float64)
+					elif dataType == 'IM ':
+						matrix = np.frombuffer(buf, dtype=np.int32)
+					else:
+						matrix = np.frombuffer(buf, dtype=np.int64)
+					newMatrix = np.array(matrix,dtype=dtype).tobytes()
+					data = (utt+' '+'\0B'+newDataType).encode()
+					data += '\04'.encode()
+					data += struct.pack(np.dtype('uint32').char, rows)
+					data += '\04'.encode()
+					data += struct.pack(np.dtype('uint32').char, cols)
+					data += newMatrix
+					result.append(data)
+			result = KaldiArk(b''.join(result))
 
-    @property
-    def lens(self):
-        '''
-        Useage:  lens = obj.lens
-        
-        Return a tuple: ( the numbers of all utterances, the frames of each utterance ). The first one is an int, and second one is a list.
-        If there is not any data, return (0,None)
+		return result
 
-        '''
-        _lens = None
-        if self != b'':
-            sp = BytesIO(self)
-            _lens =[]
-            while True:
-                (utt,dataType,rows,cols,buf) = self._read_one_record(sp)
-                if utt == None:
-                    break
-                _lens.append(rows)
-            sp.close()
-        if _lens == None:
-            return (0,_lens)
-        else:
-            return (len(_lens),_lens)
-    
-    @property
-    def dim(self):
-        '''
-        Useage:  dim = obj.dim
-        
-        Return an int: data dimension.
-        If it is alignment data, dim will be 1.
+	@property
+	def utts(self):
+		'''
+		Usage:  utteranceIDs = obj.utts
+		
+		Return a list: including all utterance IDs.
+		'''
+		allUtts = []
+		with BytesIO(self) as sp:
+			while True:
+				(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
+				if utt == None:
+					break
+				allUtts.append(utt)
+		return allUtts
+	
+	def check_format(self):
+		'''
+		Usage:  obj.check_format()
+		
+		Check whether data has a correct format of Kaldi ark data. If having, return True, or raise ERROR.
+		'''
+		if self != b'':
+			_dim = 'unknown'
+			_dataType = 'unknown'
+			with BytesIO(self) as sp:
+				while True: 
+					(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
+					if utt == None:
+						break
+					if _dim == 'unknown':
+						_dim = cols
+						_dataType = dataType
+					elif cols != _dim:
+						raise WrongDataFormat("Expect dim {} but got {} at utterance ID {}".format(_dim,cols,utt))
+					elif _dataType != dataType:
+						raise WrongDataFormat("Expect data type {} but got {} at uttwerance ID {}".format(_dataType,dataType,utt))                    
+					else:
+						try:
+							if dataType == 'FM ':
+								vec = np.frombuffer(buf, dtype=np.float32)
+							elif dataType == 'DM ':
+								vec = np.frombuffer(buf, dtype=np.float64)
+							elif dataType == 'IM ':
+								vec = np.frombuffer(buf, dtype=np.int32)
+							else:
+								vec = np.frombuffer(buf, dtype=np.int64)
+						except Exception as e:
+							print("Wrong matrix data format at utterance ID:{}.".format(utt))
+							raise e
+			return True
+		else:
+			return False
 
-        '''
-        _dim = None
-        if self != b'':
-            sp = BytesIO(self)
-            (utt,dataType,rows,cols,buf) = self._read_one_record(sp)
-            _dim = cols
-            sp.close()
-        return _dim
-    
-    @property
-    def dtype(self):
-        '''
-        Useage:  dtype = obj.dtype
-        
-        Return an str: data type. We only use 'float32','float64' and 'int32'.
+	def concat(self,others,axis=1):
+		raise WrongOperation('KaldiArk.concat() function has been removed in current version. Try to use KaldiDict.concat() please.')
 
-        '''
-        _dtype = None
-        if self != b'':
-            sp = BytesIO(self)
-            (utt,dataType,rows,cols,buf) = self._read_one_record(sp)
-            sp.close()
-            if dataType == 'FM ':
-                _dtype = 'float32'
-            elif dataType == 'DM ':
-                _dtype = 'float64'
-            else:
-                _dtype = 'int32'                
-        return _dtype
+	@property
+	def array(self):
+		'''
+		Usage:  newObj = obj.array
+		
+		Return a KaldiDict object. Transform ark data into NumPy array data.
+		'''
+		newDict = KaldiDict()
+		if self != b'':
+			with BytesIO(self) as sp:
+				while True:
+					(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
+					if utt == None:
+						break
+					if dataType == 'FM ': 
+						newMatrix = np.frombuffer(buf, dtype=np.float32)
+					elif dataType == 'DM ':
+						newMatrix = np.frombuffer(buf, dtype=np.float64)
+					elif dataType == 'IM ':
+						newMatrix = np.frombuffer(buf, dtype=np.int32)
+					else:
+						newMatrix = np.frombuffer(buf, dtype=np.int64)
+					newDict[utt] = np.reshape(newMatrix,(rows,cols))
+		return newDict
+	
+	def save(self,fileName,chunks=1,outScpFile=False):
+		'''
+		Usage: obj.save('feat.ark')
+		
+		Save as .ark (and .scp) file. If <chunks> is larger than "1", split it averagely and save them.
+		'''        
+		if self == b'':
+			raise WrongOperation('No data to save.')
 
-    def to_dtype(self,dtype):
-        '''
-        Useage:  newObj = obj.to_dtype('float')
-        
-        Return a new KaldiArk object. 'float' will be treated as 'float32' and 'int' will be 'int32'.
+		#if sys.getsizeof(self)/chunks > 10000000000:
+		#   print("Warning: Data size is extremely large. Try to save it with a long time.")
 
-        '''
+		global KALDIROOT,kaidiNotFoundError,ENV
+		if KALDIROOT is None:
+			raise kaidiNotFoundError
 
-        if len(self) == 0 or self.dtype == dtype:
-            return copy.deepcopy(self)
-        else:
-            if dtype == 'float32' or dtype == 'float':
-                newDataType = 'FM '
-            elif dtype == 'float64':
-                newDataType = 'DM '
-            elif dtype == 'int32' or dtype == 'int':
-                newDataType = 'IM '
-            else:
-                raise WrongOperation('Expected dtype <int><int32><float><float32><float64> but got {}'.format(dtype))
-            
-            newData = []
-            sp = BytesIO(self)
-            while True:
-                (utt,dataType,rows,cols,buf) = self._read_one_record(sp)
-                if utt == None:
-                    break
-                if dataType == 'FM ': 
-                    matrix = np.frombuffer(buf, dtype=np.float32)
-                elif dataType == 'IM ':
-                    matrix = np.frombuffer(buf, dtype=np.int32)
-                else:
-                    matrix = np.frombuffer(buf, dtype=np.float64)
-                newMatrix = np.array(matrix,dtype=dtype).tobytes()
-                data = (utt+' '+'\0B'+newDataType).encode()
-                data += '\04'.encode()
-                data += struct.pack(np.dtype('uint32').char, rows)
-                data += '\04'.encode()
-                data += struct.pack(np.dtype('uint32').char, cols)
-                data += newMatrix
-                newData.append(data)
-            sp.close()
-            return KaldiArk(b''.join(newData))
+		def save_chunk_data(chunkData,fileName,outScpFile):
+			if outScpFile is True:
+				cmd = "copy-feats ark:- ark,scp:{},{}".format(fileName,fileName[0:-3]+"scp")
+			else:
+				cmd = "copy-feats ark:- ark:{}".format(fileName)
+			p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate(input=chunkData)
+			if not os.path.isfile(fileName) or os.path.getsize(fileName) == 0:
+				err = err.decode()
+				print(err)
+				if os.path.isfile(fileName):
+					os.remove(fileName)
+				raise KaldiProcessError('Save ark data defeated.')
+			else:
+				if outScpFile is True:
+					return (fileName,fileName[0:-3]+"scp")
+				else:
+					return fileName
+		
+		if self.dtype == 'int32':
+			temp = self.to_dtype('float32')
+		elif self.dtype == 'int64':
+			temp = self.to_dtype('float64')
+		else:
+			temp = self
 
-    @property
-    def utts(self):
-        '''
-        Useage:  utts = obj.utts
-        
-        Return a list: including all utterance id.
+		if chunks == 1:
+			if not fileName.strip().endswith('.ark'):
+				fileName += '.ark'
+			savedFilesName = save_chunk_data(temp,fileName,outScpFile)		
+		else:
+			if fileName.strip().endswith('.ark'):
+				fileName = fileName[0:-4]
+			with BytesIO(temp) as sp:
+				uttLens = []
+				while True:
+					(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
+					if utt == None:
+						break
+					if dataType == 'DM ' or dataType == 'UM ':
+						sampleSize = 8
+					else:
+						sampleSize = 4
+					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
+					uttLens.append(oneRecordLen)
+				sp.seek(0)
+				allLens = len(uttLens)
+				chunkUtts = allLens//chunks
+				if chunkUtts == 0:
+					chunks = allLens
+					chunkUtts = 1
+					t = 0
+					print("Warning: utterances is fewer than <chunks> so only {} files will be saved.".format(chunks))
+				else:
+					t = allLens - chunkUtts * chunks
 
-        '''
-        allUtts = []
-        sp = BytesIO(self)
-        while True:
-            (utt,dataType,rows,cols,buf) = self._read_one_record(sp)
-            if utt == None:
-                break
-            allUtts.append(utt)
-        sp.close()
-        return allUtts
-    
-    def check_format(self):
-        '''
-        Useage:  obj.check_format()
-        
-        Check if data has a correct kaldi ark data format. If had, return True, or raise error.
+				savedFilesName = []
+				for i in range(chunks):
+					if i < t:
+						chunkLen = sum(uttLens[i*(chunkUtts+1):(i+1)*(chunkUtts+1)])
+					else:
+						chunkLen = sum(uttLens[i*chunkUtts:(i+1)*chunkUtts])
+					chunkData = sp.read(chunkLen)
+					savedFilesName.append(save_chunk_data(chunkData,fileName+'_ck{}.ark'.format(i),outScpFile))
 
-        '''
-        if self != b'':
-            _dim = 'unknown'
-            _dataType = 'unknown'
-            sp = BytesIO(self)
-            while True: 
-                (utt,dataType,rows,cols,buf) = self._read_one_record(sp)
-                if utt == None:
-                    break
-                if _dim == 'unknown':
-                    _dim = cols
-                    _dataType = dataType
-                elif cols != _dim:
-                    sp.close()
-                    raise WrongDataFormat("Expect dim {} but got{} at utt id {}".format(_dim,cols,utt))
-                elif _dataType != dataType:
-                    sp.close()
-                    raise WrongDataFormat("Expect type {} but got{} at utt id {}".format(_dataType,dataType,utt))                    
-                else:
-                    try:
-                        if dataType == 'FM ':
-                            vec = np.frombuffer(buf, dtype=np.float32)
-                        elif dataType == 'IM ':
-                            vec = np.frombuffer(buf, dtype=np.int32)
-                        else:
-                            vec = np.frombuffer(buf, dtype=np.float64)
-                    except Exception as e:
-                        sp.close()
-                        print("Wrong data matrix format at utt id {}".format(utt))
-                        raise e
-            return True
-        else:
-            return False
+		return savedFilesName
+		
+	def __add__(self,other):
+		'''
+		Usage:  obj3 = obj1 + obj2
+		
+		Return a new KaldiArk object. obj2 can be KaldiArk or KaldiDict object.
+		Note that if there are the same utterance ID in both obj1 and obj2, data only in the formar will be retained.
+		''' 
+		if isinstance(other,KaldiArk):
+			pass
+		elif isinstance(other,KaldiDict):          
+			other = other.ark
+		else:
+			raise UnsupportedDataType('Excepted a KaldiArk or KaldiDict object but got {}.'.format(type(other)))
+		
+		if self.dim != None and other.dim != None and self.dim != other.dim:
+			raise WrongOperation('Expected unified dimenson but {}!={}.'.format(self.dim,other.dim))        
 
-    @property
-    def array(self):
-        '''
-        Useage:  newObj = obj.array
-        
-        Return a KaldiDict object. Transform ark data into numpy array data.
+		selfUtts = self.utts
+		selfDtype = self.dtype
+		newData = []
+		with BytesIO(other) as op:
+			while True:
+				(outt,odataType,orows,ocols,obuf) = self._read_one_record(op)
+				if outt == None:
+					break
+				elif not outt in selfUtts:
+					if odataType == 'FM ': 
+						temp = 'float32'
+					elif odataType == 'DM ':
+						temp = 'float64'
+					elif odataType == 'IM ':
+						temp = 'int32'
+					else:
+						temp = 'int64'
+					if selfDtype != None and odataType != None and selfDtype != temp:
+						obuf = np.array(np.frombuffer(obuf,dtype=temp),dtype=selfDtype).tobytes()
+					data = (outt+' ').encode()
+					data += '\0B'.encode()        
+					data += odataType.encode()
+					data += '\04'.encode()
+					data += struct.pack(np.dtype('uint32').char, orows)
+					data += '\04'.encode()
+					data += struct.pack(np.dtype('uint32').char, ocols)
+					data += obuf
+					newData.append(data)
 
-        '''    
-        newDict = KaldiDict()
-        if self == b'':
-            return newDict
-        sp = BytesIO(self)
-        while True:
-            (utt,dataType,rows,cols,buf) = self._read_one_record(sp)
-            if utt == None:
-                break
-            if dataType == 'FM ': 
-                newMatrix = np.frombuffer(buf, dtype=np.float32)
-            elif dataType == 'IM ':
-                newMatrix = np.frombuffer(buf, dtype=np.int32)
-            else:
-                newMatrix = np.frombuffer(buf, dtype=np.float64)
-            newDict[utt] = np.reshape(newMatrix,(rows,cols))
-        sp.close()
-        return newDict
-    
-    def save(self,fileName,chunks=1):
-        '''
-        Useage:  obj.save('feat.ark') or obj.save('feat.ark',chunks=2)
-        
-        Save as .ark file. If chunks is larger than 1, split it averagely and save them.
+		return KaldiArk(b''.join([self,*newData]))
 
-        '''        
-        if self == b'':
-            raise WrongOperation('No data to save.')
+	def splice(self,left=1,right=None):
+		'''
+		Usage:  newObj = obj.splice(4) or newObj = obj.splice(4,3)
+		
+		Return a new KaldiArk object. If <right> is None, we define: right = left. If you don't want to splice the right frames, set it "0".
+		''' 
+		assert isinstance(left,int) and left >= 0, "Expected <left> is a positive int number."
 
-        if sys.getsizeof(self)/chunks > 10000000000:
-           print("Warning: Data size is extremely large. Try to save it with a long time.")
-        
-        if chunks == 1:
-            if not fileName.strip().endswith('.ark'):
-                fileName += '.ark'
-            with open(fileName,'wb') as fw:
-                fw.write(self)
-        else:
-            if fileName.strip().endswith('.ark'):
-                fileName = fileName[0:-4]
-            sp = BytesIO(self)
-            uttLens = []
-            while True:
-                (utt,dataType,rows,cols,buf) = self._read_one_record(sp)
-                if utt == None:
-                    break
-                if dataType == 'DM ':
-                    sampleSize = 8
-                else:
-                    sampleSize = 4
-                oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
-                uttLens.append(oneRecordLen)
-            sp.seek(0)
-            allLens = len(uttLens)
-            chunkUtts = allLens//chunks
-            if chunkUtts == 0:
-                chunks = allLens
-                chunkUtts = 1
-                t = 0
-            else:
-                t = allLens - chunkUtts * chunks
+		global KALDIROOT,kaidiNotFoundError,ENV
+		if KALDIROOT is None:
+			raise kaidiNotFoundError
+		
+		if right == None:
+			right = left
+		else:
+			assert isinstance(right,int) and right >= 0, "Expected <right> is a positive int number."
+		
+		if self.dtype == 'int32':
+			temp = self.to_dtype('float32')
+		elif self.dtype == 'int64':
+			temp = self.to_dtype('float64')
+		else:
+			temp = self
 
-            for i in range(chunks):
-                if i < t:
-                    chunkLen = sum(uttLens[i*(chunkUtts+1):(i+1)*(chunkUtts+1)])
-                else:
-                    chunkLen = sum(uttLens[i*chunkUtts:(i+1)*chunkUtts])
-                chunkData = sp.read(chunkLen)
-                with open(fileName+'_ck{}.ark'.format(i),'wb') as fw:
-                    fw.write(chunkData)
-            sp.close()
-    
-    def __add__(self,other):
-        '''
-        Useage:  obj3 = obj1 + obj2
-        
-        Return a new KaldiArk object. obj2 can be KaldiArk or KaldiDict object.
-        Note that if there are the same utt id in both obj1 and obj2, data in the formar will be retained.
+		cmd = 'splice-feats --left-context={} --right-context={} ark:- ark:-'.format(left,right)
+		p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+		(out,err) = p.communicate(input=temp)
 
-        ''' 
+		if out == b'':
+			err = err.decode()
+			print(err)
+			raise KaldiProcessError("Splice left-right frames defeated.")
+		else:
+			result = KaldiArk(out)
+			if self.dtype == 'int32':
+				result = result.to_dtype('int32')
+			elif self.dtype == 'int64':
+				result = result.to_dtype('int64')
+			return result
 
-        if isinstance(other,KaldiArk):
-            pass
-        elif isinstance(other,KaldiDict):          
-            other = other.ark
-        else:
-            raise UnsupportedDataType('Excepted KaldiArk or KaldiDict but got {}.'.format(type(other)))
-        
-        if self.dim != other.dim:
-            raise WrongOperation('Expect unified dim but {}!={}.'.format(self.dim,other.dim))        
+	def select(self,dims,retain=False):
+		'''
+		Usage:  newObj = obj.select(4) or newObj1,newObj2 = obj.select('5,10-15',retain=True)
+		
+		Select data by pointing dimensions. <dims> should be an int value or string like "1,5-20".
+		If <retain> is "True", return two KaldiArk objects of both selected data and non-selected data.
+		''' 
+		global KALDIROOT,kaidiNotFoundError,ENV
+		if KALDIROOT is None:
+			raise kaidiNotFoundError
 
-        selfUtts = self.utts
-        newData = []
-        op = BytesIO(other)
-        while True:
-            (outt,odataType,orows,ocols,obuf) = self._read_one_record(op)
-            if outt == None:
-                break
-            elif not outt in selfUtts:
-                data = b''
-                data += (outt+' ').encode()
-                data += '\0B'.encode()        
-                data += odataType.encode()
-                data += '\04'.encode()
-                data += struct.pack(np.dtype('uint32').char, orows)
-                data += '\04'.encode()
-                data += struct.pack(np.dtype('uint32').char, ocols)
-                data += obuf
-                newData.append(data)
-        op.close()
-        return KaldiArk(b''.join([self,*newData]))
+		_dim = self.dim
+		if _dim == 1:
+			raise WrongOperation('Cannot select any data from 1-dim data.')
 
-    def concat(self,others,axis=1):
-        '''
-        Useage:  obj3 = obj1.concat(obj2) or newObj = obj1.concat([obj2,obj3....])
-        
-        Return a new KaldiArk object. obj2,obj3... can be KaldiArk or KaldiDict objects.
-        Note that only these utterance ids which appeared in all objects can be retained in concat result. 
+		elif isinstance(dims,int):
+			assert dims >= 0, "Expected <dims> is a non-negative int number."
+			assert dims < _dim, "Selection index should be smaller than data dimension {} but got {}.".format(_dim,dims)
+			selectFlag = str(dims)
+			if retain:
+				if dims == 0:
+					retainFlag = '1-{}'.format(_dim-1)
+				elif dims == _dim-1:
+					retainFlag = '0-{}'.format(_dim-2)
+				else:
+					retainFlag = '0-{},{}-{}'.format(dims-1,dims+1,_dim-1)
+		elif isinstance(dims,str):
+			
+			if dims.strip() == "":
+				raise WrongOperation("<dims> is not a dmensional value avaliable.")
 
-        ''' 
-        if axis != 1 and axis != 0:
-            raise WrongOperation("Expect axis==1 or 0 but got {}.".format(axis))
-        if not isinstance(others,(list,tuple)):
-            others = [others,]
+			if retain:
+				retainFlag = [x for x in range(_dim)]
+				for i in dims.strip().split(','):
+					if i.strip() == "":
+						continue
+					if not '-' in i:
+						try:
+							i = int(i)
+						except ValueError:
+							raise WrongOperation('Expected int value but got {}.'.format(i))
+						else:
+							assert i >= 0, "Expected <dims> is a non-negative int number."
+							assert i < _dim, "Selection index should be smaller than data dimension {} but got {}.".format(_dim,i)
+							retainFlag[i]=-1
+					else:
+						i = i.split('-')
+						if i[0].strip() == '':
+							i[0] = 0
+						if i[1].strip() == '':
+							i[1] = _dim-1
+						try:
+							i[0] = int(i[0])
+							i[1] = int(i[1])
+						except ValueError:
+							raise WrongOperation('Expected selection index is int value.')
+						else:
+							if i[0] > i[1]:
+								i[0], i[1] = i[1], i[0]
+							assert i[1] < _dim, "Selection index should be smaller than data dimension {} but got {}.".format(_dim, i[1])
+						for j in range(i[0],i[1]+1,1):
+							retainFlag[j] = -1
+				temp = ''
+				for x in retainFlag:
+					if x != -1:
+						temp += str(x)+','
+				retainFlag = temp[0:-1]
+			selectFlag = dims
+		else:
+			raise WrongOperation('Expected int value or string like "1,4-9,12" but got {}.'.format(type(dims)))
+		
+		if self.dtype == 'int32':
+			temp = self.to_dtype('float32')
+		elif self.dtype == 'int64':
+			temp = self.to_dtype('float64')
+		else:
+			temp = self
 
-        for index,other in enumerate(others):
-            if isinstance(other,KaldiArk):                 
-                continue
-            elif isinstance(other,KaldiDict):
-                others[index] = other.ark
-            else:
-                raise UnsupportedDataType('Expect KaldiArk or KaldiDict but got {}.'.format(type(other))) 
+		cmdS = 'select-feats {} ark:- ark:-'.format(selectFlag)
+		pS = subprocess.Popen(cmdS,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+		(outS,errS) = pS.communicate(input=temp)
+		if outS == b'':
+			errS = errS.decode()
+			print(errS)
+			raise KaldiProcessError("Select data defeated.")
+		else:
+			selectedResult = KaldiArk(outS)
 
-        if axis == 1:
-            allIntFlag = True
-            dataType = self.dtype
-            if dataType == 'int32':
-                newData = self.to_dtype('float32')
-            else:
-                allIntFlag = False
-                newData = self
-            for other in others:
-                with tempfile.NamedTemporaryFile(mode='w+b') as fn:
-                    otherDtype = other.dtype
-                    if otherDtype == 'int32':
-                        other = other.to_dtype('float32')
-                    else:
-                        allIntFlag = False
-                    fn.write(other)
-                    fn.seek(0)
-                    cmd = 'paste-feats ark:- ark:{} ark:-'.format(fn.name)
-                    p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-                    (newData,err) = p.communicate(input=newData)
-                    if newData == b'':
-                        err = err.decode()
-                        raise KaldiProcessError(err)
-            if allIntFlag is True:
-                newData = KaldiArk(newData).to_dtype('int32')
-        else:
-            sp = BytesIO(self)
-            op = [BytesIO(x) for x in others]
-            newData = []
-            dataBackup = []
-            for j in range(len(others)):
-                dataBackup.append(dict())
-            while True:
-                data = b''
-                (sutt,sdataType,srows,scols,sbuf) = self._read_one_record(sp)
-                if sutt == None:
-                    break
-                for i,opi in enumerate(op):
-                    if sutt in list(dataBackup[i].keys()):
-                        sbuf += dataBackup[i][sutt]
-                    else:
-                        while True:
-                            (outt,odataType,orows,ocols,obuf) = self._read_one_record(opi)
-                            if outt == None:
-                                sp.close()
-                                [x.close() for x in op]
-                                raise WrongDataFormat('Miss data to concat at {} of {}th member.'.format(sutt,i+1))
-                            elif outt == sutt:
-                                if ocols != scols:
-                                    sp.close()
-                                    [x.close() for x in op]
-                                    raise WrongDataFormat('Data dim {}!={} at {}.'.format(scols,ocols,sutt))
-                                srows += orows
-                                sbuf += obuf
-                                break
-                            else:
-                                dataBackup[i][outt] = obuf
-                data += (sutt+' '+'\0B'+sdataType).encode()
-                data += '\04'.encode()
-                data += struct.pack(np.dtype('uint32').char, srows)
-                data += '\04'.encode()
-                data += struct.pack(np.dtype('uint32').char, scols)
-                data += sbuf
-                newData.append(data)
-            sp.close()
-            [x.close() for x in op]
-            newData = b''.join(newData)
-        return KaldiArk(newData)
+		if retain:
+			if retainFlag == "":
+				retainedResult = KaldiArk()
+			else: 
+				cmdR = 'select-feats {} ark:- ark:-'.format(retainFlag)
+				pR = subprocess.Popen(cmdR,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+				(outR,errR) = pR.communicate(input=temp)
+				if outR == b'':
+					errR = errR.decode()
+					print(errS)
+					raise KaldiProcessError("Select retained data defeated.")
+				else:
+					retainedResult = KaldiArk(outR)
+		
+			if self.dtype == 'int32':
+				return selectedResult.to_dtype('int32'),retainedResult.to_dtype('int32')
+			elif self.dtype == 'int64':
+				return selectedResult.to_dtype('int64'),retainedResult.to_dtype('int64')
+			else:
+				return selectedResult,retainedResult
+		else:
+			if self.dtype == 'int32':
+				return selectedResult.to_dtype('int32')
+			elif self.dtype == 'int64':
+				return selectedResult.to_dtype('int64')
+			else:
+				return selectedResult
 
-    def splice(self,left=4,right=None):
-        '''
-        Useage:  newObj = obj.splice(4) or newObj = obj.splice(4,3)
-        
-        Return a new KaldiArk object. If right is None, we define right = left. So if you don't want to splice, set the value = 0.
+	def subset(self,nHead=0,chunks=1,uttList=None):
+		'''
+		Usage:  newObj = obj.subset(nHead=10) or newObj = obj.subset(chunks=10) or newObj = obj.subset(uttList=uttList)
+		
+		If <nHead> is larger than "0", return a new KaldiArk object whose content is start <nHead> pieces of data. 
+		Or if chunks is larger than "1", split all data averagely as N KaidiArk objects. Return a list.
+		Or if <uttList> is not "None", select utterances if they appeared in obj. Return a KaldiArk object of selected data.
+		''' 
+		if nHead > 0:
+			assert isinstance(nHead,int), "Expected <nHead> is an int number but got {}.".format(nHead)
+			
+			if len(self) == 0:
+				return KaldiArk()
 
-        ''' 
-        if right == None:
-            right = left
-        
-        cmd = 'splice-feats --left-context={} --right-context={} ark:- ark:-'.format(left,right)
-        p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out,err) = p.communicate(input=self)
+			with BytesIO(self) as sp:
+				uttLens = []
+				while nHead > 0:
+					(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
+					if utt == None:
+						break
+					if dataType == 'DM ' or dataType == 'UM ':
+						sampleSize = 8
+					else:
+						sampleSize = 4
+					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
+					uttLens.append(oneRecordLen) 
+					nHead -= 1       
+				sp.seek(0)
+				data = sp.read(sum(uttLens))
+			return KaldiArk(data)
+		
+		elif chunks > 1:
+			assert isinstance(chunks,int), "Expected <chunks> is an int number but got {}.".format(chunks)
 
-        if out == b'':
-            err = err.decode()
-            raise KaldiProcessError(err)
-        else:
-            return KaldiArk(out)
+			if len(self) == 0:
+				return []
 
-    def select(self,dims,reserve=False):
-        '''
-        Useage:  newObj = obj.select(4) or newObj = obj.select('5,10-15') or newObj1,newObj2 = obj.select('5,10-15',True)
-        
-        Select data according dims. < dims > should be an int or string like "1,5-20".
-        If < reserve > is True, return 2 new KaldiArk objects. Or only return selected data.
+			datas = []
+			with BytesIO(self) as sp:
+				uttLens = []
+				while True:
+					(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
+					if utt == None:
+						break
+					if dataType == 'DM ' or dataType == 'UM ':
+						sampleSize = 8
+					else:
+						sampleSize = 4
+					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
+					uttLens.append(oneRecordLen)                                
+				sp.seek(0)
+				allLens = len(uttLens)
+				chunkUtts = allLens//chunks
+				if chunkUtts == 0:
+					chunks = allLens
+					chunkUtts = 1
+					t = 0
+				else:
+					t = allLens - chunkUtts * chunks
+				for i in range(chunks):
+					if i < t:
+						chunkLen = sum(uttLens[i*(chunkUtts+1):(i+1)*(chunkUtts+1)])
+					else:
+						chunkLen = sum(uttLens[i*chunkUtts:(i+1)*chunkUtts])
+					chunkData = sp.read(chunkLen)
+					datas.append(KaldiArk(chunkData))
+			return datas
 
-        ''' 
-        _dim = self.dim
-        if _dim == 1:
-            raise WrongOperation('Cannot select any data from 1-dim data.')
+		elif uttList != None:
+			if len(self) == 0:
+				return KaldiArk()
+			if isinstance(uttList,str):
+				uttList = [uttList,]
+			elif isinstance(uttList,(list,tuple)):
+				pass
+			else:
+				raise UnsupportedDataType('Expected <uttList> is string, list or tuple but got {}.'.format(type(uttList)))
 
-        elif isinstance(dims,int):
-            assert dims >= 0, "Expected dims >= 0."
-            selectFlag = str(dims)
-            if reserve:
-                if dims == 0:
-                    reserveFlag = '1-{}'.format(_dim-1)
-                elif dims == _dim-1:
-                    reserveFlag = '0-{}'.format(_dim-2)
-                else:
-                    reserveFlag = '0-{},{}-{}'.format(dims-1,dims+1,_dim-1)
-        elif isinstance(dims,str):
-            if reserve:
-                reserveFlag = [x for x in range(_dim)]
-                for i in dims.strip().split(','):
-                    if not '-' in i:
-                        reserveFlag[int(i)]=-1    
-                    else:
-                        i = i.split('-')
-                        for j in range(int(i[0]),int(i[1])+1,1):
-                            reserveFlag[j]=-1
-                temp = ''
-                for x in reserveFlag:
-                    if x != -1:
-                        temp += str(x)+','
-                reserveFlag = temp[0:-1]
-            selectFlag = dims
-        else:
-            raise WrongOperation('Expect int or string like 1,4-9,12 but got {}.'.format(type(dims)))
-        
-        cmdS = 'select-feats {} ark:- ark:-'.format(selectFlag)
-        pS = subprocess.Popen(cmdS,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (outS,errS) = pS.communicate(input=self)
-        if outS == b'':
-            errS = errS.decode()
-            raise KaldiProcessError(errS)
-        elif reserve:
-            cmdR = 'select-feats {} ark:- ark:-'.format(reserveFlag)
-            pR = subprocess.Popen(cmdR,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            (outR,errR) = pR.communicate(input=self)
-            if outR == b'':
-                errR = errR.decode()
-                raise KaldiProcessError(errS)
-            else:
-                return KaldiArk(outS),KaldiArk(outR)
-        else:
-            return KaldiArk(outS)
+			newData = []
+			with BytesIO(self) as sp:
+				while True:
+					(utt,dataType,rows,cols,buf) = self._read_one_record(sp)
+					if utt == None:
+						break
+					elif utt in uttList:
+						data = b''
+						data = (utt+' \0B'+dataType).encode()
+						data += '\04'.encode()
+						data += struct.pack(np.dtype('uint32').char, rows)
+						data += '\04'.encode()
+						data += struct.pack(np.dtype('uint32').char, cols)
+						data += buf
+						newData.append(data)
+			return KaldiArk(b''.join(newData))
 
-    def subset(self,nHead=0,chunks=1,uttList=None):
-        '''
-        Useage:  newObj = obj.subset(nHead=10) or newObj = obj.subset(chunks=10) or newObj = obj.subset(uttList=uttList)
-        
-        Subset data.
-        If nHead > 0, return a new KaldiArk object whose content is front nHead pieces of data. 
-        Or If chunks > 1, split data averagely as chunks KaidiArk objects. Return a list.
-        Or If uttList != None, select utterances if appeared in obj. Return selected data.
-        
-        ''' 
+		else:
+			raise WrongOperation('Expected <nHead> is larger than "0", or <chunks> is larger than "1", or <uttList> is not None.')
 
-        if nHead > 0:
-            sp = BytesIO(self)
-            uttLens = []
-            while len(uttLens) < nHead:
-                (utt,dataType,rows,cols,buf) = self._read_one_record(sp)
-                if utt == None:
-                    break
-                if dataType == 'DM ':
-                    sampleSize = 8
-                else:
-                    sampleSize = 4
-                oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
-                uttLens.append(oneRecordLen)                
-            sp.seek(0)
-            data = sp.read(sum(uttLens))
-            sp.close()
-            return KaldiArk(data)
-        elif chunks > 1:
-            datas = []
-            sp = BytesIO(self)
-            uttLens = []
-            while True:
-                (utt,dataType,rows,cols,buf) = self._read_one_record(sp)
-                if utt == None:
-                    break
-                if dataType == 'DM ':
-                    sampleSize = 8
-                else:
-                    sampleSize = 4
-                oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
-                uttLens.append(oneRecordLen)                                
-            sp.seek(0)
-            allLens = len(uttLens)
-            chunkUtts = allLens//chunks
-            if chunkUtts == 0:
-                chunks = allLens
-                chunkUtts = 1
-                t = 0
-            else:
-                t = allLens - chunkUtts * chunks
-            for i in range(chunks):
-                if i < t:
-                    chunkLen = sum(uttLens[i*(chunkUtts+1):(i+1)*(chunkUtts+1)])
-                else:
-                    chunkLen = sum(uttLens[i*chunkUtts:(i+1)*chunkUtts])
-                chunkData = sp.read(chunkLen)
-                datas.append(KaldiArk(chunkData))
-            sp.close()
-            return datas
-
-        elif uttList != None:
-            if isinstance(uttList,str):
-                uttList = [uttList,]
-            elif isinstance(uttList,(list,tuple)):
-                pass
-            else:
-                raise UnsupportedDataType('Expected <uttList> is str,list or tuple but got {}.'.format(type(uttList)))
-
-            newData = []
-            sp = BytesIO(self)
-            while True:
-                (utt,dataType,rows,cols,buf) = self._read_one_record(sp)
-                if utt == None:
-                    break
-                elif utt in uttList:
-                    data = b''
-                    data = (utt+' \0B'+dataType).encode()
-                    data += '\04'.encode()
-                    data += struct.pack(np.dtype('uint32').char, rows)
-                    data += '\04'.encode()
-                    data += struct.pack(np.dtype('uint32').char, cols)
-                    data += buf
-                    newData.append(data)
-            sp.close()
-            return KaldiArk(b''.join(newData))          
-        else:
-            raise WrongOperation("Expected one value of <nHead>, <chunks> or <uttList>.")
-#DONE
 class KaldiDict(dict):
-    '''
-    Useage:  obj = KaldiDict(binaryData)  or   obj = KaldiDict()
-
-    KaldiDict is a subclass of dict. It is visible form of KaldiArk and holds the feature data and aligment data with NumPy array type. 
-    Its keys are the names of all utterances and the values are the data. KaldiDict object can also implement some mixed operations with KaldiArk such as "+" and "concat" and so on.
-    Note that KaldiDict has some specific functions which KaldiArk dosen't have.
-
-    '''
-    def __init__(self,*args):
-        super(KaldiDict,self).__init__(*args)
-        self.__add_dim_to_1dimData()
-
-    def __add_dim_to_1dimData(self):
-        for utt in self.keys():
-            if len(self[utt].shape) == 1:
-                self[utt] = self[utt][None,:]
-
-    @property
-    def dim(self):
-        '''
-        Useage:  dim = obj.dim
-        
-        Return an int: feature dimensional. If it is alignment data, dim will be 1.
-
-        '''
-        _dim = None
-        if len(self.keys()) != 0:
-            utt = list(self.keys())[0]
-            if len(self[utt].shape) == 1:
-                self.__add_dim_to_1dimData()
-            _dim = self[utt].shape[1]
-        return _dim
-
-    @property
-    def target(self):
-        '''
-        Useage:  dim = obj.targets
-        
-        Return an int: the maxinum value of alignment data.
-
-        '''        
-        maxValue = None
-        for utt in self.keys():
-            if not self[utt].dtype in ['int8','int16','int32','int64']:
-                raise WrongOperation('Cannot obtain targets from float data.')
-            if len(self[utt].shape) == 1:
-                self[utt] = self[utt][None,:]
-            t = np.max(self[utt])
-            if maxValue == None or t > maxValue:
-                maxValue = t
-        return int(maxValue) + 1 
-
-    @property
-    def lens(self):
-        '''
-        Useage:  lens = obj.lens
-        
-        Return a tuple: ( the numbers of all utterances, the frames of each utterance ). The first one is an int, and second one is a list.
-        If there is not any data, return (0,None)
-
-        '''
-        _lens = None
-        allUtts = self.keys()
-        if len(allUtts) != 0:
-            _lens = []
-            for utt in allUtts:
-                if len(self[utt].shape) == 1:
-                    self[utt] = self[utt][None,:]
-                _lens.append(len(self[utt]))
-        if _lens == None:
-            return (0,None)
-        else:
-            return (len(_lens),_lens)
-
-    @property
-    def dtype(self):
-        '''
-        Useage:  dtype = obj.dtype
-        
-        Return an str: data type. We only use 'float32','float64' and 'int32'.
-
-        '''        
-        _dtype = None
-        if len(self.keys()) != 0:
-            utt = list(self.keys())[0]
-            _dtype = str(self[utt].dtype)   
-            if len(self[utt].shape) == 1:
-                self.__add_dim_to_1dimData() 
-        return _dtype
-    
-    def to_dtype(self,dtype):
-        '''
-        Useage:  newObj = obj.to_dtype('float')
-        
-        Return a new KaldiArk object. 'float' will be treated as 'float32' and 'int' will be 'int32'.
-
-        '''
-        self.__add_dim_to_1dimData()      
-        if self.dtype != dtype:
-            assert dtype in ['int','int32','float','float32','float64'],'Expected dtype==<int><int32><float><float32><float64> but got {}.'.format(dtype)
-            if dtype == 'int': 
-                dtype = 'int32'
-            elif dtype == 'float': 
-                dtype = 'float32'    
-            newData = KaldiDict()
-            for utt in self.keys():
-                newData[utt] = np.array(self[utt],dtype=dtype)
-            return newData
-        else:
-            return self
-
-    @property
-    def utts(self):
-        '''
-        Useage:  utts = obj.utts
-        
-        Return a list: including all utterance id.
-
-        '''
-        self.__add_dim_to_1dimData()
-
-        return list(self.keys())
-    
-    def check_format(self):
-        '''
-        Useage:  obj.check_format()
-        
-        Check if data has a correct kaldi ark data format. If had, return True, or raise error.
-
-        '''        
-        if len(self.keys()) != 0:
-            _dim = 'unknown'
-            for utt in self.keys():
-                if not isinstance(utt,str):
-                    raise WrongDataFormat('Expected <utt id> is str but got {}.'.format(type(utt)))
-                if not isinstance(self[utt],np.ndarray):
-                    raise WrongDataFormat('Exprcted numpy ndarray but got {}.'.format(type(self[utt])))
-                if len(self[utt].shape) == 1:
-                    self[utt] = self[utt][None,:]
-                matrixShape = self[utt].shape
-                if len(matrixShape) > 2:
-                    raise WrongDataFormat('Expected matrix shape=[frames,dims] or [dims] but got {}.'.format(matrixShape))
-                if len(matrixShape) == 2:
-                    if _dim == 'unknown':
-                        _dim = matrixShape[1]
-                    elif matrixShape[1] != _dim:
-                        raise WrongDataFormat("Expected uniform data dim {} but got {} at utt {}.".format(_dim,matrixShape[1],utt))
-            return True
-        else:
-            return False
-    
-    @property
-    def ark(self):
-        '''
-        Useage:  newObj = obj.ark
-        
-        Return a KaldiArk object. Transform numpy array data into ark binary data.
-
-        '''
-
-        totalSize = 0
-        for u in self.keys():
-            totalSize += sys.getsizeof(self[u])
-        if totalSize > 10000000000:
-            print('Warning: Data is extramely large. Try to transform it but it maybe result in MemoryError.')
-        
-        newData = []
-        for utt in self.keys():
-            data = b''
-            if len(self[utt].shape) == 1:
-                self[utt] = self[utt][None,:]
-            matrix = self[utt]
-            data += (utt+' ').encode()
-            data += '\0B'.encode()
-            if matrix.dtype == 'float32':
-                data += 'FM '.encode()
-            elif matrix.dtype == 'float64':
-                data += 'DM '.encode()
-            elif matrix.dtype in ['int8','int16','int32','int64']:
-                matrix = np.array(matrix,dtype='int32')
-                data += 'IM '.encode()
-            else:
-                raise UnsupportedDataType("Expected int float32 float64 data, but got {}.".format(matrix.dtype))
-            data += '\04'.encode()
-            data += struct.pack(np.dtype('uint32').char, matrix.shape[0])
-            data += '\04'.encode()
-            data += struct.pack(np.dtype('uint32').char, matrix.shape[1])
-            data += matrix.tobytes()
-            newData.append(data)
-
-        return KaldiArk(b''.join(newData))
-
-    def save(self,fileName,chunks=1):
-        '''
-        Useage:  obj.save('feat.npy') or obj.save('feat.npy',chunks=2)
-        
-        Save as .npy file. If chunks is larger than 1, split it averagely and save them.
-
-        '''      
-        if len(self.keys()) == 0:
-            raise WrongOperation('No data to save.')
-
-        totalSize = 0
-        for u in self.keys():
-            totalSize += sys.getsizeof(self[u])
-        if totalSize > 10000000000:
-            print('Warning: Data size is extremely large. Try to save it with a long time.')
-        
-        if fileName.strip().endswith('.npy'):
-            fileName = fileName[0:-4]
-
-        if chunks == 1:          
-            datas = tuple(self.items())
-            np.save(fileName,datas)
-        else:
-            if fileName.strip().endswith('.npy'):
-                fileName = fileName[0:-4]
-            datas = tuple(self.items())
-            allLens = len(datas)
-            chunkUtts = allLens//chunks
-            if chunkUtts == 0:
-                chunks = allLens
-                chunkUtts = 1
-                t = 0
-            else:
-                t = allLens - chunkUtts * chunks
-            for i in range(chunks):
-                if i < t:
-                    chunkData = datas[i*(chunkUtts+1):(i+1)*(chunkUtts+1)]
-                else:
-                    chunkData = datas[i*chunkUtts:(i+1)*chunkUtts]
-                np.save(fileName+'_ck{}.npy'.format(i),chunkData)         
-
-    def __add__(self,other):
-        '''
-        Useage:  obj3 = obj1 + obj2
-        
-        Return a new KaldiDict object. obj2 can be KaldiArk or KaldiDict object.
-        Note that if there are the same utt id in both obj1 and obj2, data in the formar will be retained.
-
-        ''' 
-
-        if isinstance(other,KaldiDict):
-            pass         
-        elif isinstance(other,KaldiArk):
-            other = other.array
-        else:
-            raise UnsupportedDataType('Excepted KaldiArk KaldiDict but got {}.'.format(type(other)))
-    
-        if self.dim != other.dim:
-            raise WrongDataFormat('Expected unified dim but {}!={}.'.format(self.dim,other.dim))
-
-        self.__add_dim_to_1dimData()
-        other.__add_dim_to_1dimData()
-
-        temp = self.copy()
-        selfUtts = list(self.keys())
-        for utt in other.keys():
-            if not utt in selfUtts:
-                temp[utt] = other[utt]
-        return KaldiDict(temp)
-    
-    def concat(self,others,axis=1):
-        '''
-        Useage:  obj3 = obj1.concat(obj2) or newObj = obj1.concat([obj2,obj3....])
-        
-        Return a new KaldiDict object. obj2,obj3... can be KaldiArk or KaldiDict objects.
-        Note that only these utterance ids which appeared in all objects can be retained in concat result. 
-        When one member of the data only has a dim or only have one frames and axis is 1, it will be concatenated to all frames.
-
-        ''' 
-        if axis != 1 and axis != 0:
-            raise WrongOperation("Expected axis ==1 or 0 but got {}.".format(axis))
-
-        if not isinstance(others,(list,tuple)):
-            others = [others,]
-
-        for index,other in enumerate(others):
-            if isinstance(other,KaldiDict):                   
-                pass
-            elif isinstance(other,KaldiArk):
-                others[index] = other.array       
-            else:
-                raise UnsupportedDataType('Excepted KaldiArk KaldiDict but got {}.'.format(type(other))) 
-
-        newDict = KaldiDict()
-        for utt in self.keys():
-            newMat=[]
-
-            adjustFrameIndexs = []
-
-            if len(self[utt].shape) == 1:
-                self[utt] = self[utt][None,:]
-            if self[utt].shape[0] == 1:
-                adjustFrameIndexs.append(0)
-            maxFrames = self[utt].shape[0]
-            #    newMat.append(self[utt][:,np.newaxis])
-            #else:
-            newMat.append(self[utt])
-            length = self[utt].shape[0]
-            dim = self[utt].shape[1]
-            
-            for index,other in enumerate(others,start=1):
-                if utt in other.keys():
-                    if len(other[utt].shape) == 1:
-                        other[utt] = other[utt][None,:]
-                    if other[utt].shape[0] == 1:
-                        adjustFrameIndexs.append(index)
-                    if other[utt].shape[0] > maxFrames:
-                        maxFrames = other[utt].shape[0]
-
-                    if axis == 1:
-                        if other[utt].shape[0] == 1:
-                            pass
-                        elif other[utt].shape[0] != length:
-                            raise WrongDataFormat("Feature frames {}!={} at utt {}.".format(length,other[utt].shape[0],utt))
-                    elif axis == 0 and other[utt].shape[1] != dim:
-                        raise WrongDataFormat("Feature dims {}!={} on utt {}.".format(dim,other[utt].shape[1],utt))
-                    
-                    newMat.append(other[utt])              
-                else:
-                    #print("Concat Warning: Miss data of utt id {} in later dict".format(utt))
-                    break
-            if len(newMat) < len(others) + 1:
-                #If any member miss the data of current utt id, abandon data of this utt id of all menbers
-                continue
-            if len(adjustFrameIndexs) > 0:
-                for index in adjustFrameIndexs:
-                    new = []
-                    for i in range(maxFrames):
-                        new.append(newMat[index][0])
-                    newMat[index] = np.row_stack(new)
-            newDict[utt] = np.concatenate(newMat,axis=axis)
-        return newDict
-
-    def splice(self,left=4,right=None):
-        '''
-        Useage:  newObj = obj.splice(4) or newObj = obj.splice(4,3)
-        
-        Return a new KaldiDict object. If right is None, we define right = left. So if you don't want to splice, set the value = 0.
-
-        ''' 
-        if right == None:
-            right = left
-        lengths = []
-        matrixes = []
-        utts = self.keys()
-
-        for utt in self.keys():
-            if len(self[utt].shape) == 1:
-                self[utt] = self[utt][None,:]
-            lengths.append((utt,len(self[utt])))
-            matrixes.append(self[utt])
-        matrixes = np.concatenate(matrixes,axis=0)
-        if left > len(matrixes) or right > len(matrixes):
-            raise WrongOperation('Total Frames {} is shorter than splice length.'.format(len(matrixes)))
-        
-        matrixes = np.concatenate([matrixes[0:left,:],matrixes,matrixes[(0-right):,:]],axis=0)
-        N = matrixes.shape[0]
-        dim = matrixes.shape[1]
-
-        newMat=np.empty([N,dim*(left+right+1)])
-        index = 0
-        for lag in range(-left,right+1):
-            newMat[:,index:index+dim]=np.roll(matrixes,lag,axis=0)
-            index += dim
-        newMat = newMat[left:(0-right),:]
-
-        newFea = KaldiDict()
-        index = 0
-        for utt,length in lengths:
-            newFea[utt] = newMat[index:index+length]
-            index += length
-        return newFea
-    
-    def select(self,dims,reserve=False):
-        '''
-        Useage:  newObj = obj.select(4) or newObj = obj.select('5,10-15') or newObj1,newObj2 = obj.select('5,10-15',True)
-        
-        Select data according dims. < dims > should be an int or string like "1,5-20".
-        If < reserve > is True, return 2 new KaldiDict objects. Or only return selected data.
-
-        '''         
-        _dim = self.dim
-        if _dim == 1:
-            raise WrongOperation('Cannot select any data from 1-dim data.')
-        elif isinstance(dims,int):
-            selectFlag = [dims]
-        elif isinstance(dims,str):
-            temp = dims.split(',')
-            selectFlag = []
-            for i in temp:
-                if not '-' in i:
-                    i = int(i)
-                    selectFlag.append(i)
-                else:
-                    i = i.split('-')
-                    selectFlag.extend([x for x in range(int(i[0]),int(i[1])+1)])
-        else:
-            raise WrongOperation('Expected int or string like 1,4-9,12 but got {}.'.format(type(dims)))
-
-        reserveFlag = list(set(selectFlag))
-        seleDict = KaldiDict()
-        if reserve:
-            reseDict = KaldiDict()
-        for utt in self.keys():
-            if len(self[utt].shape) == 1:
-                self[utt] = self[utt][None,:]
-            newMat = []
-            for index in selectFlag:
-                newMat.append(self[utt][:,index][:,np.newaxis])
-            newMat = np.concatenate(newMat,axis=1)
-            seleDict[utt] = newMat
-            if reserve:
-                matrix = self[utt].copy()
-                reseDict[utt] = np.delete(matrix,reserveFlag,1)
-        if reserve:
-            return seleDict,reseDict
-        else:
-            return seleDict
-
-    def subset(self,nHead=0,chunks=1,uttList=None):
-        '''
-        Useage:  newObj = obj.subset(nHead=10) or newObj = obj.subset(chunks=10) or newObj = obj.subset(uttList=uttList)
-        
-        Subset data.
-        If nHead > 0, return a new KaldiDict object whose content is front nHead pieces of data. 
-        Or If chunks > 1, split data averagely as chunks KaidiDict objects. Return a list.
-        Or If uttList != None, select utterances if appeared in obj. Return selected data.
-        
-        ''' 
-        self.__add_dim_to_1dimData()
-
-        if nHead > 0:
-            newDict = KaldiDict()
-            utts = list(self.keys())
-            for utt in utts[0:nHead]:
-                newDict[utt]=self[utt]
-            return newDict
-
-        elif chunks > 1:
-            datas = []
-            utts = list(self.keys())
-            allLens = len(self)
-            chunkUtts = allLens//chunks
-            if chunkUtts == 0:
-                chunks = allLens
-                chunkUtts = 1
-                t = 0
-            else:
-                t = allLens - chunkUtts * chunks
-
-            for i in range(chunks):
-                datas.append(KaldiDict())
-                if i < t:
-                    chunkUttList = utts[i*(chunkUtts+1):(i+1)*(chunkUtts+1)]
-                else:
-                    chunkUttList = utts[i*chunkUtts:(i+1)*chunkUtts]
-                for utt in chunkUttList:
-                    datas[i][utt]=self[utt]
-            return datas
-
-        elif uttList != None:
-
-            if isinstance(uttList,str):
-                uttList = [uttList,]
-            elif isinstance(uttList,(list,tuple)):
-                pass
-            else:
-                raise UnsupportedDataType('Expected <uttList> is str,list or tuple but got {}.'.format(type(uttList)))
-
-            newDict = KaldiDict()
-            selfKeys = list(self.keys())
-            for utt in uttList:
-                if utt in selfKeys:
-                    newDict[utt] = self[utt]
-                else:
-                    #print('Subset Warning: no data for utt {}'.format(utt))
-                    continue
-            return newDict
-        else:
-            raise WrongOperation("nHead, chunks and uttList are not allowed be None at the same time.")
-
-    def sort(self,by='frame',reverse=False):
-        '''
-        Useage:  newObj = obj.sort()
-        
-        Sort data by frame length or name. Return a new KaldiDict object.
-
-        ''' 
-        if len(self.keys()) == 0:
-            raise WrongOperation('No data to sort.')
-
-        assert by=='frame' or by=='name', 'We only support sorting by <name> or <frame>.'
-
-        self.__add_dim_to_1dimData()
-
-        items = self.items()
-
-        if by == 'name':
-            items = sorted(items,key=lambda x:x[0],reverse=reverse)
-        else:
-            items = sorted(items,key=lambda x:len(x[1]),reverse=reverse)
-        
-        newData = KaldiDict()
-        for key, value in items:
-            newData[key] = value
-        
-        return newData 
-
-    def merge(self,keepDim=False,sort=False):
-        '''
-        Useage:  data,uttlength = obj.merge() or data,uttlength = obj.merge(keepDim=True)
-        
-        Return two value.
-        If < keepDim > is False, the first one is 2-dim numpy array, the second one is a list consists of id and frames of each utterance. 
-        If < keepDim > is True, the first one will be a list.
-        if < sort > is True, it will sort by length of matrix before merge.
-        ''' 
-        uttLens = []
-        matrixs = []
-
-        self.__add_dim_to_1dimData()
-
-        if sort:          
-            items = sorted(self.items(), key=lambda x:len(x[1]))
-        else:
-            items = self.items()
-        for utt,mat in items:
-            uttLens.append((utt,len(mat)))
-            matrixs.append(mat)
-        if not keepDim:
-            matrixs = np.row_stack(matrixs)
-        return matrixs,uttLens
-
-    def remerge(self,matrix,uttLens):
-        '''
-        Useage:  obj = obj.merge(data,uttlength)
-        
-        Return KaldiDict object. This is a inverse operation of .merge() function.
-        
-        ''' 
-        if len(self.keys()) == 0:
-            if isinstance(matrix,list):
-                for i,(utt,lens) in enumerate(uttLens):
-                    self[utt] = matrix[i]
-            elif isinstance(matrix,np.ndarray):
-                start = 0
-                for utt,lens in uttLens:
-                    self[utt] = matrix[start:start+lens]
-                    start += lens
-            else:
-                raise UnsupportedDataType('It is not KaldiDict merged data.')
-        else:
-            newDict = KaldiDict()
-            if isinstance(matrix,list):
-                for i,(utt,lens) in enumerate(uttLens):
-                    newDict[utt] = matrix[i]
-            elif isinstance(matrix,np.ndarray):
-                start = 0
-                for utt,lens in uttLens:
-                    newDict[utt] = matrix[start:start+lens]
-                    start += lens
-            else:
-                raise UnsupportedDataType('It is not KaldiDict merged data.')
-            return newDict
-
-    def normalize(self,std=True,alpha=1.0,beta=0.0,epsilon=1e-6,axis=0):
-        '''
-        Useage:  newObj = obj.normalize()
-        
-        Return a KaldiDict object. if < std > is True, do alpha*(x-mean)/(std+epsilon)+belta, or do alpha*(x-mean)+belta.
-        
-        '''
-        data,uttLens = self.merge()
-        mean = np.mean(data,axis=axis)
-
-        if std == True:  
-            std = np.std(data,axis=axis)
-            data = alpha*(data-mean)/(std+epsilon)+beta
-        else:
-            data = alpha*(data-mean)+beta
-
-        newDict = KaldiDict()
-        start = 0
-        for utt,lens in uttLens:
-            newDict[utt] = data[start:(start+lens)]
-            start += lens
-
-        return newDict 
-
-    def cut(self,maxFrames):
-        '''
-        Useage:  newObj = obj.cut(100)
-        
-        Cut data every maxFrames if its frame length is larger than 1.25 * <maxFrames>.
-
-        '''      
-        if len(self.keys()) == 0:
-            raise WrongOperation('No data to cut.')
-
-        assert isinstance(maxFrames,int), "Expected < maxFrames > is int but got {}.".format(type(maxFrames))
-        assert maxFrames > 0, "Expected < maxFrames > is positive number but got {}.".format(type(maxFrames))
-
-        newData = {}
-
-        cutThreshold = maxFrames + maxFrames//4
-
-        for key in self.keys():
-            if len(self[key].shape) == 1:
-                self[key] = self[key][None,:]
-            matrix = self[key]
-            if len(matrix) <= cutThreshold:
-                newData[key] = matrix
-            else:
-                i = 0 
-                while True:
-                    newData[key+"_"+str(i)] = matrix[i*maxFrames:(i+1)*maxFrames]
-                    i += 1
-                    if len(matrix[i*maxFrames:]) <= cutThreshold:
-                        break
-                if len(matrix[i*maxFrames:]) != 0:
-                    newData[key+"_"+str(i)] = matrix[i*maxFrames:]
-        
-        return KaldiDict(newData)
-
-    def tuple_value(self,others,sort=False):
-        '''
-        Useage:  data = obj1.tuple_value(obj1)
-        
-        Return a list.
-        Tuple the data of the same utt from different Kaldidict or KaldiArk objects.
-        If <sort> is True, sort the data by frames length.
-        '''         
-
-        if not isinstance(others,(list,tuple)):
-            others = [others,]
-
-        for index,other in enumerate(others):
-            if isinstance(other,KaldiDict):                   
-                pass
-            elif isinstance(other,KaldiArk):
-                others[index] = other.array       
-            else:
-                raise UnsupportedDataType('Excepted KaldiArk KaldiDict but got {}.'.format(type(other)))
-
-        new = []
-        for utt in self.keys():
-            if len(self[utt].shape) == 1:
-                self[utt] = self[utt][None,:]
-            temp = (self[utt],)
-            for other in others:
-                if len(other[utt].shape) == 1:
-                    other[utt] = other[utt][None,:]
-                if not utt in other:
-                    break
-                else:
-                    temp += (other[utt],)
-            if len(temp) < len(others) + 1:
-                continue
-            else:
-                new.append(temp)
-        
-        if sort is True:
-            new = sorted(new, key=lambda x:len(x[0]))
-        
-        return new
-
-#DONE
+	'''
+	Usage:  obj = KaldiDict(binaryData) or obj = KaldiDict()
+
+	KaldiDict is a subclass of Python dict. It is visible form of KaldiArk and holds the feature data and aligment data with NumPy array type. 
+	Its keys are the names of all utterances and the values are the data. KaldiDict object can also implement some mixed operations with KaldiArk such as "+" and so on.
+	Note that KaldiDict has some specific functions which KaldiArk does not have.
+	'''
+	def __init__(self,*args):
+		super(KaldiDict,self).__init__(*args)
+		self.check_format()
+
+	def __add_dim_to_1dimData(self):
+		for utt in self.keys():
+			if len(self[utt].shape) == 1:
+				self[utt] = self[utt][None,:]
+
+	@property
+	def dim(self):
+		'''
+		Usage:  dimension = obj.dim
+		
+		Return an int value: data dimension.
+		'''
+		_dim = None
+		if len(self.keys()) != 0:
+			utt = list(self.keys())[0]
+			if len(self[utt].shape) == 1:
+				self.__add_dim_to_1dimData()
+			_dim = self[utt].shape[1]
+		return _dim
+
+	@property
+	def target(self):
+		'''
+		Usage:  label_classes = obj.target
+		
+		Return an int value: the classes of alignment data.
+		'''
+		if len(self.keys()) == 0:
+			return None        
+		maxValue = None
+		for utt in self.keys():
+			if not (self[utt].dtype in ["int8","int16","int32","int64"]):
+				raise WrongOperation('Cannot obtain target from float data.')
+			if len(self[utt].shape) == 1:
+				self[utt] = self[utt][None,:]
+			t = np.max(self[utt])
+			if maxValue == None or t > maxValue:
+				maxValue = t
+		return int(maxValue) + 1
+
+	@property
+	def lens(self):
+		'''
+		Usage: length = obj.lens
+		Return a tuple: (the numbers of all utterances, the utterance IDs and frames of each utterance). 
+		If there is not any data, return (0, None).
+		'''
+		_lens = None
+		allUtts = self.keys()
+		if len(allUtts) != 0:
+			_lens = {}
+			for utt in allUtts:
+				if len(self[utt].shape) == 1:
+					self[utt] = self[utt][None,:]
+				_lens[utt] = len(self[utt])
+		if _lens == None:
+			return (0,None)
+		else:
+			return (len(_lens),_lens)
+
+	@property
+	def dtype(self):
+		'''
+		Usage:  dataType = obj.dtype
+		
+		Return a string: data type. We only use 'float32', 'float64', 'int32', 'int64'.
+		'''        
+		_dtype = None
+		if len(self.keys()) != 0:
+			utt = list(self.keys())[0]
+			_dtype = str(self[utt].dtype) 
+			if len(self[utt].shape) == 1:
+				self.__add_dim_to_1dimData() 
+		return _dtype
+	
+	def to_dtype(self,dtype):
+		'''
+		Usage:  newObj = obj.to_dtype('float')
+
+		Return a new KaldiArk object. 'float' will be treated as 'float32' and 'int' will be 'int32'.
+		'''
+		self.__add_dim_to_1dimData() 
+		if self.dtype != dtype:
+			assert dtype in ['int','int32','int64','float','float32','float64'],'Expected <dtype> is "int", "int32", "int64", "float", "float32" or "float64" but got {}.'.format(dtype)
+			if dtype == 'int': 
+				dtype = 'int32'
+			elif dtype == 'float': 
+				dtype = 'float32'
+			newData = KaldiDict()
+			for utt in self.keys():
+				newData[utt] = np.array(self[utt],dtype=dtype)
+			return newData
+		else:
+			return self
+
+	@property
+	def utts(self):
+		'''
+		Usage:  utteranceIDs = obj.utts
+		
+		Return a list object: including all utterance IDs.
+		'''
+		self.__add_dim_to_1dimData()
+
+		return list(self.keys())
+	
+	def check_format(self):
+		'''
+		Usage:  obj.check_format()
+		
+		Check whether data has a correct format of Kaldi ark data. If having, return True, or raise ERROR.
+		'''
+		if len(self.keys()) != 0:
+			_dim = 'unknown'
+			for utt in self.keys():
+				if not isinstance(utt,str):
+					raise WrongDataFormat('Expected utterance ID is a string but got {}.'.format(type(utt)))
+				if not isinstance(self[utt],np.ndarray):
+					raise WrongDataFormat('Expected value is NumPy ndarray but got {}.'.format(type(self[utt])))
+				if len(self[utt].shape) == 1:
+					self[utt] = self[utt][None,:]
+				matrixShape = self[utt].shape
+				if len(matrixShape) > 2:
+					raise WrongDataFormat('Expected the shape of matrix is like [ frame length, dimension ] but got {}.'.format(matrixShape))
+				if len(matrixShape) == 2:
+					if _dim == 'unknown':
+						_dim = matrixShape[1]
+					elif matrixShape[1] != _dim:
+						raise WrongDataFormat("Expected uniform data dimension {} but got {} at utt {}.".format(_dim,matrixShape[1],utt))
+			return True
+		else:
+			return False
+	
+	@property
+	def ark(self):
+		'''
+		Usage:  newObj = obj.ark
+		
+		Return a KaldiArk object. Transform NumPy array data into ark binary data.
+		'''
+
+		#totalSize = 0
+		#for u in self.keys():
+		#    totalSize += sys.getsizeof(self[u])
+		#if totalSize > 10000000000:
+		#    print('Warning: Data is extramely large. Try to transform it but it maybe result in MemoryError.')
+
+		newData = []
+		for utt in self.keys():
+			if len(self[utt].shape) == 1:
+				self[utt] = self[utt][None,:]
+			matrix = self[utt]
+			data = (utt+' ').encode()
+			data += '\0B'.encode()
+			if matrix.dtype == 'float32':
+				data += 'FM '.encode()
+			elif matrix.dtype == 'float64':
+				data += 'DM '.encode()
+			elif matrix.dtype == 'int32':
+				data += 'IM '.encode()
+			elif matrix.dtype == 'int64':
+				data += 'UM '.encode()
+			else:
+				raise UnsupportedDataType('Expected "int32", "int64", "float32" or "float64" data, but got {}.'.format(matrix.dtype))
+			data += '\04'.encode()
+			data += struct.pack(np.dtype('uint32').char, matrix.shape[0])
+			data += '\04'.encode()
+			data += struct.pack(np.dtype('uint32').char, matrix.shape[1])
+			data += matrix.tobytes()
+			newData.append(data)
+
+		return KaldiArk(b''.join(newData))
+
+	def save(self,fileName,chunks=1):
+		'''
+		Usage:  obj.save('feat.npy') or obj.save('feat.npy',chunks=2)
+		
+		Save as .npy file. If <chunks> is larger than 1, split it averagely and save them.
+		'''      
+		if len(self.keys()) == 0:
+			raise WrongOperation('No data to save.')
+
+		#totalSize = 0
+		#for u in self.keys():
+		#    totalSize += sys.getsizeof(self[u])
+		#if totalSize > 10000000000:
+		#    print('Warning: Data size is extremely large. Try to save it with a long time.')
+		
+		if fileName.strip().endswith('.npy'):
+			fileName = fileName[0:-4]
+
+		if chunks == 1:          
+			allData = tuple(self.items())
+			np.save(fileName,allData)
+			savedFilesName = fileName + '.npy'
+		else:
+			allData = tuple(self.items())
+			allLens = len(allData)
+			chunkUtts = allLens//chunks
+			if chunkUtts == 0:
+				chunks = allLens
+				chunkUtts = 1
+				t = 0
+				print("Warning: utterances is fewer than <chunks> so only {} files will be saved.".format(chunks))
+			else:
+				t = allLens - chunkUtts * chunks
+			savedFilesName = []
+			for i in range(chunks):
+				if i < t:
+					chunkData = allData[i*(chunkUtts+1):(i+1)*(chunkUtts+1)]
+				else:
+					chunkData = allData[i*chunkUtts:(i+1)*chunkUtts]
+				np.save(fileName+'_ck{}.npy'.format(i),chunkData)
+				savedFilesName.append(fileName+'_ck{}.npy'.format(i))
+		
+		return savedFilesName
+
+	def __add__(self,other):
+		'''
+		Usage:  obj3 = obj1 + obj2
+		
+		Return a new KaldiDict object. obj2 can be KaldiArk or KaldiDict object.
+		Note that if there are the same utterance ID in both obj1 and obj2, data only in the formar will be retained.
+		''' 
+		if isinstance(other,KaldiDict):
+			pass         
+		elif isinstance(other,KaldiArk):
+			other = other.array
+		else:
+			raise UnsupportedDataType('Expected a KaldiArk or KaldiDict object but got {}.'.format(type(other)))
+	
+		if self.dim != None and other.dim != None and self.dim != other.dim:
+			raise WrongDataFormat('Expected unified dimension but {}!={}.'.format(self.dim,other.dim))
+
+		self.__add_dim_to_1dimData()
+
+		temp = self.copy()
+		selfUtts = list(self.keys())
+		for utt in other.keys():
+			if len(other[utt].shape) == 1:
+				other[utt] = other[utt][None,:]
+			if not utt in selfUtts:
+				temp[utt] = other[utt]
+		return KaldiDict(temp)
+	
+	def concat(self,others,axis=1):
+		'''
+		Usage:  obj3 = obj1.concat(obj2) or newObj = obj1.concat([obj2,obj3....])
+		
+		Return a KaldiDict object. obj2,obj3... can be KaldiArk or KaldiDict objects.
+		Note that only these utterance IDs which appeared in all objects can be retained in concatenated result. 
+		When one member of the data only has a dim or only have one frames and axis is 1, it will be concatenated to all frames.
+		''' 
+		if axis != 1 and axis != 0:
+			raise WrongOperation('Expected <axis> is "1" or "0" but got {}.'.format(axis))
+
+		if not isinstance(others,(list,tuple)):
+			others = [others,]
+
+		for index,other in enumerate(others):
+			if isinstance(other,KaldiDict):                   
+				pass
+			elif isinstance(other,KaldiArk):
+				others[index] = other.array       
+			else:
+				raise UnsupportedDataType('Excepted a KaldiArk or KaldiDict object but got {}.'.format(type(other))) 
+
+		newDict = KaldiDict()
+
+		for utt in self.keys():
+
+			newMat=[]
+			
+			if len(self[utt].shape) == 1:
+				self[utt] = self[utt][None,:]
+
+			if axis == 1:
+				adjustFrameIndexs = []
+				if self[utt].shape[0] == 1:
+					adjustFrameIndexs.append(0)
+				maxFrames = self[utt].shape[0]
+
+			newMat.append(self[utt])
+			length = self[utt].shape[0]
+			dim = self[utt].shape[1]
+			
+			for index,other in enumerate(others,start=1):
+				if utt in other.keys():
+					if len(other[utt].shape) == 1:
+						other[utt] = other[utt][None,:]
+					if axis == 1:
+						if other[utt].shape[0] > maxFrames:
+							maxFrames = other[utt].shape[0]
+						if other[utt].shape[0] == 1:
+							adjustFrameIndexs.append(index)
+						elif other[utt].shape[0] != length:
+							raise WrongDataFormat("Data frames {}!={} at utterance ID {}.".format(length,other[utt].shape[0],utt))
+					elif axis == 0 and other[utt].shape[1] != dim:
+						raise WrongDataFormat("Data dims {}!={} at utterance ID {}.".format(dim,other[utt].shape[1],utt))
+					newMat.append(other[utt])
+				else:
+					#print("Concat Warning: Miss data of utt id {} in later dict".format(utt))
+					break
+			if len(newMat) < len(others) + 1:
+				#If any member miss the data of current utt id, abandon data of this utt id of all menbers
+				continue
+			if axis == 0:
+				newDict[utt] = np.concatenate(newMat,axis=0)
+			else:
+				if len(adjustFrameIndexs) > 0:
+					for index in adjustFrameIndexs:
+						new = []
+						for i in range(maxFrames):
+							new.append(newMat[index][0])
+					newMat[index] = np.row_stack(new)
+				newDict[utt] = np.concatenate(newMat,axis=1)
+		return newDict
+
+	def splice(self,left=4,right=None):
+		'''
+		Usage:  newObj = obj.splice(4) or newObj = obj.splice(4,3)
+		
+		Return a new KaldiDict object. If <right> is None, we define: right = left. If you don't want to splice, set the value zero.
+		''' 
+		assert isinstance(left,int) and left >= 0, 'Expected <left> is non-negative int value.'
+		if right == None:
+			right = left
+		else:
+			assert isinstance(right,int) and right >= 0, 'Expected <right> is non-negative int value.'
+
+		lengths = []
+		matrixes = []
+		for utt in self.keys():
+			if len(self[utt].shape) == 1:
+				self[utt] = self[utt][None,:]
+			lengths.append((utt,len(self[utt])))
+			matrixes.append(self[utt])
+
+		leftSub = []
+		rightSub = []
+		for i in range(left):
+			leftSub.append(matrixes[0][0])
+		for j in range(right):
+			rightSub.append(matrixes[-1][-1])
+		matrixes = np.row_stack([*leftSub,*matrixes,*rightSub])
+		
+		N = matrixes.shape[0]
+		dim = matrixes.shape[1]
+		newMat=np.empty([N,dim*(left+right+1)])
+
+		index = 0
+		for lag in range(right,-left-1,-1):
+			newMat[:,index:index+dim]=np.roll(matrixes,lag,axis=0)
+			index += dim
+		newMat = newMat[left:(0-right),:]
+
+		newFea = KaldiDict()
+		index = 0
+		for utt,length in lengths:
+			newFea[utt] = newMat[index:index+length]
+			index += length
+		return newFea
+	
+	def select(self,dims,retain=False):
+		'''
+		Usage:  newObj = obj.select(4) or newObj1,newObj2 = obj.select('5,10-15',True)
+		
+		Select dimensions data. <dims> should be an int value or string like "1,5-20".
+		If <retain> is True, return two new KaldiDict objects concluding both slected data and non-selected data.
+		'''
+		_dim = self.dim
+		if _dim == 1:
+			raise WrongOperation('Cannot select any data from 1-dim data.')
+		elif isinstance(dims,int):
+			assert dims >= 0, '<dims> should be a non-negative value.'
+			assert dims < _dim, "Selection index should be smaller than data dimension {} but got {}.".format(_dim,dims)
+			selectFlag = [dims,]
+		elif isinstance(dims,str):
+
+			if dims.strip() == "":
+				raise WrongOperation("<dims> is not a dmensional value avaliable.")
+
+			temp = dims.split(',')
+			selectFlag = []
+			for i in temp:
+				if not '-' in i:
+					try:
+						i = int(i)
+					except ValueError:
+						raise WrongOperation('Expected int value but got {}.'.format(i))
+					else:
+						assert i >= 0, '<dims> should be a non-negative value.'
+						assert i < _dim, "Selection index should be smaller than data dimension {} but got {}.".format(_dim,i)
+						selectFlag.append(i)
+				else:
+					i = i.split('-')
+					if i[0].strip() == '':
+						i[0] = 0
+					if i[1].strip() == '':
+						i[1] = _dim-1
+					try:
+						i[0] = int(i[0])
+						i[1] = int(i[1])
+					except ValueError:
+						raise WrongOperation('Expected selection index is int value.')
+					else:
+						if i[0] > i[1]:
+							i[0], i[1] = i[1], i[0]
+						assert i[1] < _dim, "Selection index should be smaller than data dimension {} but got {}.".format(_dim, i[1])
+						selectFlag.extend([x for x in range(int(i[0]),int(i[1])+1)])
+		else:
+			raise WrongOperation('Expected <dims> is int value or string like 1,4-9,12 but got {}.'.format(type(dims)))
+
+		retainFlag = sorted(list(set(selectFlag)))
+
+		seleDict = KaldiDict()
+		if retain:
+			reseDict = KaldiDict()
+		for utt in self.keys():
+			if len(self[utt].shape) == 1:
+				self[utt] = self[utt][None,:]
+			newMat = []
+			for index in selectFlag:
+				newMat.append(self[utt][:,index][:,None])
+			newMat = np.concatenate(newMat,axis=1)
+			seleDict[utt] = newMat
+			if retain:
+				if len(retainFlag) == _dim:
+					continue
+				else:
+					matrix = self[utt].copy()
+					reseDict[utt] = np.delete(matrix,retainFlag,1)
+		if retain:
+			return seleDict,reseDict
+		else:
+			return seleDict
+
+	def subset(self,nHead=0,chunks=1,uttList=None):
+		'''
+		Usage:  newObj = obj.subset(nHead=10) or newObj = obj.subset(chunks=10) or newObj = obj.subset(uttList=uttList)
+		
+		Subset data.
+		If nHead > 0, return a new KaldiDict object whose content is front nHead pieces of data. 
+		Or If chunks > 1, split data averagely as chunks KaidiDict objects. Return a list.
+		Or If uttList != None, select utterances if appeared in obj. Return selected data.
+		
+		''' 
+		self.__add_dim_to_1dimData()
+
+		if nHead > 0:
+			assert isinstance(nHead,int), "Expected <nHead> is an int number but got {}.".format(nHead)
+			newDict = KaldiDict()
+			utts = list(self.keys())
+			for utt in utts[0:nHead]:
+				newDict[utt]=self[utt]
+			return newDict
+
+		elif chunks > 1:
+			assert isinstance(chunks,int), "Expected <chunks> is an int number but got {}.".format(chunks)
+			datas = []
+			allLens = len(self)
+			if allLens != 0:
+				utts = list(self.keys())
+				chunkUtts = allLens//chunks
+				if chunkUtts == 0:
+					chunks = allLens
+					chunkUtts = 1
+					t = 0
+				else:
+					t = allLens - chunkUtts * chunks
+
+				for i in range(chunks):
+					datas.append(KaldiDict())
+					if i < t:
+						chunkUttList = utts[i*(chunkUtts+1):(i+1)*(chunkUtts+1)]
+					else:
+						chunkUttList = utts[i*chunkUtts:(i+1)*chunkUtts]
+					for utt in chunkUttList:
+						datas[i][utt]=self[utt]
+			return datas
+
+		elif uttList != None:
+
+			if len(self.keys()) == 0:
+				return KaldiDict()
+			
+			if isinstance(uttList,str):
+				uttList = [uttList,]
+			elif isinstance(uttList,(list,tuple)):
+				pass
+			else:
+				raise UnsupportedDataType('Expected <uttList> is a string,list or tuple but got {}.'.format(type(uttList)))
+
+			newDict = KaldiDict()
+			selfKeys = list(self.keys())
+			for utt in uttList:
+				if utt in selfKeys:
+					newDict[utt] = self[utt]
+				else:
+					#print('Subset Warning: no data for utt {}'.format(utt))
+					continue
+			return newDict
+		else:
+			raise WrongOperation('Expected <nHead> is larger than "0", or <chunks> is larger than "1", or <uttList> is not None.')
+
+	def sort(self,by='frame',reverse=False):
+		'''
+		Usage:  newObj = obj.sort()
+		
+		Sort data by frame "length" or "name". Return a new KaldiDict object.
+		''' 
+		if len(self.keys()) == 0:
+			raise WrongOperation('No data to sort.')
+
+		assert by in ['frame','name'], 'We only support sorting by "name" or "frame".'
+
+		self.__add_dim_to_1dimData()
+		items = self.items()
+
+		if by == 'name':
+			items = sorted(items,key=lambda x:x[0],reverse=reverse)
+		else:
+			items = sorted(items,key=lambda x:len(x[1]),reverse=reverse)
+		
+		newData = KaldiDict()
+		for key, value in items:
+			newData[key] = value
+		
+		return newData 
+
+	def merge(self,keepDim=False,sortFrame=False):
+		'''
+		Usage:  data,uttlength = obj.merge() or data,uttlength = obj.merge(keepDim=True)
+		
+		Return two value.
+		If <keepDim> is "False", the first one is 2-dimensional NumPy array, the second one is a list consists of utterance ID and frames of each utterance. 
+		If <keepDim> is "True", the first one will be a list whose members are sequences of all utterances.
+		If <sortFrame> is "True", it will sort by length of matrix before merge.
+		''' 
+		if len(self.keys()) == 0:
+			raise WrongOperation('Not any data to merge.') 
+
+		uttLens = {}
+		matrixs = []
+
+		self.__add_dim_to_1dimData()
+
+		if sortFrame is True:          
+			items = sorted(self.items(), key=lambda x:len(x[1]))
+		else:
+			items = self.items()
+
+		for utt,mat in items:
+			uttLens[utt] = len(mat)
+			matrixs.append(mat)
+		if keepDim is False:
+			matrixs = np.row_stack(matrixs)
+		return matrixs, uttLens
+
+	def remerge(self,data,uttLens):
+		'''
+		Usage:  obj = obj.merge(data,utterancelengths)
+		
+		Return a KaldiDict object. This is a inverse operation of .merge() function.
+		''' 
+		assert isinstance(uttLens,(list,tuple,dict)), "Expected <uttLens> is a list, tuple or dict object."
+		if isinstance(uttLens,dict):
+			uttLens = uttLens.items()
+		for i in uttLens:
+			assert isinstance(i,(list,tuple)) and len(i) == 2, "<uttLens> has not enough information of utterance ID and its length."
+			assert isinstance(i[0],str), "Expected utterance ID is string but got {}.".format(i[0])
+			assert isinstance(i[1],int) and i[1] > 0, "Expected length is positive int value but got {}.".format(i[1])
+
+		if len(self.keys()) == 0:
+			newDict = self
+			returnFlag = False
+		else:
+			newDict = KaldiDict()
+			returnFlag = True
+
+		if isinstance(data,list):
+			if len(uttLens) < len(data):
+				raise WrongOperation("The length information in <uttLens> was not enough.")
+			for i,(utt,lens) in enumerate(uttLens):
+				matix = data[i]
+				if len(matix) != lens:
+					raise WrongDataFormat('The frames {}!={} at utterance ID "{}".'.format(len(matix),lens,utt))
+				newDict[utt] = matix
+				if i >= len(data):
+					break
+
+		elif isinstance(data,np.ndarray):
+			if len(data.shape) > 2:
+				raise WrongOperation("Expected the dimension of <data> is smaller than 2 but got {}.".format(len(data.sahpe)))
+			elif len(data.shape) == 1:
+				data = data[:,None]
+			start = 0
+			for utt,lens in uttLens:
+				matix = data[start:start+lens]
+				if len(matix) < lens:
+					raise WrongDataFormat('The frames {}<{} at utterance ID "{}".'.format(len(matix),lens,utt))
+				newDict[utt] = data[start:start+lens]
+				start += lens
+				if start >= len(data):
+					break
+			if len(data[start:]) > 0:
+				raise WrongOperation("The length information in <uttLens> was not enough.")
+		else:
+			raise UnsupportedDataType('It is not merged KaldiDict data.')
+
+		if returnFlag is True:
+			return newDict
+
+	def normalize(self,std=True,alpha=1.0,beta=0.0,epsilon=1e-6,axis=0):
+		'''
+		Usage:  newObj = obj.normalize()
+		
+		Return a KaldiDict object. If <std> is True, do: 
+					alpha * (x-mean)/(std+epsilon) + belta, 
+		or do: 
+					alpha * (x-mean) + belta.
+		'''
+		if len(self.keys()) == 0:
+			return KaldiDict()
+
+		assert isinstance(epsilon,(float,int)) and epsilon > 0, "Expected <epsilon> is positive value."
+		assert isinstance(alpha,(float,int)) and alpha > 0, "Expected <alpha> is positive value."
+		assert isinstance(beta,(float,int)), "Expected <beta> is an int or float value."
+		assert isinstance(axis,int), "Expected <axis> is an int value."
+
+		data,uttLens = self.merge()
+		mean = np.mean(data,axis=axis)
+
+		if std is True:  
+			std = np.std(data,axis=axis)
+			data = alpha*(data-mean)/(std+epsilon) + beta
+		else:
+			data = alpha*(data-mean) + beta
+
+		newDict = KaldiDict()
+		start = 0
+		for utt,lens in uttLens.items():
+			newDict[utt] = data[start:(start+lens)]
+			start += lens
+
+		return newDict 
+
+	def cut(self,maxFrames):
+		'''
+		Usage:  newObj = obj.cut(100)
+		
+		Cut data by <maxFrames> if its frame length is larger than 1.25*<maxFrames>.
+		'''
+		if len(self.keys()) == 0:
+			raise WrongOperation('No data to cut.')
+
+		assert isinstance(maxFrames,int) and maxFrames > 0, "Expected <maxFrames> is positive int number but got {}.".format(type(maxFrames))
+
+		newData = {}
+
+		cutThreshold = maxFrames + maxFrames//4
+
+		for key in self.keys():
+			if len(self[key].shape) == 1:
+				self[key] = self[key][None,:]
+			matrix = self[key]
+			if len(matrix) <= cutThreshold:
+				newData[key] = matrix
+			else:
+				i = 0 
+				while True:
+					newData[key+"_"+str(i)] = matrix[i*maxFrames:(i+1)*maxFrames]
+					i += 1
+					if len(matrix[i*maxFrames:]) <= cutThreshold:
+						break
+				if len(matrix[i*maxFrames:]) != 0:
+					newData[key+"_"+str(i)] = matrix[i*maxFrames:]
+		
+		return KaldiDict(newData)
+
+	def tuple_value(self,others,sort=False):
+		'''
+		Usage:  data = obj1.tuple_value(obj1)
+		
+		Return a list.
+		Tuple the utterance ID and data of the same utterance ID from different Kaldidict or KaldiArk objects.
+		If <sort> is True, sort the data by frame length of current object.
+		'''         
+
+		if not isinstance(others,(list,tuple)):
+			others = [others,]
+
+		for index,other in enumerate(others):
+			if isinstance(other,KaldiDict):                   
+				pass
+			elif isinstance(other,KaldiArk):
+				others[index] = other.array       
+			else:
+				raise UnsupportedDataType('Excepted KaldiArk or KaldiDict object but got {}.'.format(type(other)))
+
+		new = []
+		for utt in self.keys():
+			if len(self[utt].shape) == 1:
+				self[utt] = self[utt][None,:]
+			temp = (utt,self[utt],)
+			for other in others:
+				if len(other[utt].shape) == 1:
+					other[utt] = other[utt][None,:]
+				if not utt in other.keys():
+					break
+				else:
+					temp += (other[utt],)
+			if len(temp) < len(others) + 2:
+				continue
+			else:
+				new.append(temp)
+		
+		if sort is True:
+			new = sorted(new, key=lambda x:len(x[1]))
+		
+		return new
+
 class KaldiLattice(object):
-    '''
-    Useage:  obj = KaldiLattice()  or   obj = KaldiLattice(lattice,hmm,wordSymbol)
+	'''
+	Usage:  obj = KaldiLattice() or obj = KaldiLattice(lattice,hmm,wordSymbol)
 
-    KaldiLattice holds the lattice and its related file path: hmm file and WordSymbol file. 
-    The <lattice> can be lattice binary data or file path. Both < hmm > and < wordSymbol > are expected file path.
-    pythonkaldi.decode_lattice function will return a KaldiLattice object. Aslo, you can define a empty KaldiLattice object and load its data later.
+	KaldiLattice holds the lattice and its related file path: HMM file and WordSymbol file. 
+	The <lattice> can be lattice binary data or file path. Both <hmm> and <wordSymbol> are expected to be file path.
+	decode_lattice() function will return a KaldiLattice object. Aslo, you can define a empty KaldiLattice object and load its data later.
+	'''    
+	def __init__(self,lat=None,hmm=None,wordSymbol=None):
 
-    '''    
-    def __init__(self,lat=None,hmm=None,wordSymbol=None):
+		self._lat = lat
+		self._hmm = hmm
+		self._wordSymbol = wordSymbol
 
-        if KALDIROOT == None:
-            raise kaldiNotFoundError
+		if lat != None:
+			assert hmm != None and wordSymbol != None, "Expected both HMM file and word-to-id file."
+			if isinstance(lat,str):
+				self.load(lat,hmm,wordSymbol)
+			elif isinstance(lat,bytes):
+				pass
+			else:
+				raise UnsupportedDataType("<lat> is not a correct lattice format: file path or byte data.")
 
-        self._lat = lat
-        self._hmm = hmm
-        self._word2id = wordSymbol
+	def load(self,latFile,hmm,wordSymbol):
+		'''
+		Usage:  obj.load('graph/lat.gz','graph/final.mdl','graph/words.txt')
 
-        if lat != None:
-            assert hmm != None and wordSymbol != None, "Expected HMM file and word-to-id file."
-            if isinstance(lat,str):
-                self.load(lat,hmm,wordSymbol)
-            elif isinstance(lat,bytes):
-                pass
-            else:
-                raise UnsupportedDataType("<lat> is not a correct lattice format: path or byte data.")
+		Load lattice data to memory. <latFile> should be file path. <hmm> and <wordSymbol> are expected as file path.
+		Note that the new data will coverage original data in current object.
+		We don't check whether it is really a lattice data at the beginning.
+		'''
+		assert isinstance(latFile,str), "Expected <latFile> is path-like string."
+		assert isinstance(hmm,str), "Expected <hmm> is path-like string."
+		assert isinstance(wordSymbol,str), "Expected <wordSymbol> is path-like string."
 
-    def load(self,latFile,hmm,wordSymbol):
-        '''
-        Useage:  obj.load('graph/lat.gz','graph/final.mdl','graph/words.txt')
+		for x in [latFile,hmm,wordSymbol]:
+			if not os.path.isfile(x):
+				raise PathError('No such file:{}.'.format(x))
 
-        Load lattice to memory. <latFile> should be file path. <hmm> and <wordSymbol> are expected as file path.
-        Note that the new data will coverage original data in current obj.
-        We don't check whether it is really a lattice data.
+		if latFile.endswith('.gz'):
+			p = subprocess.Popen('gunzip -c {}'.format(latFile),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+			(out,err)=p.communicate()
+			if out == b'':
+				print(err.decode())
+				raise WrongDataFormat('Lattice load defeat!')
+			else:
+				self._lat = out
+				self._hmm = hmm
+				self._wordSymbol = wordSymbol
+		else:
+			try :
+				with open(latFile,'rb') as fr:
+					out = fr.read()
+				if out == b'':
+					raise WrongDataFormat('It seems a null file.')
+				else:
+					self._lat = out
+					self._hmm = hmm
+					self._wordSymbol = wordSymbol
+			except Exception as e:
+				print("Load lattice file defeated. Please make sure it is a lattice file avaliable.")
+				raise e
+			
+	def save(self,fileName,copyFile=False):
+		'''
+		Usage:  obj.save("lat.gz")
 
-        '''    
-        for x in [latFile,hmm,wordSymbol]:
-            if not os.path.isfile(x):
-                raise PathError('No such file:{}.'.format(x))
+		Save lattice as .gz file. If <copyFile> is True, HMM file and word-to-symbol file will be copied to the same directory as lattice file. 
+		''' 
+		if self._lat == None:
+			raise WrongOperation('No any data to save.')   
 
-        if latFile.endswith('.gz'):
-            p = subprocess.Popen('gunzip -c {}'.format(latFile),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            (out,err)=p.communicate()
-            if out == b'':
-                print('Lattice load defeat!')
-                raise Exception(err.decode())
-            else:
-                self._lat = out
-                self._hmm = hmm
-                self._word2id = wordSymbol
-        else:
-            with open('latFile','rb') as fr:
-                out = fr.read()
-            if out == b'':
-                raise WrongDataFormat('It seems a null file.')
-            else:
-                self._lat = out
-                self._hmm = hmm
-                self._word2id = wordSymbol
-            
-    def save(self,fileName,copyFile=False):
-        '''
-        Useage:  obj.save("lat.gz")
+		if not fileName.endswith('.gz'):
+			fileName += '.gz'
 
-        Save lattice as .gz file. If <copyFile> is True, HMM file and word-to-symbol file will be copied to the same directory as lattice file. 
-        ''' 
-        if self._lat == None:
-            raise WrongOperation('No any data to save.')   
+		cmd1 = 'gzip -c > {}'.format(fileName)
+		p1 = subprocess.Popen(cmd1,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE)
+		(out1,err1) = p1.communicate(input=self._lat)
+		if not os.path.isfile(fileName):
+			err1 = err1.decode()
+			print(err1)
+			raise Exception('Save lattice defeat.')
+		if copyFile == True:
+			for x in [self._hmm,self._wordSymbol]:
+				if not os.path.isfile(x):
+					raise PathError('No such file:{}.'.format(x))
+			i = fileName.rfind('/')
+			if i > 0:
+				latDir = fileName[0:i+1]
+			else:
+				latDir = './'
+			cmd2 = 'cp -f {} {}; cp -f {} {}'.format(self._hmm, latDir, self._wordSymbol, latDir)
+			p2 = subprocess.Popen(cmd2,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE)
+			(out2,err2) = p2.communicate(input=self._lat)
 
-        if not fileName.endswith('.gz'):
-            fileName += '.gz'
+	@property
+	def value(self):
+		'''
+		Usage:  lat = obj.value
 
-        cmd1 = 'gzip -c > {}'.format(fileName)
-        p1 = subprocess.Popen(cmd1,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out1,err1) = p1.communicate(input=self._lat)
-        if not os.path.isfile(fileName):
-            err1 = err1.decode()
-            print(err1)
-            raise Exception('Save lattice defeat.')
-        if copyFile == True:
-            for x in [self._hmm,self._word2id]:
-                if not os.path.isfile(x):
-                    raise PathError('No such file:{}.'.format(x))
-            i = fileName.rfind('/')
-            if i > 0:
-                latDir = fileName[0:i+1]
-            else:
-                latDir = './'
-            cmd2 = 'cp -f {} {}; cp -f {} {}'.format(self._hmm, latDir, self._word2id, latDir)
-            p2 = subprocess.Popen(cmd2,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE)
-            (out2,err2) = p2.communicate(input=self._lat)
+		Return a lattice binary data. 
+		''' 
+		return self._lat
+	
+	@property
+	def model(self):
+		'''
+		Usage:  HMM = obj.hmm
 
-    @property
-    def value(self):
-        '''
-        Useage:  lat = obj.value
+		Return a HMM file path. 
+		''' 
+		return self._hmm
 
-        Return a tuple:(lattice-data, hmm-file, wordSymbol-file). 
-        ''' 
-        return (self._lat,self._hmm,self._word2id)
+	@property
+	def lexicon(self):
+		'''
+		Usage:  lexicon = obj.lexicon
 
-    def get_1best_words(self,minLmwt=1,maxLmwt=None,Acwt=1.0,outFile=None):
+		Return a word-to-id file path. 
+		''' 
+		return self._wordSymbol
 
-        raise WrongOperation('get_1best_words() has been removed in current version. Try to use get_1best() please.')
-    
-    def get_1best(self,lmwt=1,maxLmwt=None,acwt=1.0,outFile=None,phoneSymbol=None):
-        '''
-        Useage:  out = obj.get_1best(minLmwt=1)
+	def get_1best_words(self,minLmwt=1,maxLmwt=None,Acwt=1.0,outFile=None):
 
-        Return a dict object. Its key is lm weight, and value will be result-list if <outFile> is False or result-file-path if <outFile> is not None. 
-        If <phoneSymbol> is not True, return phones of 1best words.
+		raise WrongOperation('get_1best_words() has been removed in current version. Try to use get_1best() please.')
+	
+	def get_1best(self,lmwt=1,maxLmwt=None,acwt=1.0,outFile=None,phoneSymbol=None):
+		'''
+		Usage:  out = obj.get_1best(acwt=0.2)
 
-        ''' 
-        if self._lat == None:
-            raise WrongOperation('No any data in lattice.')
+		If <outFile> is not "None", return file path, or return decoding text with Python list format. 
+		If <maxLmwt> is "None", return only a list. Or, return a Python dict object. Its keys are language model weight from <lmwt> to <maxLmwt>.
+		If <phoneSymbol> is not "None", return phones of 1-best words.
+		'''
+		global KALDIROOT,kaidiNotFoundError,ENV
+		if KALDIROOT is None:
+			raise kaidiNotFoundError
 
-        for x in [self._hmm,self._word2id]:
-            if not os.path.isfile(x):
-                raise PathError('No such file:{}.'.format(x))
+		if self._lat == None:
+			raise WrongOperation('No any data in lattice.')
 
-        KALDIROOT = get_kaldi_path()
+		for x in [self._hmm,self._wordSymbol]:
+			if not os.path.isfile(x):
+				raise PathError('Missing such file:{}.'.format(x))
 
-        if maxLmwt != None:
-            if maxLmwt < lmwt:
-                raise WrongOperation('<maxLmwt> must larger than <minLmwt>.')
-            else:
-                maxLmwt += 1
-        else:
-            maxLmwt = lmwt + 1
-        
-        if phoneSymbol != None:
-            useLexicon = phoneSymbol
-        else:
-            useLexicon = self._word2id
+		assert isinstance(lmwt,int) and lmwt >=0, "Expected <lmwt> is a non-negative int number."
+		if maxLmwt != None:
+			if maxLmwt < lmwt:
+				raise WrongOperation('<maxLmwt> must larger than <lmwt>.')
+			else:
+				assert isinstance(maxLmwt,int), "Expected <maxLmwt> is a non-negative int number."
+				maxLmwt += 1
+		else:
+			maxLmwt = lmwt + 1
+		
+		if phoneSymbol != None:
+			assert isinstance(phoneSymbol,str), "Expected <phoneSymbol> is a file path-like string."
+			if not os.path.isfile(phoneSymbol):
+				raise PathError("No such file: {}.".format(phoneSymbol))
+			useLexicon = phoneSymbol
+		else:
+			useLexicon = self._wordSymbol
 
-        result = {}
-        if outFile != None:
-            for LMWT in range(lmwt,maxLmwt,1):
-                if phoneSymbol != None:
-                    cmd0 = KALDIROOT+'/src/latbin/lattice-align-phones --replace-output-symbols=true {} ark:- ark:- | '.format(self._hmm)
-                else:
-                    cmd0 = ''
-                cmd1 = cmd0 + KALDIROOT+'/src/latbin/lattice-best-path --lm-scale={} --acoustic-scale={} --word-symbol-table={} --verbose=2 ark:- ark,t:- | '.format(LMWT,acwt,useLexicon)
-                cmd2 = KALDIROOT+'/egs/wsj/s5/utils/int2sym.pl -f 2- {} > {}.{}'.format(useLexicon,outFile,LMWT)
-                cmd = cmd1 + cmd2
-                p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE)
-                (out,err) = p.communicate(input=self._lat)
-                if not os.path.isfile('{}.{}'.format(outFile,LMWT)):
-                    err = err.decode()
-                    logFile = '{}.{}.log'.format(outFile,LMWT)
-                    with open(logFile,'w',encoding='utf-8') as fw:
-                        fw.write(err)
-                    raise KaldiProcessError('Lattice to 1-best Defeated. Look the log file {}.'.format(logFile))
-                else:
-                    result[LMWT] = '{}.{}'.format(outFile,LMWT)
-        else:
-            for LMWT in range(lmwt,maxLmwt,1):
-                if phoneSymbol != None:
-                    cmd0 = KALDIROOT+'/src/latbin/lattice-align-phones --replace-output-symbols=true {} ark:- ark:- | '.format(self._hmm)
-                    #cmd0 = KALDIROOT+'/src/latbin/lattice-to-phone-lattice {} ark:- ark:- | '.format(self._hmm)
-                else:
-                    cmd0 = ''
-                cmd1 = cmd0 + KALDIROOT+'/src/latbin/lattice-best-path --lm-scale={} --acoustic-scale={} --word-symbol-table={} --verbose=2 ark:- ark,t:- |'.format(LMWT,acwt,useLexicon)
-                cmd2 = KALDIROOT+'/egs/wsj/s5/utils/int2sym.pl -f 2- {} '.format(useLexicon)
-                cmd = cmd1+cmd2
-                p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-                (out,err) = p.communicate(input=self._lat)
-                if out == b'':
-                    err = err.decode()
-                    logFile = '{}.{}.log'.format(outFile,LMWT)
-                    with open(logFile,'w',encoding='utf-8') as fw:
-                        fw.write(err)
-                    raise KaldiProcessError('Lattice to 1-best Defeated. Look the log file {}.'.format(logFile))
-                else:
-                    out = out.decode().split("\n")
-                    result[LMWT] = out[0:-1]
-        if maxLmwt == None:
-            result = result[lmwt]
-        return result
-    
-    def scale(self,acwt=1,invAcwt=1,ac2lm=0,lmwt=1,lm2ac=0):
-        '''
-        Useage:  newObj = obj.sacle(inAcwt=0.2)
+		result = {}
+		if outFile != None:
+			assert isinstance(outFile,str), "Expected <outFile> is a file name-like string."
+			for LMWT in range(lmwt,maxLmwt,1):
+				outFileLMWT = '{}.{}'.format(outFile,LMWT)
+				if phoneSymbol != None:
+					cmd0 = KALDIROOT+'/src/latbin/lattice-align-phones --replace-output-symbols=true {} ark:- ark:- | '.format(self._hmm)
+				else:
+					cmd0 = ''
+				cmd1 = KALDIROOT+'/src/latbin/lattice-best-path --lm-scale={} --acoustic-scale={} --word-symbol-table={} --verbose=2 ark:- ark,t:- | '.format(LMWT,acwt,useLexicon)
+				cmd2 = KALDIROOT+'/egs/wsj/s5/utils/int2sym.pl -f 2- {} > {}'.format(useLexicon,outFileLMWT)
+				cmd = cmd0 + cmd1 + cmd2
+				p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE, env=ENV)
+				(out,err) = p.communicate(input=self._lat)
+				if not os.path.isfile(outFileLMWT) or os.path.getsize(outFileLMWT) == 0:
+					print(err.decode())
+					if os.path.isfile(outFileLMWT):
+						os.remove(outFileLMWT)
+					raise KaldiProcessError('Lattice to 1-best Defeated.')
+				else:
+					result[LMWT] = outFileLMWT
+		else:
+			for LMWT in range(lmwt,maxLmwt,1):
+				if phoneSymbol != None:
+					cmd0 = KALDIROOT+'/src/latbin/lattice-align-phones --replace-output-symbols=true {} ark:- ark:- | '.format(self._hmm)
+					#cmd0 = KALDIROOT+'/src/latbin/lattice-to-phone-lattice {} ark:- ark:- | '.format(self._hmm)
+				else:
+					cmd0 = ''
+				cmd1 = KALDIROOT+'/src/latbin/lattice-best-path --lm-scale={} --acoustic-scale={} --word-symbol-table={} --verbose=2 ark:- ark,t:- |'.format(LMWT,acwt,useLexicon)
+				cmd2 = KALDIROOT+'/egs/wsj/s5/utils/int2sym.pl -f 2- {} '.format(useLexicon)
+				cmd = cmd0 + cmd1 + cmd2
+				p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE, env=ENV)
+				(out,err) = p.communicate(input=self._lat)
+				if out == b'':
+					print(err.decode())
+					raise KaldiProcessError('Lattice to 1-best Defeated.')
+				else:
+					out = out.decode().split("\n")
+					result[LMWT] = out[0:-1]
+		if maxLmwt - lmwt == 1:
+			result = result[lmwt]
+		return result
+	
+	def scale(self,acwt=1,invAcwt=1,ac2lm=0,lmwt=1,lm2ac=0):
+		'''
+		Usage:  newObj = obj.sacle(inAcwt=0.2)
 
-        Scale lattice. Return a new KaldiLattice object.
+		Scale lattice. Return a new KaldiLattice object.
+		''' 
 
-        ''' 
-        if self._lat == None:
-            raise WrongOperation('No any lattice to scale.')
+		global KALDIROOT,kaidiNotFoundError,ENV
+		if KALDIROOT is None:
+			raise kaidiNotFoundError
 
-        for x in [self._hmm,self._word2id]:
-            if not os.path.isfile(x):
-                raise PathError('Missing file:{}.'.format(x))                
+		if self._lat == None:
+			raise WrongOperation('No any lattice to scale.')
 
-        for x in [acwt,invAcwt,ac2lm,lmwt,lm2ac]:
-            assert isinstance(x,int) and x>= 0,"Expected scale is positive int value."
-        
-        cmd = KALDIROOT+'/src/latbin/lattice-scale'
-        cmd += ' --acoustic-scale={}'.format(acwt)
-        cmd += ' --acoustic2lm-scale={}'.format(ac2lm)
-        cmd += ' --inv-acoustic-scale={}'.format(invAcwt)
-        cmd += ' --lm-scale={}'.format(lmwt)
-        cmd += ' --lm2acoustic-scale={}'.format(lm2ac)
-        cmd += ' ark:- ark:-'
+		for x in [self._hmm,self._wordSymbol]:
+			if not os.path.isfile(x):
+				raise PathError('Missing file:{}.'.format(x))                
 
-        p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out,err) = p.communicate(input=self._lat)
+		for x in [acwt,invAcwt,ac2lm,lmwt,lm2ac]:
+			assert isinstance(x,int) and x>= 0, "Expected scale is positive int value."
+		
+		cmd = KALDIROOT+'/src/latbin/lattice-scale'
+		cmd += ' --acoustic-scale={}'.format(acwt)
+		cmd += ' --acoustic2lm-scale={}'.format(ac2lm)
+		cmd += ' --inv-acoustic-scale={}'.format(invAcwt)
+		cmd += ' --lm-scale={}'.format(lmwt)
+		cmd += ' --lm2acoustic-scale={}'.format(lm2ac)
+		cmd += ' ark:- ark:-'
 
-        if out == b'':
-            raise KaldiProcessError(err.decode())
-        else:
-            return KaldiLattice(out,self._hmm,self._word2id)
+		p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+		(out,err) = p.communicate(input=self._lat)
 
-    def add_penalty(self,penalty=0):
-        '''
-        Useage:  newObj = obj.add_penalty(0.5)
+		if out == b'':
+			print(err.decode())
+			raise KaldiProcessError("Scale lattice defeated.")
+		else:
+			return KaldiLattice(out,self._hmm,self._wordSymbol)
 
-        Add penalty. Return a new KaldiLattice object.
+	def add_penalty(self,penalty=0):
+		'''
+		Usage:  newObj = obj.add_penalty(0.5)
 
-        ''' 
-        if self._lat == None:
-            raise WrongOperation('No any lattice to scale.')
-        for x in [self._hmm,self._word2id]:
-            if not os.path.isfile(x):
-                raise PathError('No such file:{}.'.format(x))     
+		Add word insertion penalty. Return a new KaldiLattice object.
+		''' 
+		global KALDIROOT,kaidiNotFoundError,ENV
+		if KALDIROOT is None:
+			raise kaidiNotFoundError
 
-        assert isinstance(penalty,(int,float)) and penalty>= 0, "Expected <penalty> is positive int or float value."
-        
-        cmd = KALDIROOT+'/src/latbin/lattice-add-penalty'
-        cmd += ' --word-ins-penalty={}'.format(penalty)
-        cmd += ' ark:- ark:-'
+		if self._lat == None:
+			raise WrongOperation('No any lattice to scale.')
 
-        p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out,err) = p.communicate(input=self._lat)
+		for x in [self._hmm,self._wordSymbol]:
+			if not os.path.isfile(x):
+				raise PathError('No such file:{}.'.format(x))     
 
-        if out == b'':
-            raise KaldiProcessError(err.decode())
-        else:
-            return KaldiLattice(out,self._hmm,self._word2id)
+		assert isinstance(penalty,(int,float)) and penalty>= 0, "Expected <penalty> is positive int or float value."
+		
+		cmd = KALDIROOT+'/src/latbin/lattice-add-penalty'
+		cmd += ' --word-ins-penalty={}'.format(penalty)
+		cmd += ' ark:- ark:-'
 
-    def get_nbest(self,n,acwt=1,outFile=None,outAliFile=None,requreCost=False):
-        '''
-        Useage:  out = obj.get_nbest(minLmwt=1)
+		p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE, env=ENV)
+		(out,err) = p.communicate(input=self._lat)
 
-        Return a dict object. Its key is lm weight, and value will be result-list if <outFile> is False or result-file-path if <outFile> is True. 
+		if out == b'':
+			print(err.decode())
+			raise KaldiProcessError("Add penalty defeated.")
+		else:
+			return KaldiLattice(out,self._hmm,self._wordSymbol)
 
-        ''' 
-        if self._lat == None:
-            raise WrongOperation('No any data in lattice.')
+	def get_nbest(self,n,acwt=1,outFile=None,outAliFile=None,requireCost=False):
+		'''
+		Usage:  out = obj.get_nbest(minLmwt=1)
 
-        for x in [self._hmm,self._word2id]:
-            if not os.path.isfile(x):
-                raise PathError('Missed file:{}.'.format(x))
+		Return a dict object. Its keys are the weight of language, and value will be result-list if <outFile> is "False" or result-file-path if <outFile> is "True". 
+		''' 
+		assert isinstance(n,int) and n > 0, "Expected <n> is a positive int value."
+		assert isinstance(acwt,(int,float)) and acwt > 0, "Expected <acwt> is a positive int or float value."
 
-        cmd = KALDIROOT+'/src/latbin/lattice-to-nbest --acoustic-scale={} --n={} ark:- ark:- |'.format(acwt,n)
-        if outFile != None:
-            assert isinstance(outFile,str), 'Expected string-like file name but got {}.'.format(outFile)
-            if outAliFile != None:
-                if not outAliFile.endswith('.gz'):
-                    outAliFile += '.gz'
-                cmd += KALDIROOT+'/src/latbin/nbest-to-linear ark:- "ark,t:|gzip -c > {}" "ark,t:|{}/egs/wsj/s5/utils/int2sym.pl -f 2- {} > {}"'.format(outAliFile,KALDIROOT,self._word2id,outFile)
-                if requreCost:
-                    outCostFile = outFile+'.cost'
-                    cmd += ' ark,t:{}.lm ark,t:{}.ac'.format(outCostFile,outCostFile)
-                p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-                (out,err) = p.communicate(input=self._lat)
-                if not os.path.isfile(outFile):
-                    print(err.decode())
-                    raise KaldiProcessError('Get n best defeat.')
-                else:
-                    if requreCost:
-                        return (outFile, outAliFile, outCostFile+'.lm', outCostFile+'.ac')
-                    else:
-                        return (outFile, outAliFile)
-            else:
-                with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as outAliFile:
-                    cmd += KALDIROOT+'/src/latbin/nbest-to-linear ark:- ark:{} "ark,t:|{}/egs/wsj/s5/utils/int2sym.pl -f 2- {} > {}"'.format(outAliFile.name,KALDIROOT,self._word2id,outFile)
-                    if requreCost:
-                        outCostFile = outFile+'.cost'
-                        cmd += ' ark,t:{}.lm ark,t:{}.ac'.format(outCostFile,outCostFile)
-                    p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-                    (out,err) = p.communicate(input=self._lat)
-                if not os.path.isfile(outFile):
-                    print(err.decode())
-                    raise KaldiProcessError('Get n best defeat.')
-                else:
-                    if requreCost:
-                        return (outFile, outCostFile+'.lm', outCostFile+'.ac')
-                    else:
-                        return outFile
-        else:
-            with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as outCostFile_lm:  
-                with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as outCostFile_ac:
-                    if outAliFile != None:
-                        assert isinstance(outAliFile,str), 'Expected string-like alignment file name but got {}.'.format(outAliFile)
-                        if not outAliFile.endswith('.gz'):
-                            outAliFile += '.gz'
-                        cmd += KALDIROOT+'/src/latbin/nbest-to-linear ark:- "ark,t:|gzip -c > {}" "ark,t:|{}/egs/wsj/s5/utils/int2sym.pl -f 2- {}"'.format(outAliFile,KALDIROOT,self._word2id)    
-                        if requreCost:
-                            cmd += ' ark,t:{} ark,t:{}'.format(outCostFile_lm.name,outCostFile_ac.name)
-                        p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-                        (out,err) = p.communicate(input=self._lat)
-                    else:
-                        with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as outAliFile:
-                            cmd += KALDIROOT+'/src/latbin/nbest-to-linear ark:- ark:{} "ark,t:|{}/egs/wsj/s5/utils/int2sym.pl -f 2- {}"'.format(outAliFile.name,KALDIROOT,self._word2id)    
-                            if requreCost:
-                                cmd += ' ark,t:{} ark,t:{}'.format(outCostFile_lm.name,outCostFile_ac.name)
-                            p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-                            (out,err) = p.communicate(input=self._lat)
+		global KALDIROOT,kaidiNotFoundError,ENV
+		if KALDIROOT is None:
+			raise kaidiNotFoundError
+	
+		if self._lat == None:
+			raise WrongOperation('No any data in lattice.')
 
-                    if out == b'':
-                        print(err.decode())
-                        raise KaldiProcessError('Get n best defeat.')
-                    else:
-                        if requreCost:
-                            out = out.decode().split("\n")[:-1]
-                            allResult = []
-                            outCostFile_lm.seek(0)
-                            outCostFile_ac.seek(0)
-                            lines_ac = outCostFile_ac.read().split("\n")[:-1]
-                            lines_lm = outCostFile_lm.read().split("\n")[:-1]
-                            for result, ac_score, lm_score in zip(out,lines_ac,lines_lm):
-                                    allResult.append((result,float(ac_score.split()[1]),float(lm_score.split()[1])))
-                            out = allResult
-                        else:
-                            out = out.decode().split("\n")[:-1]
+		for x in [self._hmm,self._wordSymbol]:
+			if not os.path.isfile(x):
+				raise PathError('Missed file:{}.'.format(x))
 
-                        exUtt = None
-                        new = []
-                        temp = []
-                        for i in out:
-                            if isinstance(i,tuple):
-                                utt = i[0][0:i[0].find('-')]
-                            else:
-                                utt = i[0:i.find('-')]
-                            if exUtt == None:
-                                exUtt = utt
-                                temp.append(i)
-                            elif utt == exUtt:
-                                temp.append(i)
-                            else:
-                                new.append(temp)
-                                temp = []
-                                exUtt = utt
-                        if len(temp) > 0:
-                            new.append(temp)
-                        return new                            
+		cmd = KALDIROOT+'/src/latbin/lattice-to-nbest --acoustic-scale={} --n={} ark:- ark:- |'.format(acwt,n)
+		if outFile != None:
+			assert isinstance(outFile,str), 'Expected <outFile> is file name-like string but got {}.'.format(outFile)
+			if outAliFile != None:
+				assert isinstance(outAliFile,str), 'Expected <outAliFile> is file name-like string but got {}.'.format(outAliFile)
+				if not outAliFile.endswith('.gz'):
+					outAliFile += '.gz'
+				cmd += KALDIROOT+'/src/latbin/nbest-to-linear ark:- "ark,t:|gzip -c > {}" "ark,t:|{}/egs/wsj/s5/utils/int2sym.pl -f 2- {} > {}"'.format(outAliFile,KALDIROOT,self._wordSymbol,outFile)
+				if requireCost:
+					outCostFile = outFile+'.cost'
+					cmd += ' ark,t:{}.lm ark,t:{}.ac'.format(outCostFile,outCostFile)
+				p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+				(out,err) = p.communicate(input=self._lat)
+				if not os.path.isfile(outFile) or os.path.getsize(outFile) == 0:
+					print(err.decode())
+					if os.path.isfile(outFile):
+						os.remove(outFile)
+					raise KaldiProcessError('Get N best words defeated.')
+				else:
+					if requireCost:
+						return (outFile, outAliFile, outCostFile+'.lm', outCostFile+'.ac')
+					else:
+						return (outFile, outAliFile)
+			else:
+				with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as outAliFile:
+					cmd += KALDIROOT+'/src/latbin/nbest-to-linear ark:- ark:{} "ark,t:|{}/egs/wsj/s5/utils/int2sym.pl -f 2- {} > {}"'.format(outAliFile.name,KALDIROOT,self._wordSymbol,outFile)
+					if requireCost:
+						outCostFile = outFile+'.cost'
+						cmd += ' ark,t:{}.lm ark,t:{}.ac'.format(outCostFile,outCostFile)
+					p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+					(out,err) = p.communicate(input=self._lat)
+				if not os.path.isfile(outFile) or os.path.getsize(outFile) == 0:
+					print(err.decode())
+					if os.path.isfile(outFile):
+						os.remove(outFile)
+					raise KaldiProcessError('Get N best words defeated.')
+				else:
+					if requireCost:
+						return (outFile, outCostFile+'.lm', outCostFile+'.ac')
+					else:
+						return outFile
+		else:
+			with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as outCostFile_lm:  
+				with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as outCostFile_ac:
+					if outAliFile != None:
+						assert isinstance(outAliFile,str), 'Expected <outAliFile> is file name-like string but got {}.'.format(outAliFile)
+						if not outAliFile.endswith('.gz'):
+							outAliFile += '.gz'
+						cmd += KALDIROOT+'/src/latbin/nbest-to-linear ark:- "ark,t:|gzip -c > {}" "ark,t:|{}/egs/wsj/s5/utils/int2sym.pl -f 2- {}"'.format(outAliFile,KALDIROOT,self._wordSymbol)    
+						if requireCost:
+							cmd += ' ark,t:{} ark,t:{}'.format(outCostFile_lm.name,outCostFile_ac.name)
+						p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE, env=ENV)
+						(out,err) = p.communicate(input=self._lat)
+					else:
+						with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as outAliFile:
+							cmd += KALDIROOT+'/src/latbin/nbest-to-linear ark:- ark:{} "ark,t:|{}/egs/wsj/s5/utils/int2sym.pl -f 2- {}"'.format(outAliFile.name,KALDIROOT,self._wordSymbol)    
+							if requireCost:
+								cmd += ' ark,t:{} ark,t:{}'.format(outCostFile_lm.name,outCostFile_ac.name)
+							p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE, env=ENV)
+							(out,err) = p.communicate(input=self._lat)
 
-    def __add__(self,other):
-        '''
-        Useage:  lat3 = lat1 + lat2
+					if out == b'':
+						print(err.decode())
+						raise KaldiProcessError('Get N best defeated.')
+					else:
+						if requireCost:
+							out = out.decode().split("\n")[:-1]
+							allResult = []
+							outCostFile_lm.seek(0)
+							outCostFile_ac.seek(0)
+							lines_ac = outCostFile_ac.read().split("\n")[:-1]
+							lines_lm = outCostFile_lm.read().split("\n")[:-1]
+							for result, ac_score, lm_score in zip(out,lines_ac,lines_lm):
+								allResult.append([result,float(ac_score.split()[1]),float(lm_score.split()[1])])
+							out = allResult
+						else:
+							out = out.decode().split("\n")[:-1]
 
-        Return a new KaldiLattice object. lat2 must be KaldiLattice object.
-        Note that this is only a simple additional operation to make two lattices being one.
+						exUtt = None
+						new = []
+						temp = []
+						index = 1
+						for i in out:
+							if isinstance(i,list):
+								utterance = i[0]
+							else:
+								utterance = i
+							if exUtt == None:
+								t = utterance.find("-"+str(index)+" ")
+								exUtt = utterance[0:t]
+							else:
+								if utterance.startswith(exUtt):
+									t = utterance.find("-"+str(index)+" ")
+								else:
+									new.append(temp)
+									temp = []	
+									index = 1
+									t = utterance.find("-"+str(index)+" ")
+									exUtt = utterance[0:t]
+							utterance = exUtt + utterance[t+2:]
+							if isinstance(i,list):
+								temp.append((utterance,i[1],i[2]))
+							else:
+								temp.append(utterance)
+							index += 1	
+						if len(temp) > 0:
+							new.append(temp)
+						return new                         
 
-        '''
-        assert isinstance(other,KaldiLattice), "Expected KaldiLattice but got {}.".format(type(other))
+	def __add__(self,other):
+		'''
+		Usage:  lat3 = lat1 + lat2
 
-        if self._lat == None:
-            return other
-        elif other._lat == None:
-            return self
-        elif self._hmm != other._hmm or self._word2id != other._word2id:
-            raise WrongOperation("Both two members must use the same HMM model and word-symbol file.")
-        
-        newLat = self._lat + other._lat 
+		Return a new KaldiLattice object. lat2 must be KaldiLattice object.
+		Note that this is only a simple additional operation to make two lattices being one.
+		'''
 
-        for x in [self._hmm,self._word2id]:
-            if not os.path.isfile(x):
-                raise PathError('Missing file:{}.'.format(x))     
+		assert isinstance(other,KaldiLattice), "Expected KaldiLattice but got {}.".format(type(other))
 
-        return KaldiLattice(newLat, self._hmm, self._word2id)
+		if self._lat == None:
+			return copy.deepcopy(other)
+		elif other._lat == None:
+			return copy.deepcopy(self)
+		elif self._hmm != other._hmm or self._wordSymbol != other._wordSymbol:
+			raise WrongOperation("Both two members must use the same HMM and word-symbol file.")
+		
+		newLat = self._lat + other._lat 
 
-# ------------ Other Class -----------
+		for x in [self._hmm,self._wordSymbol]:
+			if not os.path.isfile(x):
+				raise PathError('Missing file:{}.'.format(x))     
+
+		return KaldiLattice(newLat, self._hmm, self._wordSymbol)
+
+# ------------ Other Classes -----------
 
 class Supporter(object):
-    '''
-    Useage:  supporter = Supporter(outDir='Result')
+	'''
+	Usage:  supporter = Supporter(outDir='Result')
 
-    Supporter is a class to be similar to chainer report. But we designed some useful functions such as save model by maximum accuracy and adjust learning rate.
-    '''      
-    def __init__(self,outDir='Result'):
+	Supporter is used to manage training information such as the change of loss and others.
+	'''      
+	def __init__(self,outDir='Result'):
 
-        self.currentField = {}
+		self.currentField = {}
+		self.globalField = []
 
-        self.globalField = []
+		if not os.path.isdir(outDir):
+			os.mkdir(outDir)
+		self.outDir = os.path.abspath(outDir)
+		self.logFile = self.outDir+'/log'
+		with open(self.logFile,'w',encoding='utf-8'):
+			pass
+		
+		self.lastSavedArch = {}
+		self.savingThreshold = None
 
-        if outDir.endswith('/'):
-            outDir = outDir[:-1]
-        self.outDir = outDir
+		self._allKeys = []
 
-        self.count = 0
+		self._iterSymbol = -1
+		
+	def send_report(self,info):
+		'''
+		Usage:  supporter = obj.send_report({"epoch":epoch,"train_loss":loss,"train_acc":acc})
 
-        if not os.path.isdir(self.outDir):
-            os.mkdir(self.outDir)
+		Send information and these will be retained untill you do the statistics by using .collect_report().
+		<info> should be a dict of names and their values with int or float type. 
+		'''
 
-        self.logFile = self.outDir+'/train.log'
+		assert isinstance(info,dict), "Expected <info> is a Python dict object."
 
-        with open(self.logFile,'w',encoding='utf-8'):
-            pass
-        
-        self.lastSavedModel = {}
-        self.savingThreshold = None
+		keys = list(info)
+		allKeys = list(self.currentField)
+	
+		for i in keys: 
+			assert isinstance(i,str), "Expected name-like string but got {}.".format(type(i))
+			value = info[i]
+			assert isinstance(value,(int,float)), "Expected int or float value but got {}.".format(type(value))
+			i = i.lower()
+			if not i in allKeys:
+				self.currentField[i] = []
+			self.currentField[i].append(value)
 
-        self._allKeys = []
+	def collect_report(self,keys=None,plot=True):
+		'''
+		Usage:  supporter = obj.collect_report(plot=True)
 
-        self.startTime = None
-        
-    def send_report(self,x,*args):
-        '''
-        Useage:  supporter = obj.send_report({"epoch":epoch,"train_loss":loss,"train_acc":acc})
+		Do the statistics of received information. The result will be saved in outDir/log file. 
+		If <keys> is not "None", only collect the data in <keys>. 
+		If <plot> is "True", print the statistics result to standard output.
+		'''
+		if keys == None:
+			keys = list(self.currentField)
+		elif isinstance(keys,str):
+			keys = [keys,]
+		elif isinstance(keys,(list,tuple)):
+			pass
+		else:
+			raise WrongOperation("Expected <keys> is string, list or tuple.")
+	
+		self.globalField.append({})
 
-        Send information and thses info will be retained untill you do the statistics by using obj.collect_report().
+		allKeys = list(self.currentField)
+		self._allKeys.extend(allKeys)
+		self._allKeys = list(set(self._allKeys))
 
-        '''           
-        keys = list(x)
+		message = ''
+		for i in keys:
+			if i in allKeys:
+				mn = float(np.mean(self.currentField[i]))
+				if type(self.currentField[i][0]) == int:
+					mn = int(mn)
+					message += (i + ':%d    '%(mn))
+				else:
+					message += (i + ':%.5f    '%(mn))
+				self.globalField[-1][i] = mn
+			else:
+				message += (i + ':-----    ')
 
-        allKeys = list(self.currentField)
-    
-        for i in keys: 
-            value = x[i]
-            try:
-                value=float(value.data)
-            except:
-                pass
-            i = i.lower()
-            if not i in allKeys:
-                self.currentField[i] = []
-            self.currentField[i].append(value)
+		with open(self.logFile,'a',encoding='utf-8') as fw:
+			fw.write(message + '\n')
+		
+		# Print to screen
+		if plot:
+			print(message)
+		# Clear
+		self.currentField = {}
 
-    def collect_report(self,keys=None,plot=True):
-        '''
-        Useage:  supporter = obj.collect_report(plot=True)
+	def save_arch(self,saveFunc,arch,addInfo=None,byKey=None,byMax=True):
+		'''
+		Usage:  obj.save_arch(saveFunc,archs={'model':model,'opt':optimizer})
 
-        Do the statistics of received information. The result will be saved in outDir/log file. If < keys > is not None, only collect the data in keys. 
-        If < plot > is True, print the statistics result to standard output.
-        
-        '''   
-        if keys == None:
-            keys = list(self.currentField)
-    
-        self.globalField.append({})
+		Save architecture such as models or optimizers when you use this function.
+		If you use <byKey> and set <byMax>,  will be saved only while meeting the condition. 
+		<archs> will be sent to <saveFunc> but with new name.
+		''' 
+		assert isinstance(arch,dict), "Expected <arch> is dict whose key is architecture-name and value is architecture-object."
 
-        allKeys = list(self.currentField)
-        self._allKeys.extend(allKeys)
-        self._allKeys = list(set(self._allKeys))
+		if self.currentField != {}:
+			self.collect_report(plot=False)
 
-        message = ''
-        for i in keys:
-            if i in allKeys:
-                mn = float(np.mean(self.currentField[i]))
-                if type(self.currentField[i][0]) == int:
-                    mn = int(mn)
-                    message += (i + ':%d    '%(mn))
-                else:
-                    message += (i + ':%.5f    '%(mn))
-                self.globalField[-1][i] = mn
-            else:
-                message += (i + ':-----    ')
+		#if 'epoch' in self.globalField[-1].keys() and self._iterSymbol < 0:
+		#    suffix = '_'+str(self.globalField[-1]['epoch'])+'_'   
+		#else:
+		
+		suffix = "_"+str(self._iterSymbol)
+		self._iterSymbol += 1
 
-        # Print to log file
-        #if self.log[-2] != '[':
-        #    self.log[-2] += ','
-        #self.log[-1] = '    {'
-        #allKeys = list(self.globalField[-1].keys())
-        #for i in allKeys[:-1]:
-        #    self.log.append('        "{}": {},'.format(i,self.globalField[-1][i]))
-        #self.log.append('        "{}": {}'.format(allKeys[-1],self.globalField[-1][allKeys[-1]]))
-        #self.log.append('    }')
-        #self.log.append(']')
+		if not addInfo is None:
+			assert isinstance(addInfo,(str,list,tuple)), 'Expected <addInfo> is string, list or tuple.'
+			if isinstance(addInfo,str):
+				addInfo = [addInfo,]
+			for i in addInfo:
+				if not i in self.globalField[-1].keys():
+					continue
+				value = self.globalField[-1][i]
+				if isinstance(value,float):
+					suffix += ( "_" + i + ("%.4f"%(value)).replace(".",""))
+				else:
+					suffix += ( "_" + i + '%d'%(value))                
 
-        with open(self.logFile,'a',encoding='utf-8') as fw:
-            fw.write(message + '\n')
-        
-        # Print to screen
-        if plot:
-            print(message)
-        # Clear
-        self.currentField = {}
+		if byKey == None:
+			newArchs = []
+			for name in arch.keys():
+				fileName = self.outDir+'/'+name+suffix
+				newArchs.append((fileName, arch[name]))
+				self.lastSavedArch[name] = fileName
+			if len(newArchs) == 1:
+				newArchs = newArchs[0]
+			saveFunc(newArchs)
+		else:
+			byKey = byKey.lower()
+			if not byKey in self.globalField[-1].keys():
+				print("Warning: Save architectures defeat. Because the key {} has not been reported.".format(byKey))
+				return
+			else:
+				value = self.globalField[-1][byKey]
 
-    def save_model(self,saveFunc,models,byKey=None,maxValue=True):
-        '''
-        Useage:  obj.save_model(saveFunc,models)
+			save = False
 
-        Save model when you use this function. Your can give <iterSymbol> and it will be add to the end of file name.
-        If you use < byKey > and set < maxValue >, model will be saved only while meeting the condition.
-        We use chainer as default framework, but if you don't, give the < saveFunc > specially please. 
-        
-        ''' 
-        assert isinstance(models,dict), "Expected <models> is dict whose key is model-name and value is model-object."
+			if self.savingThreshold == None:
+				self.savingThreshold = value
+				save = True
+			else:
+				if byMax == True and value > self.savingThreshold:
+					self.savingThreshold = value
+					save = True
+				elif byMax == False and value < self.savingThreshold:
+					self.savingThreshold = value
+					save = True
 
-        if self.currentField != {}:
-            self.collect_report(plot=False)
+			if save:
+				newArchs = []
+				for name in arch.keys():
+					if isinstance(value,float):
+						suffix += ( "_" + byKey + ('%.4f'%(value)).replace('.','') )
+					else:
+						suffix += ( "_" + byKey + '%d'%(value) )
+					fileName = self.outDir+'/'+name+suffix
+					newArchs.append((fileName, arch[name]))
+					if name in self.lastSavedArch.keys():
+						os.remove(self.lastSavedArch[name])                    
+					self.lastSavedArch[name] = fileName
+				if len(newArchs) == 1:
+					newArchs = newArchs[0]
+				saveFunc(newArchs)
 
-        if 'epoch' in self.globalField[-1].keys():
-            suffix = '_'+str(self.globalField[-1]['epoch'])+'_' 
-        else:
-            suffix = "_"
+	@property
+	def finalArch(self):
+		'''
+		Usage:  model = obj.finalArch
 
-        if byKey == None:
-            for name in models.keys():
-                fileName = self.outDir+'/'+name+suffix[:-1]+'.model'
-                saveFunc(fileName,models[name])
-                self.lastSavedModel[name] = fileName
-        else:
-            byKey = byKey.lower()
-            if not byKey in self.globalField[-1].keys():
-                print("Warning: Cannot save model, Because key <{}> has not been reported.".format(byKey))
-                return
-            else:
-                value = self.globalField[-1][byKey]
-
-            save = False
-
-            if self.savingThreshold == None:
-                self.savingThreshold = value
-                save = True
-            else:
-                if maxValue == True and value > self.savingThreshold:
-                    self.savingThreshold = value
-                    save = True
-                elif maxValue == False and value < self.savingThreshold:
-                    self.savingThreshold = value
-                    save = True
-
-            if save:
-                for name in models.keys():
-                    if isinstance(value,float):
-                        value = ('%.5f'%(value)).replace('.','')
-                    else:
-                        value = str(value)
-                    fileName = self.outDir+'/'+ name + suffix + value + '.model'
-                    saveFunc(fileName,models[name])
-                    if name in self.lastSavedModel.keys():
-                        os.remove(self.lastSavedModel[name])
-                    self.lastSavedModel[name] = fileName
-
-    @property
-    def finalModel(self):
-        '''
-        Useage:  model = obj.finalModel
-
-        Get the final saved model. Return a dict whose key is model name and value is model path. 
-        
-        ''' 
-        return self.lastSavedModel
+		Get the final saved model. Return a Python dict object whose key is architecture name and value is architecture path. 
+		''' 
+		return self.lastSavedArch
    
-    def judge(self,key,condition,threshold,byDeltaRate=False):
-        '''
-        Useage:  newLR = obj.judge('train_loss','<',0.1)
+	def judge(self,key,condition,threshold,byDeltaRatio=False):
+		'''
+		Usage:  obj.judge('train_loss','<',0.0001,byDeltaRatio=True) or obj.judge('epoch','>=',10)
 
-        Return True or False. And If <key> is not reported before, return False.
+		Return "True" or "False". And If <key> is not reported before, return "False".
+		if <byDeltaRate> is "True", we compute:
+						   abs((value-value_pre)/value)  
+		and compare it with threshold value.
+		''' 
+		assert condition in ['>','>=','<=','<','==','!='], '<condiction> is not a correct conditional operator.'
+		assert isinstance(threshold,(int,float)), '<threshold> should be a float or int value.'
 
-        if <byDeltaRate> is True, we compute:
-                           abs( value - value_pre / value )  
-        and compare it with threshold value.
-        
-        ''' 
-        assert condition in ['>','>=','<=','<','==','!='], '<condiction> is not a correct conditional operator.'
-        assert isinstance(threshold,(int,float)), '<threshold> should be float or int value.'
+		if self.currentField != {}:
+			self.collect_report(plot=False)
+		
+		if byDeltaRatio == True:
+			p = []
+			for i in range(len(self.globalField)-1,-1,-1):
+				if key in self.globalField[i].keys():
+					p.append(self.globalField[i][key])
+				if len(p) == 2:
+					value = str(abs((p[0]-p[1])/p[0]))
+					return eval(value+condition+str(threshold))
+			return False
+		else:
+			for i in range(len(self.globalField)-1,-1,-1):
+				if key in self.globalField[i].keys():
+					value = str(self.globalField[i][key])
+					return eval(value+condition+str(threshold))
+			return False
 
-        if self.currentField != {}:
-            self.collect_report(plot=False)
-        
-        if byDeltaRate == True:
-            p = []
-            for i in range(len(self.globalField)-1,-1,-1):
-                if key in self.globalField[i].keys():
-                    p.append(self.globalField[i][key])
-                if len(p) == 2:
-                    value = str(abs(p[0]-p[1]/p[0]))
-                    return eval(value+condition+str(threshold))
-            return False
-        else:
-            for i in range(len(self.globalField)-1,-1,-1):
-                if key in self.globalField[i].keys():
-                    value = str(self.globalField[i][key])
-                    return eval(value+condition+str(threshold))
-            return False
+	def dump(self,keepItems=False,fromLogFile=None):
+		'''
+		Usage:  product = obj.dump()
 
-    def dump(self,logFile=None):
-        if logFile != None:
-            if not os.path.isfile(logFile):
-                raise PathError('No such file:{}.'.format(logFile))
-            else:
-                with open(logFile,'r',encoding='utf-8') as fr:
-                    lines = fr.readlines()
-                allData = []
-                for line in lines:
-                    line = line.strip()
-                    if len(line) != "":
-                        lineData = {}
-                        line = line.split()
-                        for i in line:
-                            i = i.split(":")
-                            try:
-                                v = int(i[1])
-                            except ValueError:
-                                v = float(i[1])
-                            lineData[i[0]] = int(i[1])
-                        allData.append(lineData)
-                return allData
-        else:
-            if self.currentField != {}:
-                self.collect_report(plot=False)
-            
-            if self.globalField != []:
-                return self.globalField
-            else:
-                raise WrongOperation('Not any information to dump.')
+		Get all reported information.
+		If <fromLogFile> is not "None", read and return information from log file.
+		If <keepItems> is True, return information by iterms name. 
+		'''
+		
+		if fromLogFile != None:
+			assert isinstance(fromLogFile,str), "Expected <fromLogFile> is file name-like string."
+			if not os.path.isfile(fromLogFile):
+				raise PathError('No such file:{}.'.format(fromLogFile))
+			else:
+				with open(fromLogFile,'r',encoding='utf-8') as fr:
+					lines = fr.readlines()
+				allData = []
+				for line in lines:
+					line = line.strip()
+					if len(line) != "":
+						lineData = {}
+						line = line.split()
+						for i in line:
+							i = i.split(":")
+							if "-----" in i[1]:
+								continue
+							else: 
+								try:
+									v = int(i[1])
+								except ValueError:
+									v = float(i[1])
+							lineData[i[0]] = v
+						allData.append(lineData)
+				if len(allData) == 0:
+					raise WrongOperation('Not any information to dump.')
+		else:
+			if self.currentField != {}:
+				self.collect_report(plot=False)
+			
+			if self.globalField != []:
+				allData = self.globalField
+			else:
+				raise WrongOperation('Not any information to dump.')
+
+		if keepItems is True:
+			items = {}
+			for i in allData:
+				for key in i.keys():
+					if not key in items.keys():
+						items[key] = []
+					items[key].append(i[key])
+			return items
+		else:
+			return allData
 
 class DataIterator(object):
-    '''
-    Usage: obj = DataIterator(data,64) or obj = DataIterator('train.scp',64,chunks='auto',processFunc=function)
+	'''
+	Usage: obj = DataIterator('train.scp',64,chunks='auto',processFunc=function)
 
-    This is a imporved data interator. You try its distinctive ability. 
-    If you give it a large scp file of train data, it will split it into n smaller chunks and load them into momery alternately with parallel thread. 
-    It will shuffle the original scp file and split again while new epoch.
+	If you give it a large scp file of train data, it will split it into N smaller chunks and load them into momery alternately with parallel thread. 
+	It will shuffle the original scp file and split again while new epoch.
+	'''
 
-    '''
-    def __init__(self,scpFiles,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,reserveData=0.0):
+	def __init__(self,scpFiles,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,retainData=0.0):
 
-        self.fileProcessFunc = processFunc
-        self._batchSize = batchSize
-        self.otherArgs = otherArgs
-        self._shuffle = shuffle
-        self._chunks = chunks
+		self.fileProcessFunc = processFunc
+		self._batchSize = batchSize
+		self.otherArgs = otherArgs
+		self._shuffle = shuffle
+		self._chunks = chunks
 
-        if isinstance(scpFiles,str):
-            p = subprocess.Popen('ls {}'.format(scpFiles),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            (out,err) = p.communicate()
-            if out == b'':
-                raise PathError("No such file:{}".format(scpFiles))
-            else:
-                out = out.decode().strip().split('\n')
-        elif isinstance(scpFiles,list):
-            out = scpFiles
-        else:
-            raise UnsupportedDataType('Expected scp file-like str or list.')
+		if isinstance(scpFiles,str):
+			p = subprocess.Popen('ls {}'.format(scpFiles),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+			(out,err) = p.communicate()
+			if out == b'':
+				raise PathError("No such file:{}".format(scpFiles))
+			else:
+				out = out.decode().strip().split('\n')
+		elif isinstance(scpFiles,list):
+			out = scpFiles
+		else:
+			raise UnsupportedDataType('Expected <scpFiles> is scp file-like string or list object.')
 
-        if isinstance(chunks,int):
-            assert chunks>0, "Expected chunks is a positive int number but got {}.".format(chunks)
-        elif chunks != 'auto':
-            raise WrongOperation('Expected chunks is a positive int number or <auto> but got {}.'.format(chunks))
+		if isinstance(chunks,int):
+			assert chunks>0, "Expected <chunks> is a positive int number but got {}.".format(chunks)
+		elif chunks != 'auto':
+			raise WrongOperation('Expected <chunks> is a positive int number or <auto> but got {}.'.format(chunks))
 
-        temp = []
-        for scpFile in out:
-            with open(scpFile,'r',encoding='utf-8') as fr:
-                temp.extend(fr.read().strip().split('\n'))
-        K = int(len(temp)*(1-reserveData))
-        self.reservedFiles = temp[K:]
-        self.allFiles = temp[0:K]
+		temp = []
+		for scpFile in out:
+			with open(scpFile,'r',encoding='utf-8') as fr:
+				temp.extend(fr.read().strip().split('\n'))
+		K = int(len(temp)*(1-retainData))
+		self.retainedFiles = temp[K:]
+		self.allFiles = temp[0:K]
 
-        if chunks == 'auto':
-            #Compute the chunks automatically
-            sampleChunk = random.sample(self.allFiles,10)
-            with tempfile.NamedTemporaryFile('w',encoding='utf-8',suffix='.scp') as sampleFile:
-                sampleFile.write('\n'.join(sampleChunk))
-                sampleFile.seek(0)
-                sampleChunkData = load(sampleFile.name)
-            meanLength = int(np.mean(sampleChunkData.lens[1]))
-            autoChunkSize = math.ceil(50000/meanLength)  # Use 30000 frames as threshold 
-            self._chunks = len(self.allFiles)//autoChunkSize
-            if self._chunks == 0: 
-                self._chunks = 1
+		if chunks == 'auto':
+			#Compute the chunks automatically
+			sampleChunk = random.sample(self.allFiles,10)
+			with tempfile.NamedTemporaryFile('w',encoding='utf-8',suffix='.scp') as sampleFile:
+				sampleFile.write('\n'.join(sampleChunk))
+				sampleFile.seek(0)
+				sampleChunkData = load(sampleFile.name)
+			meanLength = int(np.mean(sampleChunkData.lens[1]))
+			autoChunkSize = math.ceil(50000/meanLength)  # Use 50000 frames as threshold 
+			self._chunks = len(self.allFiles)//autoChunkSize
+			if self._chunks == 0: 
+				self._chunks = 1
 
-        self.make_dataset_bag(shuffle=False)
-        self._epoch = 0 
-        
-        self.load_dataset(0)
-        self.currentDataset = self.nextDataset
-        self.nextDataset = None
+		self.make_dataset_bag(shuffle=False)
+		self._epoch = 0 
+		
+		self.load_dataset(0)
+		self.currentDataset = self.nextDataset
+		self.nextDataset = None
 
-        self.epochSize = len(self.currentDataset)
-        self.countEpochSizeFlag = True
+		self.epochSize = len(self.currentDataset)
+		self.countEpochSizeFlag = True
 
-        self.currentPosition = 0
-        self.currentEpochPosition = 0
-        self._isNewEpoch = False
-        self._isNewChunk = False
-        self.datasetIndex = 0
+		self.currentPosition = 0
+		self.currentEpochPosition = 0
+		self._isNewEpoch = False
+		self._isNewChunk = False
+		self.datasetIndex = 0
 
-        if self._chunks > 1:
-            self.datasetIndex = 1
-            self.loadDatasetThread = threading.Thread(target=self.load_dataset,args=(1,))
-            self.loadDatasetThread.start()
+		if self._chunks > 1:
+			self.datasetIndex = 1
+			self.loadDatasetThread = threading.Thread(target=self.load_dataset,args=(1,))
+			self.loadDatasetThread.start()
 
-    def make_dataset_bag(self,shuffle=False):
-        self.datasetBag = []
-        if shuffle:
-            random.shuffle(self.allFiles)
-        chunkSize = math.ceil(len(self.allFiles)/self._chunks)
-        L = self._chunks -(chunkSize * self._chunks - len(self.allFiles))-1
-        start = 0
-        for i in range(self._chunks):
-            if i > L:
-                end = start + chunkSize - 1
-            else:
-                end = start + chunkSize
-            chunkFiles = self.allFiles[start:end]
-            start = end
-            if len(chunkFiles) > 0:
-                self.datasetBag.append(chunkFiles)
+	def make_dataset_bag(self,shuffle=False):
+		self.datasetBag = []
+		if shuffle:
+			random.shuffle(self.allFiles)
+		chunkSize = math.ceil(len(self.allFiles)/self._chunks)
+		L = self._chunks -(chunkSize * self._chunks - len(self.allFiles))-1
+		start = 0
+		for i in range(self._chunks):
+			if i > L:
+				end = start + chunkSize - 1
+			else:
+				end = start + chunkSize
+			chunkFiles = self.allFiles[start:end]
+			start = end
+			if len(chunkFiles) > 0:
+				self.datasetBag.append(chunkFiles)
 
-    def load_dataset(self,datasetIndex):
-        with tempfile.NamedTemporaryFile('w',suffix='.scp') as scpFile:
-            scpFile.write('\n'.join(self.datasetBag[datasetIndex]))
-            scpFile.seek(0)
-            chunkData = load(scpFile.name)
-        if self.otherArgs != None:
-            self.nextDataset = self.fileProcessFunc(self,chunkData,self.otherArgs)
-        else:
-            self.nextDataset = self.fileProcessFunc(self,chunkData)
+	def load_dataset(self,datasetIndex):
+		with tempfile.NamedTemporaryFile('w',suffix='.scp') as scpFile:
+			scpFile.write('\n'.join(self.datasetBag[datasetIndex]))
+			scpFile.seek(0)
+			chunkData = load(scpFile.name)
+		if self.otherArgs != None:
+			self.nextDataset = self.fileProcessFunc(self,chunkData,self.otherArgs)
+		else:
+			self.nextDataset = self.fileProcessFunc(self,chunkData)
 
-        self.nextDataset = [X for X in self.nextDataset]
+		self.nextDataset = [X for X in self.nextDataset]
 
-        if self._batchSize > len(self.nextDataset):
-            print("Warning: Batch Size < {} > is extremely large for this dataset, we hope you can use a more suitable value.".format(self._batchSize))
-        
-    def next(self):
-        i = self.currentPosition
-        iEnd = i + self._batchSize
-        N = len(self.currentDataset)
+		if self._batchSize > len(self.nextDataset):
+			print("Warning: Batch Size < {} > is extremely large for this dataset, we hope you can use a more suitable value.".format(self._batchSize))
+		
+	def next(self):
+		i = self.currentPosition
+		iEnd = i + self._batchSize
+		N = len(self.currentDataset)
 
-        batch = self.currentDataset[i:iEnd]
+		batch = self.currentDataset[i:iEnd]
 
-        if self._chunks == 1:
-            if iEnd >= N:
-                rest = iEnd - N
-                if self._shuffle:
-                    random.shuffle(self.currentDataset)
-                batch.extend(self.currentDataset[:rest])
-                self.currentPosition = rest
-                self.currentEpochPosition = self.currentPosition
-                self._epoch += 1
-                self._isNewEpoch = True
-                self._isNewChunk = True
-            else:
-                self.currentPosition = iEnd
-                self._isNewEpoch = False
-                self._isNewChunk = False
-        else:
-            if iEnd >= N:
-                rest = iEnd - N
-                while self.loadDatasetThread.is_alive():
-                    time.sleep(0.1)
-                if self._shuffle:
-                    random.shuffle(self.nextDataset)
-                batch.extend(self.nextDataset[:rest])
-                self.currentPosition = rest
-                self.currentDataset = self.nextDataset
-                self._isNewChunk = True
-                
-                if self.countEpochSizeFlag:
-                    self.epochSize += len(self.currentDataset)
+		if self._chunks == 1:
+			if iEnd >= N:
+				rest = iEnd - N
+				if self._shuffle:
+					random.shuffle(self.currentDataset)
+				batch.extend(self.currentDataset[:rest])
+				self.currentPosition = rest
+				self.currentEpochPosition = self.currentPosition
+				self._epoch += 1
+				self._isNewEpoch = True
+				self._isNewChunk = True
+			else:
+				self.currentPosition = iEnd
+				self._isNewEpoch = False
+				self._isNewChunk = False
+		else:
+			if iEnd >= N:
+				rest = iEnd - N
+				while self.loadDatasetThread.is_alive():
+					time.sleep(0.5)
+				if self._shuffle:
+					random.shuffle(self.nextDataset)
+				batch.extend(self.nextDataset[:rest])
+				self.currentPosition = rest
+				self.currentDataset = self.nextDataset
+				self._isNewChunk = True
+				
+				if self.countEpochSizeFlag:
+					self.epochSize += len(self.currentDataset)
 
-                self.datasetIndex = (self.datasetIndex+1)%self._chunks
+				self.datasetIndex = (self.datasetIndex+1)%self._chunks
 
-                if self.datasetIndex == 1:
-                    self._epoch += 1
-                    self._isNewEpoch = True
+				if self.datasetIndex == 1:
+					self._epoch += 1
+					self._isNewEpoch = True
 
-                if self.datasetIndex == 0:
-                    self.countEpochSizeFlag = False
-                    self.make_dataset_bag(shuffle=True)
+				if self.datasetIndex == 0:
+					self.countEpochSizeFlag = False
+					self.make_dataset_bag(shuffle=True)
 
-                self.loadDatasetThread = threading.Thread(target=self.load_dataset,args=(self.datasetIndex,))
-                self.loadDatasetThread.start()
+				self.loadDatasetThread = threading.Thread(target=self.load_dataset,args=(self.datasetIndex,))
+				self.loadDatasetThread.start()
 
-            else:
-                self._isNewChunk = False
-                self._isNewEpoch = False
-                self.currentPosition = iEnd
+			else:
+				self._isNewChunk = False
+				self._isNewEpoch = False
+				self.currentPosition = iEnd
 
-            self.currentEpochPosition = (self.currentEpochPosition + self._batchSize)%self.epochSize
+			self.currentEpochPosition = (self.currentEpochPosition + self._batchSize)%self.epochSize
 
-        return batch                            
+		return batch                            
 
-    @property
-    def batchSize(self):
-        return self._batchSize
+	@property
+	def batchSize(self):
+		return self._batchSize
 
-    @property
-    def chunks(self):
-        return self._chunks
+	@property
+	def chunks(self):
+		return self._chunks
 
-    @property
-    def chunk(self):
-        if self.datasetIndex == 0:
-            return self._chunks - 1
-        else:
-            return self.datasetIndex - 1
+	@property
+	def chunk(self):
+		if self.datasetIndex == 0:
+			return self._chunks - 1
+		else:
+			return self.datasetIndex - 1
 
-    @property
-    def epoch(self):
-        return self._epoch
+	@property
+	def epoch(self):
+		return self._epoch
 
-    @property
-    def isNewEpoch(self):
-        return self._isNewEpoch
+	@property
+	def isNewEpoch(self):
+		return self._isNewEpoch
 
-    @property
-    def isNewChunk(self):
-        return self._isNewChunk
+	@property
+	def isNewChunk(self):
+		return self._isNewChunk
 
-    @property
-    def epochProgress(self):
-        if self._isNewEpoch is True:
-            return 1.
-        else:
-            return self.currentEpochPosition/self.epochSize
-    
-    @property
-    def chunkProgress(self):
-        if self._isNewChunk is True:
-            return 1.
-        else:
-            return self.currentPosition/len(self.currentDataset)
+	@property
+	def epochProgress(self):
+		if self._isNewEpoch is True:
+			return 1.
+		else:
+			return self.currentEpochPosition/self.epochSize
+	
+	@property
+	def chunkProgress(self):
+		if self._isNewChunk is True:
+			return 1.
+		else:
+			return self.currentPosition/len(self.currentDataset)
 
-    def get_reserved_data(self,processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False,reserveData=0.0):
+	def get_retained_data(self,processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False,retainData=0.0):
 
-        if len(self.reservedFiles) == 0:
-            raise WrongOperation('No reserved validation data.')   
+		if len(self.retainedFiles) == 0:
+			raise WrongOperation('No retained validation data.')   
 
-        if processFunc == None:
-            processFunc = self.fileProcessFunc
-        
-        if batchSize == None:
-            batchSize = self._batchSize
+		if processFunc == None:
+			processFunc = self.fileProcessFunc
+		
+		if batchSize == None:
+			batchSize = self._batchSize
 
-        if isinstance(chunks,int):
-            assert chunks > 0,"Expected chunks is a positive int number."
-        elif chunks != 'auto':
-            raise WrongOperation('Expected chunks is a positive int number or <auto> but got {}.'.format(chunks))
+		if isinstance(chunks,int):
+			assert chunks > 0,"Expected <chunks> is a positive int number."
+		elif chunks != 'auto':
+			raise WrongOperation('Expected <chunks> is a positive int number or <auto> but got {}.'.format(chunks))
 
-        if otherArgs == None:
-            otherArgs = self.otherArgs
+		if otherArgs == None:
+			otherArgs = self.otherArgs
 
-        with tempfile.NamedTemporaryFile('w',encoding='utf-8',suffix='.scp') as reScpFile:
-            reScpFile.write('\n'.join(self.reservedFiles))
-            reScpFile.seek(0)  
-            reIterator = DataIterator(reScpFile.name,processFunc,batchSize,chunks,otherArgs,shuffle,reserveData)
+		with tempfile.NamedTemporaryFile('w',encoding='utf-8',suffix='.scp') as reScpFile:
+			reScpFile.write('\n'.join(self.retainedFiles))
+			reScpFile.seek(0)  
+			reIterator = DataIterator(reScpFile.name,processFunc,batchSize,chunks,otherArgs,shuffle,retainData)
 
-        return reIterator
+		return reIterator
 
 # ---------- Basic Class Functions ------- 
 
-def save(data,fileName,chunks=1):
-    '''
-    Useage:  exkaldi.save(obj, 'data.ark')
-    
-    The same as KaldiArk().save() or KaldiDict().save() method.
+def save(data,*params):
+	'''
+	Usage:  save(obj, 'data.ark')
+	
+	The same as KaldiArk().save() or KaldiDict().save() or KaldiLattice().save() method.
+	'''  
+	if isinstance(data,(KaldiDict,KaldiArk,KaldiLattice)):
+		data.save(*params)
+	else:
+		raise UnsupportedDataType("Expected <data> is KaldiDict, KaldiArk or KaldiLattice object but got {}.".format(type(data)))
 
-    '''  
-    if isinstance(data,(KaldiDict,KaldiArk)):
-        data.save(fileName,chunks)
-    else:
-        raise UnsupportedDataType("Expected KaldiDict or KaldiArk data but got {}.".format(type(data)))
+def concat(data,axis):
+	'''
+	Usage:  newObj = concat([obj1,obj2],axis=1)
+	
+	Return a KaldDict object. The same as KaldiDict().concat() fucntion.
+	'''  
+	assert isinstance(data,(list,tuple)), "Expected <data> is a list or tuple object but got {}.".format(type(data))
 
-def concat(datas,axis):
-    '''
-    Useage:  newObj = exkaldi.concat([obj1,obj2],axis=1)
-    
-    The same as KaldiArk().concat() or KaldiDict().concat() fucntion.
-
-    '''  
-    assert isinstance(datas,list), "Expected <datas> is a list object but got {}.".format(type(datas))
-
-    if len(datas) > 0:
-        if not isinstance(datas[0],(KaldiArk,KaldiDict)):
-            raise UnsupportedDataType('Expected KaldiDict or KaldiArk object but got {}.'.format(datas[0]))
-        if len(datas) > 1:
-            return datas[0].concat(datas[1:],axis)
-        else:
-            return datas[0]
-    else:
-        return None
+	if len(data) > 0:
+		if not isinstance(data[0],(KaldiArk,KaldiDict)):
+			raise UnsupportedDataType('Expected KaldiDict or KaldiArk object but got {}.'.format(data[0]))
+		if isinstance(data[0],KaldiArk):
+			data[0] = data[0].array
+		if len(data) > 1:
+			return data[0].concat(data[1:],axis)
+		else:
+			return copy.deepcopy(data[0])
+	else:
+		return KaldiDict()
 
 def cut(data,maxFrames):
-    '''
-    Useage:  exkaldi.cut(100)
-    
-    Whatever <data> is KaldiArk or KaldiDict object, return KaldiDict object.
-    
-    The same as KaldiDict().cut() fucntion.
-
-    '''  
-    if not isinstance(data,(KaldiArk,KaldiDict)):
-        raise UnsupportedDataType('Expected KaldiDict or KaldiArk object but got {}.'.format(data))
-    elif isinstance(data,KaldiArk):
-        data = data.array
-    
-    return data.cut(maxFrames)
+	'''
+	Usage:  result = cut(100)
+	
+	Return a KaldDict object. The same as KaldiDict().cut() fucntion.
+	'''  
+	if not isinstance(data,(KaldiArk,KaldiDict)):
+		raise UnsupportedDataType('Expected KaldiDict or KaldiArk object but got {}.'.format(data))
+	elif isinstance(data,KaldiArk):
+		data = data.array
+	
+	return data.cut(maxFrames)
 
 def normalize(data,std=True,alpha=1.0,beta=0.0,epsilon=1e-6,axis=0):
-    '''
-    Useage:  newObj = exkaldi.normalize(obj)
-    
-    Whatever <data> is KaldiArk or KaldiDict object, return KaldiDict object.
-    
-    The same as KaldiDict().normalize() fucntion.
+	'''
+	Usage:  newObj = normalize(obj)
+	
+	Return a KaldiDict object. The same as KaldiDict().normalize() fucntion.
+	'''
 
-    '''     
-    if not isinstance(data,(KaldiArk,KaldiDict)):
-        raise UnsupportedDataType('Expected KaldiDict or KaldiArk object but got {}.'.format(data))
-    elif isinstance(data,KaldiArk):
-        data = data.array
+	if not isinstance(data,(KaldiArk,KaldiDict)):
+		raise UnsupportedDataType('Expected KaldiDict or KaldiArk object but got {}.'.format(data))
+	elif isinstance(data,KaldiArk):
+		data = data.array
 
-    return data.normalize(std,alpha,beta,epsilon,axis)
+	return data.normalize(std,alpha,beta,epsilon,axis)
 
-def subset(data,nHead=0,chunks=1,uttList=None):
-    '''
-    Useage:  newObj = exkaldi.subset(chunks=5)
-    
-    The same as KaldiArk().subset() or KaldiDict().subset() fucntion.
+def merge(data,keepDim=False,sortFrame=False):
+	'''
+	Usage:  data, lengths = merge(obj)
+	
+	Return a KaldiDict object. The same as KaldiDict().merge() fucntion.
+	'''   
+	if not isinstance(data,(KaldiArk,KaldiDict)):
+		raise UnsupportedDataType('Expected KaldiDict or KaldiArk object but got {}.'.format(data))
+	elif isinstance(data,KaldiArk):
+		data = data.array
 
-    '''     
-    if isinstance(data,(KaldiDict,KaldiArk)):
-        data.subset(nHead,chunks,uttList)
-    else:
-        raise UnsupportedDataType("Expected KaldiDict or KaldiArk data but got {}.".format(type(data)))   
-
-def merge(data,keepDim=False,sort=False):
-    '''
-    Useage:  newObj = exkaldi.merge(obj)
-    
-    Whatever <data> is KaldiArk or KaldiDict object, return KaldiDict object.
-    
-    The same as KaldiDict().merge() fucntion.
-
-    '''   
-    if not isinstance(data,(KaldiArk,KaldiDict)):
-        raise UnsupportedDataType('Expected KaldiDict or KaldiArk object but got {}.'.format(data))
-    elif isinstance(data,KaldiArk):
-        data = data.array
-    return data.merge(keepDim,sort)
+	return data.merge(keepDim,sortFrame)
 
 def remerge(matrix,uttLens):
-    '''
-    Useage:  newObj = exkaldi.remerge(obj)
-    
-    Whatever <data> is KaldiArk or KaldiDict object, return KaldiDict object.
-    
-    The same as KaldiDict().remerge() fucntion.
+	'''
+	Usage:  newObj = remerge(data,lengths)
+	
+	Return a KaldiDict object. The same as KaldiDict().remerge() fucntion.
+	'''
+	newData = KaldiDict()
+	newData.remerge(matrix,uttLens)
 
-    '''   
-    newData = KaldiDict()
-    newData.remerge(matrix,uttLens)
-    return newData
+	return newData
 
 def sort(data,by='frame',reverse=False):
-    '''
-    Useage:  newObj = exkaldi.sort(obj)
-    
-    Whatever <data> is KaldiArk or KaldiDict object, return KaldiDict object.
-    
-    The same as KaldiDict().sort() fucntion.
+	'''
+	Usage:  newObj = sort(obj)
+	
+	Return a KaldiDict object. The same as KaldiDict().sort() fucntion.
+	'''
+	if not isinstance(data,(KaldiArk,KaldiDict)):
+		raise UnsupportedDataType('Expected KaldiDict or KaldiArk object but got {}.'.format(data))
+	elif isinstance(data,KaldiArk):
+		data = data.array
 
-    '''   
-    if not isinstance(data,(KaldiArk,KaldiDict)):
-        raise UnsupportedDataType('Expected KaldiDict or KaldiArk object but got {}.'.format(data))
-    elif isinstance(data,KaldiArk):
-        data = data.array
-
-    return data.sort(by,reverse)
-
-def select(data, dims,reserve=False):
-    '''
-    Useage:  newObj = exkaldi.select(chunks=5)
-    
-    The same as KaldiArk().select() or KaldiDict().select() fucntion.
-
-    '''    
-    if isinstance(data,(KaldiDict,KaldiArk)):
-        data.select(data, dims,reserve)
-    else:
-        raise UnsupportedDataType("Expected KaldiDict or KaldiArk data but got {}.".format(type(data)))    
+	return data.sort(by,reverse)
 
 def splice(data,left=4,right=None):
-    '''
-    Useage:  newObj = exkaldi.splice(chunks=5)
-    
-    The same as KaldiArk().splice() or KaldiDict().splice() fucntion.
-
-    '''      
-    if isinstance(data,(KaldiDict,KaldiArk)):
-        data.splice(data,left,right)
-    else:
-        raise UnsupportedDataType("Expected KaldiDict or KaldiArk data but got {}.".format(type(data)))     
-
-def to_dtype(data,dtype):
-    '''
-    Useage:  newObj = exkaldi.to_dtype(‘float64’)
-    
-    The same as KaldiArk().to_dtype() or KaldiDict().to_dtype() fucntion.
-
-    '''      
-    if isinstance(data,(KaldiDict,KaldiArk)):
-        data.to_dtype(data,dtype)
-    else:
-        raise UnsupportedDataType("Expected KaldiDict or KaldiArk data but got {}.".format(type(data)))     
+	'''
+	Usage:  newObj = splice(chunks=5)
+	
+	Return KaldiArk or kaldiDict object. The same as KaldiArk().splice() or KaldiDict().splice() fucntion.
+	'''
+	if isinstance(data,(KaldiDict,KaldiArk)):
+		return data.splice(left,right)
+	else:
+		raise UnsupportedDataType("Expected KaldiDict or KaldiArk data but got {}.".format(type(data)))     
 
 # ---------- Feature and Label Process Fucntions -----------
 
-def compute_mfcc(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,outFile=None):
-    '''
-    Useage:  obj = compute_mfcc("test.wav") or compute_mfcc("test.scp")
+def compute_mfcc(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useSuffix=None,config=None,asFile=False):
+	'''
+	Usage:  obj = compute_mfcc("test.wav") or compute_mfcc("test.scp")
 
-    Compute mfcc feature. Return KaldiArk object or file path if <outFile> is not None.
-    We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
-    You can use pythonkaldi.check_config('compute_mfcc') function to get configure information you could set.
-    Also run shell command "compute-mfcc-feats" to look their meaning.
+	Compute MFCC feature. If <asFile> is False, return a KaldiArk object. Or return file-path.
+	Some usual options can be assigned directly. If you want use more, set <config> = your-configure, but if you do this, these usual configures we provided will be ignored.
+	You can use .check_config('compute_mfcc') function to get configure information that you can set.
+	Also you can run shell command "compute-mfcc-feats" to look their meaning.
+	'''
+	if useSuffix != None:
+		assert isinstance(useSuffix,str), "Expected <useSuffix> is a string."
+		useSuffix = useSuffix.strip().lower()[-3:]
+	else:
+		useSuffix = ""
+	assert useSuffix in ["","scp","wav"], 'Expected <useSuffix> is "scp" or "wav".'
 
-    '''  
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
+	global KALDIROOT,kaidiNotFoundError,ENV
+	if KALDIROOT is None:
+		raise kaidiNotFoundError
 
-    kaldiTool = 'compute-mfcc-feats'
+	if isinstance(wavFile,str):
+		if os.path.isdir(wavFile):
+			raise WrongOperation('Expected <wavFile> is file path but got a directory:{}.'.format(wavFile))
+		else:
+			p = subprocess.Popen('ls {}'.format(wavFile),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()
+			if out == b'':
+				raise PathError("No such file:{}".format(wavFile))
+			else:
+				allFiles = out.decode().strip().split('\n')
+	else:
+		raise UnsupportedDataType('Expected filename-like string but got a {}.'.format(type(wavFile)))
 
-    if config != None:
-        
-        if check_config(name='compute_mfcc',config=config):
-            for key in config.keys():
-                kaldiTool = ' {}={}'.format(key,config[key])
+	kaldiTool = 'compute-mfcc-feats'
+	if config == None:    
+		config = {}
+		config["--allow-downsample"] = "true"
+		config["--allow-upsample"] = "true"
+		config["--sample-frequency"] = rate
+		config["--frame-length"] = frameWidth
+		config["--frame-shift"] = frameShift
+		config["--num-mel-bins"] = melBins
+		config["--num-ceps"] = featDim
+		config["--window-type"] = windowType
+	if check_config(name='compute_mfcc',config=config):
+		for key in config.keys():
+			kaldiTool += ' {}={}'.format(key,config[key])
+	
+	results = []
 
-    else:
-        kaldiTool += ' --allow-downsample=true'
-        kaldiTool += ' --allow-upsample=true'
-        kaldiTool += ' --sample-frequency={}'.format(rate)
-        kaldiTool += ' --frame-length={}'.format(frameWidth)
-        kaldiTool += ' --frame-shift={}'.format(frameShift)
-        kaldiTool += ' --num-mel-bins={}'.format(melBins)
-        kaldiTool += ' --num-ceps={}'.format(featDim)
-        kaldiTool += ' --window-type={}'.format(windowType)
+	if asFile is True:
+		for wavFile in allFiles:
+			wavFile = os.path.abspath(wavFile)
+			dirIndex = wavFile.rfind('/')
+			dirName = wavFile[:dirIndex+1]
+			fileName = wavFile[dirIndex+1:]
+			fileName = "".join(fileName.split("."))
+			outFile = dirName + fileName + ".mfcc.ark"
 
-    if useSuffix == None:
-        useSuffix = ''
-    elif isinstance(useSuffix,str):
-        pass
-    else:
-        raise WrongOperation('Wrong suffix type.')
+			if fileName[-3:].lower() == 'wav':
+				cmd = 'echo {} {} | {} scp:- ark:{}'.format(fileName,wavFile,kaldiTool,outFile)
+			elif fileName[-3:].lower() == 'scp':
+				cmd = '{} scp:{} ark:{}'.format(kaldiTool,wavFile,outFile)
+			elif useSuffix == "wav":
+				cmd = 'echo {} {} | {} scp:- ark:{}'.format(fileName,wavFile,kaldiTool,outFile)
+			elif useSuffix == "scp":
+				cmd = '{} scp:{} ark:{}'.format(kaldiTool,wavFile,outFile)
+			else:
+				raise UnsupportedDataType('Unknown file suffix. You can declare it by making <useSuffix> "wav" or "scp".')
+			
+			p = subprocess.Popen(cmd,shell=True,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()
+			if not os.path.isfile(outFile) or os.path.getsize(outFile) == 0:
+				err = err.decode()
+				print(err)
+				if os.path.isfile(outFile):
+					os.remove(outFile)
+				raise KaldiProcessError('Compute MFCC defeated.')
+			else:
+				results.append(outFile)
+	
+	else:
+		for wavFile in allFiles:
+			wavFile = os.path.abspath(wavFile)
 
-    if outFile != None:
+			if wavFile[-3:].lower() == "wav":
+				dirIndex = wavFile.rfind('/')
+				fileName = wavFile[dirIndex+1:]
+				fileName = "".join(fileName.split("."))
+				cmd = 'echo {} {} | {} scp:- ark:-'.format(fileName,wavFile,kaldiTool)
+			elif wavFile[-3:].lower() == 'scp':
+				cmd = '{} scp:{} ark:-'.format(kaldiTool,wavFile)
+			elif "wav" in useSuffix:
+				dirIndex = wavFile.rfind('/')
+				fileName = wavFile[dirIndex+1:]
+				fileName = "".join(fileName.split("."))
+				cmd = 'echo {} {} | {} scp:- ark:-'.format(fileName,wavFile,kaldiTool)
+			elif "scp" in useSuffix:        
+				cmd = '{} scp:{} ark:-'.format(kaldiTool,wavFile)    
+			else:
+				raise UnsupportedDataType('Unknown file suffix. You can declare it by making <useSuffix> "wav" or "scp".')
 
-        if not outFile.endswith('.ark'):
-            outFile += '.ark'
-        
-        if wavFile.endswith('wav') or "wav" in useSuffix:
-            cmd = 'echo {} {} | {} scp:- ark:{}'.format(useUtt,wavFile,kaldiTool,outFile)
-        elif wavFile.endswith('scp') or "scp" in useSuffix:
-            cmd = '{} scp:{} ark:{}'.format(kaldiTool,wavFile,outFile)
-        else:
-            raise UnsupportedDataType('Unknown file suffix. You can declare it by using <useSuffix>="wav" or "scp".')
+			p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()   
+			if out == b'':
+				err = err.decode()
+				print(err)
+				raise KaldiProcessError('Compute MFCC defeated.')
+			else:
+				results.append(KaldiArk(out))
+	
+	if len(results) == 1:
+		results = results[0]
+	return results
 
-        p = subprocess.Popen(cmd,shell=True,stderr=subprocess.PIPE)
-        (out,err) = p.communicate()
-        if not os.path.isfile(outFile):
-            err = err.decode()
-            print(err)
-            raise KaldiProcessError('Compute mfcc defeated.')
-        else:
-            return outFile
-    else:
+def compute_fbank(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,windowType='povey',useSuffix=None,config=None,asFile=False):
+	'''
+	Usage:  obj = compute_fbank("test.wav") or compute_fbank("test.scp")
 
-        if wavFile.endswith('wav') or "wav" in useSuffix:
-            cmd = 'echo {} {} | {} scp:- ark:-'.format(useUtt,wavFile,kaldiTool)
-        elif wavFile.endswith('scp') or "scp" in useSuffix:
-            cmd = '{} scp:{} ark:-'.format(kaldiTool,wavFile)
-        else:
-            raise UnsupportedDataType('Unknown file suffix. You can declare it by using <useSuffix>="wav" or "scp".')
+	Compute fbank feature. If <asFile> is False, return a KaldiArk object. Or return file-path.
+	Some usual options can be assigned directly. If you want use more, set <config> = your-configure, but if you do this, these usual configures we provided will be ignored.
+	You can use check_config('compute_fbank') function to get configure information that you can set.
+	Also you can run shell command "compute-fbank-feats" to look their meaning.
+	'''
+	if useSuffix != None:
+		assert isinstance(useSuffix,str), "Expected <useSuffix> is a string."
+		useSuffix = useSuffix.strip().lower()[-3:]
+	else:
+		useSuffix = ""
+	assert useSuffix in ["","scp","wav"], 'Expected <useSuffix> is "scp" or "wav".'
 
-        p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out,err) = p.communicate()   
+	global KALDIROOT,kaidiNotFoundError,ENV
+	if KALDIROOT is None:
+		raise kaidiNotFoundError
 
-        if out == b'':
-            err = err.decode()
-            print(err)
-            raise KaldiProcessError('Compute mfcc defeated.')
-        else:
-            return KaldiArk(out)
+	if isinstance(wavFile,str):
+		if os.path.isdir(wavFile):
+			raise WrongOperation('Expected <wavFile> is file path but got a directory:{}.'.format(wavFile))
+		else:
+			p = subprocess.Popen('ls {}'.format(wavFile),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()
+			if out == b'':
+				raise PathError("No such file:{}".format(wavFile))
+			else:
+				allFiles = out.decode().strip().split('\n')
+	else:
+		raise UnsupportedDataType('Expected filename-like string but got a {}.'.format(type(wavFile)))
 
-def compute_fbank(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,outFile=None):
-    '''
-    Useage:  obj = compute_fbank("test.wav") or compute_mfcc("test.scp")
+	kaldiTool = 'compute-fbank-feats'
+	if config == None:    
+		config = {}
+		config["--allow-downsample"] = "true"
+		config["--allow-upsample"] = "true"
+		config["--sample-frequency"] = rate
+		config["--frame-length"] = frameWidth
+		config["--frame-shift"] = frameShift
+		config["--num-mel-bins"] = melBins
+		config["--window-type"] = windowType
+	if check_config(name='compute_fbank',config=config):
+		for key in config.keys():
+			kaldiTool += ' {}={}'.format(key,config[key])
+	
+	results = []
 
-    Compute fbank feature. Return KaldiArk object or file path if <outFile> is not None.
-    We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
-    You can use pythonkaldi.check_config('compute_fbank') function to get configure information you could set.
-    Also run shell command "compute-fbank-feats" to look their meaning.
+	if asFile is True:
 
-    '''  
+		for wavFile in allFiles:
+			wavFile = os.path.abspath(wavFile)
+			dirIndex = wavFile.rfind('/')
+			dirName = wavFile[:dirIndex+1]
+			fileName = wavFile[dirIndex+1:]
+			fileName = "".join(fileName.split("."))
+			outFile = dirName + fileName + ".fbank.ark"
 
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
+			if fileName[-3:].lower() == 'wav':
+				cmd = 'echo {} {} | {} scp:- ark:{}'.format(fileName,wavFile,kaldiTool,outFile)
+			elif fileName[-3:].lower() == 'scp':
+				cmd = '{} scp:{} ark:{}'.format(kaldiTool,wavFile,outFile)
+			elif useSuffix == "wav":
+				cmd = 'echo {} {} | {} scp:- ark:{}'.format(fileName,wavFile,kaldiTool,outFile)
+			elif useSuffix == "scp":
+				cmd = '{} scp:{} ark:{}'.format(kaldiTool,wavFile,outFile)
+			else:
+				raise UnsupportedDataType('Unknown file suffix. You can declare it by making <useSuffix> "wav" or "scp".')
+	
+			p = subprocess.Popen(cmd,shell=True,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()
+			if not os.path.isfile(outFile) or os.path.getsize(outFile) == 0:
+				err = err.decode()
+				print(err)
+				if os.path.isfile(outFile):
+					os.remove(outFile)
+				raise KaldiProcessError('Compute fbank defeated.')
+			else:
+				results.append(outFile)
+	
+	else:
+		for wavFile in allFiles:
+			wavFile = os.path.abspath(wavFile)
+			if wavFile[-3:].lower() == "wav":
+				dirIndex = wavFile.rfind('/')
+				fileName = wavFile[dirIndex+1:]
+				fileName = "".join(fileName.split("."))
+				cmd = 'echo {} {} | {} scp:- ark:-'.format(fileName,wavFile,kaldiTool)
+			elif wavFile[-3:].lower() == 'scp':
+				cmd = '{} scp:{} ark:-'.format(kaldiTool,wavFile)
+			elif "wav" in useSuffix:
+				dirIndex = wavFile.rfind('/')
+				fileName = wavFile[dirIndex+1:]
+				fileName = "".join(fileName.split("."))
+				cmd = 'echo {} {} | {} scp:- ark:-'.format(fileName,wavFile,kaldiTool)
+			elif "scp" in useSuffix:        
+				cmd = '{} scp:{} ark:-'.format(kaldiTool,wavFile)    
+			else:
+				raise UnsupportedDataType('Unknown file suffix. You can declare it by making <useSuffix> "wav" or "scp".')
 
-    kaldiTool = 'compute-fbank-feats'
+			p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()   
+			if out == b'':
+				err = err.decode()
+				print(err)
+				raise KaldiProcessError('Compute fbank defeated.')
+			else:
+				results.append(KaldiArk(out))
+	
+	if len(results) == 1:
+		results = results[0]
+	return results
 
-    if config != None:
-        
-        if check_config(name='compute_fbank',config=config):
-            for key in config.keys():
-                kaldiTool = ' {}={}'.format(key,config[key])
+def compute_plp(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useSuffix=None,config=None,asFile=False):
+	'''
+	Usage:  obj = compute_plp("test.wav") or compute_plp("test.scp")
 
-    else:
-        kaldiTool += ' --allow-downsample=true'
-        kaldiTool += ' --allow-upsample=true'
-        kaldiTool += ' --sample-frequency={}'.format(rate)
-        kaldiTool += ' --frame-length={}'.format(frameWidth)
-        kaldiTool += ' --frame-shift={}'.format(frameShift)
-        kaldiTool += ' --num-mel-bins={}'.format(melBins)
-        kaldiTool += ' --window-type={}'.format(windowType)
+	Compute plp feature. If <asFile> is False, return a KaldiArk object. Or return file-path.
+	Some usual options can be assigned directly. If you want use more, set <config> = your-configure, but if you do this, these usual configures we provided will be ignored.
+	You can use check_config('compute_plp') function to get configure information that you can set.
+	Also you can run shell command "compute-plp-feats" to look their meaning.
+	'''
+	if useSuffix != None:
+		assert isinstance(useSuffix,str), "Expected <useSuffix> is a string."
+		useSuffix = useSuffix.strip().lower()[-3:]
+	else:
+		useSuffix = ""
+	assert useSuffix in ["","scp","wav"], 'Expected <useSuffix> is "scp" or "wav".'
 
-    if useSuffix == None:
-        useSuffix = ''
-    elif isinstance(useSuffix,str):
-        pass
-    else:
-        raise WrongOperation('Wrong suffix type.')
+	global KALDIROOT,kaidiNotFoundError,ENV
+	if KALDIROOT is None:
+		raise kaidiNotFoundError
 
-    if outFile != None:
+	if isinstance(wavFile,str):
+		if os.path.isdir(wavFile):
+			raise WrongOperation('Expected <wavFile> file path but got a directory:{}.'.format(wavFile))
+		else:
+			p = subprocess.Popen('ls {}'.format(wavFile),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()
+			if out == b'':
+				raise PathError("No such file:{}".format(wavFile))
+			else:
+				allFiles = out.decode().strip().split('\n')
+	else:
+		raise UnsupportedDataType('Expected filename-like string but got a {}.'.format(type(wavFile)))
 
-        if not outFile.endswith('.ark'):
-            outFile += '.ark'
-        
-        if wavFile.endswith('wav') or "wav" in useSuffix:
-            cmd = 'echo {} {} | {} scp:- ark:{}'.format(useUtt,wavFile,kaldiTool,outFile)
-        elif wavFile.endswith('scp') or "scp" in useSuffix:
-            cmd = '{} scp:{} ark:{}'.format(kaldiTool,wavFile,outFile)
-        else:
-            raise UnsupportedDataType('Unknown file suffix. You can declare it by using <useSuffix>="wav" or "scp".')
+	kaldiTool = 'compute-plp-feats'
+	if config == None:    
+		config = {}
+		config["--allow-downsample"] = "true"
+		config["--allow-upsample"] = "true"
+		config["--sample-frequency"] = rate
+		config["--frame-length"] = frameWidth
+		config["--frame-shift"] = frameShift
+		config["--num-mel-bins"] = melBins
+		config["--num-ceps"] = featDim
+		config["--window-type"] = windowType
+	if check_config(name='compute_plp',config=config):
+		for key in config.keys():
+			kaldiTool += ' {}={}'.format(key,config[key])
+	
+	results = []
 
-        p = subprocess.Popen(cmd,shell=True,stderr=subprocess.PIPE)
-        (out,err) = p.communicate()
-        if not os.path.isfile(outFile):
-            err = err.decode()
-            print(err)
-            raise KaldiProcessError('Compute fbank defeated.')
-        else:
-            return outFile
-    else:
+	if asFile is True:
 
-        if wavFile.endswith('wav') or "wav" in useSuffix:
-            cmd = 'echo {} {} | {} scp:- ark:-'.format(useUtt,wavFile,kaldiTool)
-        elif wavFile.endswith('scp') or "scp" in useSuffix:
-            cmd = '{} scp:{} ark:-'.format(kaldiTool,wavFile)
-        else:
-            raise UnsupportedDataType('Unknown file suffix. You can declare it by using <useSuffix>="wav" or "scp".')
+		for wavFile in allFiles:
+			wavFile = os.path.abspath(wavFile)
+			dirIndex = wavFile.rfind('/')
+			dirName = wavFile[:dirIndex+1]
+			fileName = wavFile[dirIndex+1:]
+			fileName = "".join(fileName.split("."))
+			outFile = dirName + fileName + ".plp.ark"
 
-        p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out,err) = p.communicate()   
+			if fileName[-3:].lower() == 'wav':
+				cmd = 'echo {} {} | {} scp:- ark:{}'.format(fileName,wavFile,kaldiTool,outFile)
+			elif fileName[-3:].lower() == 'scp':
+				cmd = '{} scp:{} ark:{}'.format(kaldiTool,wavFile,outFile)
+			elif useSuffix == "wav":
+				cmd = 'echo {} {} | {} scp:- ark:{}'.format(fileName,wavFile,kaldiTool,outFile)
+			elif useSuffix == "scp":
+				cmd = '{} scp:{} ark:{}'.format(kaldiTool,wavFile,outFile)
+			else:
+				raise UnsupportedDataType('Unknown file suffix. You can declare it by making <useSuffix> "wav" or "scp".')
+			
+			p = subprocess.Popen(cmd,shell=True,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()
+			if not os.path.isfile(outFile) or os.path.getsize(outFile) == 0:
+				err = err.decode()
+				print(err)
+				if os.path.isfile(outFile):
+					os.remove(outFile)
+				raise KaldiProcessError('Compute plp defeated.')
+			else:
+				results.append(outFile)
+	
+	else:
 
-        if out == b'':
-            err = err.decode()
-            print(err)
-            raise KaldiProcessError('Compute fbank defeated.')
-        else:
-            return KaldiArk(out)
+		for wavFile in allFiles:
+			wavFile = os.path.abspath(wavFile)
 
-def compute_plp(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,outFile=None):
-    '''
-    Useage:  obj = compute_plp("test.wav") or compute_mfcc("test.lst",useSuffix='scp')
+			if wavFile[-3:].lower() == "wav":
+				dirIndex = wavFile.rfind('/')
+				fileName = wavFile[dirIndex+1:]
+				fileName = "".join(fileName.split("."))
+				cmd = 'echo {} {} | {} scp:- ark:-'.format(fileName,wavFile,kaldiTool)
+			elif wavFile[-3:].lower() == 'scp':
+				cmd = '{} scp:{} ark:-'.format(kaldiTool,wavFile)
+			elif useSuffix == "wav":
+				dirIndex = wavFile.rfind('/')
+				fileName = wavFile[dirIndex+1:]
+				fileName = "".join(fileName.split("."))
+				cmd = 'echo {} {} | {} scp:- ark:-'.format(fileName,wavFile,kaldiTool)
+			elif useSuffix == "scp":        
+				cmd = '{} scp:{} ark:-'.format(kaldiTool,wavFile)    
+			else:
+				raise UnsupportedDataType('Unknown file suffix. You can declare it by making <useSuffix> "wav" or "scp".')
 
-    Compute plp feature. Return KaldiArk object or file path if <outFile> is not None.
-    We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
-    You can use pythonkaldi.check_config('compute_plp') function to get configure information you could set.
-    Also run shell command "compute-plp-feats" to look their meaning.
+			p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()   
+			if out == b'':
+				err = err.decode()
+				print(err)
+				raise KaldiProcessError('Compute plp defeated.')
+			else:
+				results.append(KaldiArk(out))
+	
+	if len(results) == 1:
+		results = results[0]
+	return results
 
-    '''  
+def compute_spectrogram(wavFile,rate=16000,frameWidth=25,frameShift=10,windowType='povey',useSuffix=None,config=None,asFile=False):
+	'''
+	Usage:  obj = compute_spetrogram("test.wav") or compute_spetrogram("test.scp")
 
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
+	Compute spetrogram feature. If <asFile> is "False", return a KaldiArk object. Or return file-path.
+	Some usual options can be assigned directly. If you want use more, set <config>=your-configure, but if you do this, these usual configures we provided will be ignored.
+	You can use .check_config('compute_spetrogram') function to get configure information that you can set.
+	Also you can run shell command "compute-spetrogram-feats" to look their meaning.
+	'''
+	if useSuffix != None:
+		assert isinstance(useSuffix,str), "Expected <useSuffix> is a string."
+		useSuffix = useSuffix.strip().lower()[-3:]
+	else:
+		useSuffix = ""
+	assert useSuffix in ["","scp","wav"], 'Expected <useSuffix> is "scp" or "wav".'
 
-    kaldiTool = 'compute-plp-feats'
+	global KALDIROOT,kaidiNotFoundError,ENV
+	if KALDIROOT is None:
+		raise kaidiNotFoundError
 
-    if config != None:
-        
-        if check_config(name='compute_plp',config=config):
-            for key in config.keys():
-                kaldiTool = ' {}={}'.format(key,config[key])
+	if isinstance(wavFile,str):
+		if os.path.isdir(wavFile):
+			raise WrongOperation('Expected <wavFile> is file path but got a directory:{}.'.format(wavFile))
+		else:
+			p = subprocess.Popen('ls {}'.format(wavFile),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()
+			if out == b'':
+				raise PathError("No such file:{}".format(wavFile))
+			else:
+				allFiles = out.decode().strip().split('\n')
+	else:
+		raise UnsupportedDataType('Expected filename-like string but got a {}.'.format(type(wavFile)))
 
-    else:
-        kaldiTool += ' --allow-downsample=true'
-        kaldiTool += ' --allow-upsample=true'
-        kaldiTool += ' --sample-frequency={}'.format(rate)
-        kaldiTool += ' --frame-length={}'.format(frameWidth)
-        kaldiTool += ' --frame-shift={}'.format(frameShift)
-        kaldiTool += ' --num-mel-bins={}'.format(melBins)
-        kaldiTool += ' --num-ceps={}'.format(featDim)
-        kaldiTool += ' --window-type={}'.format(windowType)
+	kaldiTool = 'compute-spetrogram-feats'
+	if config == None: 
+		config = {}
+		config["--allow-downsample"] = "true"
+		config["--allow-upsample"] = "true"
+		config["--sample-frequency"] = rate
+		config["--frame-length"] = frameWidth
+		config["--frame-shift"] = frameShift
+		config["--window-type"] = windowType
+	if check_config(name='compute_spetrogram',config=config):
+		for key in config.keys():
+			kaldiTool += ' {}={}'.format(key,config[key])
+	
+	results = []
 
-    if useSuffix == None:
-        useSuffix = ''
-    elif isinstance(useSuffix,str):
-        pass
-    else:
-        raise WrongOperation('Wrong suffix type.')
+	if asFile is True:
+		for wavFile in allFiles:
+			wavFile = os.path.abspath(wavFile)
+			dirIndex = wavFile.rfind('/')
+			dirName = wavFile[:dirIndex+1]
+			fileName = wavFile[dirIndex+1:]
+			fileName = "".join(fileName.split("."))
+			outFile = dirName + fileName + ".spetrogram.ark"
 
-    if outFile != None:
+			if fileName[-3:].lower() == 'wav':
+				cmd = 'echo {} {} | {} scp:- ark:{}'.format(fileName,wavFile,kaldiTool,outFile)
+			elif fileName[-3:].lower() == 'scp':
+				cmd = '{} scp:{} ark:{}'.format(kaldiTool,wavFile,outFile)
+			elif useSuffix == "wav":
+				cmd = 'echo {} {} | {} scp:- ark:{}'.format(fileName,wavFile,kaldiTool,outFile)
+			elif useSuffix == "scp":
+				cmd = '{} scp:{} ark:{}'.format(kaldiTool,wavFile,outFile)
+			else:
+				raise UnsupportedDataType('Unknown file suffix. You can declare it by making <useSuffix> "wav" or "scp".')
 
-        if not outFile.endswith('.ark'):
-            outFile += '.ark'
-        
-        if wavFile.endswith('wav') or "wav" in useSuffix:
-            cmd = 'echo {} {} | {} scp:- ark:{}'.format(useUtt,wavFile,kaldiTool,outFile)
-        elif wavFile.endswith('scp') or "scp" in useSuffix:
-            cmd = '{} scp:{} ark:{}'.format(kaldiTool,wavFile,outFile)
-        else:
-            raise UnsupportedDataType('Unknown file suffix. You can declare it by using <useSuffix>="wav" or "scp".')
+			p = subprocess.Popen(cmd,shell=True,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()
+			if not os.path.isfile(outFile) or os.path.getsize(outFile) == 0:
+				err = err.decode()
+				print(err)
+				if os.path.isfile(outFile):
+					os.remove(outFile)
+				raise KaldiProcessError('Compute spetrogram defeated.')
+			else:
+				results.append(outFile)
+	else:
+		for wavFile in allFiles:
+			wavFile = os.path.abspath(wavFile)
+			if wavFile[-3:].lower() == "wav":
+				dirIndex = wavFile.rfind('/')
+				fileName = wavFile[dirIndex+1:]
+				fileName = "".join(fileName.split("."))
+				cmd = 'echo {} {} | {} scp:- ark:-'.format(fileName,wavFile,kaldiTool)
+			elif wavFile[-3:].lower() == 'scp':
+				cmd = '{} scp:{} ark:-'.format(kaldiTool,wavFile)
+			elif useSuffix == "wav":
+				dirIndex = wavFile.rfind('/')
+				fileName = wavFile[dirIndex+1:]
+				fileName = "".join(fileName.split("."))
+				cmd = 'echo {} {} | {} scp:- ark:-'.format(fileName,wavFile,kaldiTool)
+			elif useSuffix == "scp":
+				cmd = '{} scp:{} ark:-'.format(kaldiTool,wavFile)    
+			else:
+				raise UnsupportedDataType('Unknown file suffix. You can declare it by making <useSuffix> "wav" or "scp".')
 
-        p = subprocess.Popen(cmd,shell=True,stderr=subprocess.PIPE)
-        (out,err) = p.communicate()
-        if not os.path.isfile(outFile):
-            err = err.decode()
-            print(err)
-            raise KaldiProcessError('Compute plp defeated.')
-        else:
-            return outFile
-    else:
-
-        if wavFile.endswith('wav') or "wav" in useSuffix:
-            cmd = 'echo {} {} | {} scp:- ark:-'.format(useUtt,wavFile,kaldiTool)
-        elif wavFile.endswith('scp') or "scp" in useSuffix:
-            cmd = '{} scp:{} ark:-'.format(kaldiTool,wavFile)
-        else:
-            raise UnsupportedDataType('Unknown file suffix. You can declare it by using <useSuffix>="wav" or "scp".')
-
-        p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out,err) = p.communicate()   
-
-        if out == b'':
-            err = err.decode()
-            print(err)
-            raise KaldiProcessError('Compute plp defeated.')
-        else:
-            return KaldiArk(out)
-
-def compute_spectrogram(wavFile,rate=16000,frameWidth=25,frameShift=10,windowType='povey',useUtt='MAIN',useSuffix=None,config=None,outFile=None):
-    '''
-    Useage:  obj = compute_spetrogram("test.wav") or compute_mfcc("test.lst",useSuffix='scp')
-
-    Compute spectrogram feature. Return KaldiArk object or file path if <outFile> is not None.
-    We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
-    You can use pythonkaldi.check_config('compute_spetrogram') function to get configure information you could set.
-    Also run shell command "compute-spetrogram-feats" to look their meaning.
-
-    ''' 
-
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
-
-    kaldiTool = 'compute-spectrogram-feats'
-
-    if config != None:
-        
-        if check_config(name='compute_spetrogram',config=config):
-            for key in config.keys():
-                kaldiTool = ' {}={}'.format(key,config[key])
-
-    else:
-        kaldiTool += ' --allow-downsample=true'
-        kaldiTool += ' --allow-upsample=true'
-        kaldiTool += ' --sample-frequency={}'.format(rate)
-        kaldiTool += ' --frame-length={}'.format(frameWidth)
-        kaldiTool += ' --frame-shift={}'.format(frameShift)
-        kaldiTool += ' --window-type={}'.format(windowType)
-
-    if useSuffix == None:
-        useSuffix = ''
-    elif isinstance(useSuffix,str):
-        pass
-    else:
-        raise WrongOperation('Wrong suffix type.')
-
-    if outFile != None:
-
-        if not outFile.endswith('.ark'):
-            outFile += '.ark'
-        
-        if wavFile.endswith('wav') or "wav" in useSuffix:
-            cmd = 'echo {} {} | {} scp:- ark:{}'.format(useUtt,wavFile,kaldiTool,outFile)
-        elif wavFile.endswith('scp') or "scp" in useSuffix:
-            cmd = '{} scp:{} ark:{}'.format(kaldiTool,wavFile,outFile)
-        else:
-            raise UnsupportedDataType('Unknown file suffix. You can declare it by using <useSuffix>="wav" or "scp".')
-
-        p = subprocess.Popen(cmd,shell=True,stderr=subprocess.PIPE)
-        (out,err) = p.communicate()
-        if not os.path.isfile(outFile):
-            err = err.decode()
-            print(err)
-            raise KaldiProcessError('Compute spectrogram defeated.')
-        else:
-            return outFile
-    else:
-
-        if wavFile.endswith('wav') or "wav" in useSuffix:
-            cmd = 'echo {} {} | {} scp:- ark:-'.format(useUtt,wavFile,kaldiTool)
-        elif wavFile.endswith('scp') or "scp" in useSuffix:
-            cmd = '{} scp:{} ark:-'.format(kaldiTool,wavFile)
-        else:
-            raise UnsupportedDataType('Unknown file suffix. You can declare it by using <useSuffix>="wav" or "scp".')
-
-        p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out,err) = p.communicate()   
-
-        if out == b'':
-            err = err.decode()
-            print(err)
-            raise KaldiProcessError('Compute spectrogram defeated.')
-        else:
-            return KaldiArk(out)
+			p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()   
+			if out == b'':
+				err = err.decode()
+				print(err)
+				raise KaldiProcessError('Compute spetrogram defeated.')
+			else:
+				results.append(KaldiArk(out))
+	
+	if len(results) == 1:
+		results = results[0]
+	return results
 
 def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,outFile=None):
-    '''
-    Useage:  obj = use_cmvn(feat) or obj = use_cmvn(feat,cmvnStatFile,utt2spkFile) or obj = use_cmvn(feat,utt2spkFile,spk2uttFile)
+	'''
+	Usage:  obj = use_cmvn(feat) or obj = use_cmvn(feat,cmvnStatFile,utt2spkFile) or obj = use_cmvn(feat,utt2spkFile,spk2uttFile)
 
-    Apply CMVN to feature. Return KaldiArk object or file path if <outFile> is true. 
-    If < cmvnStatFile >  are None, first compute the CMVN state. But <utt2spkFile> and <spk2uttFile> are expected given at the same time if they were not None.
+	Apply CMVN to feature. Return a KaldiArk object or file path if <outFile> is not None. 
+	If <cmvnStatFile> is None, it will firstly compute the CMVN state. But <utt2spkFile> and <spk2uttFile> are expected given at the same time if they are not None.
+	''' 
 
-    ''' 
+	global KALDIROOT,kaidiNotFoundError,ENV
+	if KALDIROOT is None:
+		raise kaidiNotFoundError
 
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
+	if isinstance(feat,KaldiArk):
+		pass
+	elif isinstance(feat,KaldiDict):
+		feat = feat.ark
+	else:
+		raise UnsupportedDataType("Expected KaldiArk KaldiDict but got {}.".format(type(feat)))
 
-    if isinstance(feat,KaldiArk):
-        pass
-    elif isinstance(feat,KaldiDict):
-        feat = feat.ark
-    else:
-        raise UnsupportedDataType("Expected KaldiArk KaldiDict but got {}.".format(type(feat)))
+	fw = tempfile.NamedTemporaryFile('w+b',suffix='ark')
 
-    fw = tempfile.NamedTemporaryFile('w+b',suffix='ark')
+	try:
+		if cmvnStatFile == None:
+			if spk2uttFile != None:
+				if utt2spkFile == None:
+					raise WrongOperation('Miss utt2spk file.')
+				else:
+					cmd1 = 'compute-cmvn-stats --spk2utt=ark:{} ark:- ark:-'.format(spk2uttFile)
+			else:
+				cmd1 = 'compute-cmvn-stats ark:- ark:-'
+			p1 = subprocess.Popen(cmd1,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out1,err1) = p1.communicate(input=feat)
+			if out1 == b'':
+				err1 = err1.decode()
+				print(err1)
+				raise KaldiProcessError("Compute cmvn stats defeated")
+			else:
+				fw.write(out1)
+				cmvnStatFile = fw.name
 
-    try:
-        if cmvnStatFile == None:
-            if spk2uttFile != None:
-                if utt2spkFile == None:
-                    raise WrongOperation('Miss utt2spk file.')
-                else:
-                    cmd1 = 'compute-cmvn-stats --spk2utt=ark:{} ark:- ark:-'.format(spk2uttFile)
-            else:
-                cmd1 = 'compute-cmvn-stats ark:- ark:-'
-            p1 = subprocess.Popen(cmd1,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            (out1,err1) = p1.communicate(input=feat)
-            if out1 == b'':
-                err1 = err1.decode()
-                print(err1)
-                raise KaldiProcessError("Compute cmvn stats defeated")
-            else:
-                fw.write(out1)
-                cmvnStatFile = fw.name
+		if cmvnStatFile.endswith('ark'):
+			cmvnStatFileOption = 'ark:'+cmvnStatFile
+		else:
+			cmvnStatFileOption = 'scp:'+cmvnStatFile
 
-        if cmvnStatFile.endswith('ark'):
-            cmvnStatFileOption = 'ark:'+cmvnStatFile
-        else:
-            cmvnStatFileOption = 'scp:'+cmvnStatFile
+		if outFile != None:
+			if not outFile.endswith('.ark'):
+				outFile += '.ark'
+			if utt2spkFile != None:
+				cmd2 = 'apply-cmvn --utt2spk=ark:{} {} ark:- ark:{}'.format(utt2spkFile,cmvnStatFileOption,outFile)
+			else:
+				cmd2 = 'apply-cmvn {} ark:- ark:{}'.format(cmvnStatFileOption,outFile)
 
-        if outFile != None:
+			p2 = subprocess.Popen(cmd2,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out2,err2) = p2.communicate(input=feat)
 
-            if not outFile.endswith('.ark'):
-                outFile += '.ark'
+			if not os.path.isfile(outFile) or os.path.getsize(outFile) == 0:
+				err2 = err2.decode()
+				print(err2)
+				if os.path.isfile(outFile):
+					os.remove(outFile)
+				raise KaldiProcessError('Use cmvn defeated.')
+			else:
+				return outFile
+		else:
+			if utt2spkFile != None:
+				cmd3 = 'apply-cmvn --utt2spk=ark:{} {} ark:- ark:-'.format(utt2spkFile,cmvnStatFileOption)
+			else:
+				cmd3 = 'apply-cmvn {} ark:- ark:-'.format(cmvnStatFileOption)
 
-            if utt2spkFile != None:
-                cmd2 = 'apply-cmvn --utt2spk=ark:{} {} ark:- ark:{}'.format(utt2spkFile,cmvnStatFileOption,outFile)
-            else:
-                cmd2 = 'apply-cmvn {} ark:- ark:{}'.format(cmvnStatFileOption,outFile)
+			p3 = subprocess.Popen(cmd3,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out3,err3) = p3.communicate(input=feat)
 
-            p2 = subprocess.Popen(cmd2,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE)
-            (out2,err2) = p2.communicate(input=feat)
-
-            if not os.path.isfile(outFile):
-                err2 = err2.decode()
-                print(err2)
-                raise KaldiProcessError('Use cmvn defeated.')
-            else:
-                return outFile
-        else:
-            if utt2spkFile != None:
-                cmd3 = 'apply-cmvn --utt2spk=ark:{} {} ark:- ark:-'.format(utt2spkFile,cmvnStatFileOption)
-            else:
-                cmd3 = 'apply-cmvn {} ark:- ark:-'.format(cmvnStatFileOption)
-
-            p3 = subprocess.Popen(cmd3,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            (out3,err3) = p3.communicate(input=feat)
-
-            if out3 == b'':
-                err3 = err3.decode()
-                print(err3)
-                raise KaldiProcessError('Use cmvn defeated.')
-            else:
-                return KaldiArk(out3)  
-    finally:
-        fw.close()
+			if out3 == b'':
+				err3 = err3.decode()
+				print(err3)
+				raise KaldiProcessError('Use cmvn defeated.')
+			else:
+				return KaldiArk(out3)  
+	finally:
+		fw.close()
 
 def compute_cmvn_stats(feat,outFile,spk2uttFile=None):
-    '''
-    Useage:  obj = compute_cmvn_stats(feat,'train_cmvn.ark') or obj = compute_cmvn_stats(feat,'train_cmvn.ark','train/spk2utt')
+	'''
+	Usage:  obj = compute_cmvn_stats(feat,'train_cmvn.ark') or obj = compute_cmvn_stats(feat,'train_cmvn.ark','train/spk2utt')
 
-    Compute CMVN state and save it as file. Return cmvn file path. 
+	Compute CMVN state and save it as file. Return CMVN file path. 
+	''' 
+	global KALDIROOT,kaidiNotFoundError,ENV
+	if KALDIROOT is None:
+		raise kaidiNotFoundError
 
-    ''' 
+	if isinstance(feat,KaldiArk):
+		pass
+	elif isinstance(feat,KaldiDict):
+		feat = feat.ark
+	else:
+		raise UnsupportedDataType("Expected <feat> is a KaldiArk or KaldiDict object but got {}.".format(type(feat)))
+	
+	if spk2uttFile != None:
+		cmd = 'compute-cmvn-stats --spk2utt=ark:{} ark:-'.format(spk2uttFile)
+	else:
+		cmd = 'compute-cmvn-stats ark:-'
 
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
+	if outFile.endswith('.scp'):
+		cmd += ' ark,scp:{},{}'.format(outFile[0:-4]+'.ark',outFile)
+	else:
+		if not outFile.endswith('.ark'):
+			outFile = outFile + '.ark'
+		cmd += ' ark:{}'.format(outFile)
 
-    if isinstance(feat,KaldiArk):
-        pass
-    elif isinstance(feat,KaldiDict):
-        feat = feat.ark
-    else:
-        raise UnsupportedDataType("Expected KaldiArk KaldiDict but got {}.".format(type(feat)))
-    
-    if spk2uttFile != None:
-        cmd = 'compute-cmvn-stats --spk2utt=ark:{} ark:-'.format(spk2uttFile)
-    else:
-        cmd = 'compute-cmvn-stats ark:-'
+	p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+	(_,err) = p.communicate(input=feat)
 
-    if outFile.endswith('.scp'):
-        cmd += ' ark,scp:{},{}'.format(outFile[0:-4]+'.ark',outFile)
-    else:
-        if not outFile.endswith('.ark'):
-            outFile = outFile + '.ark'
-        cmd += ' ark:{}'.format(outFile)
-
-    p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE)
-    (_,err) = p.communicate(input=feat)
-
-    if not os.path.isfile(outFile):
-        err = err.decode()
-        print(err)
-        raise KaldiProcessError('Compute cmvn stats defeated.')
-    else:
-        return outFile    
+	if not os.path.isfile(outFile):
+		err = err.decode()
+		print(err)
+		raise KaldiProcessError('Compute CMVN stats defeated.')
+	else:
+		return outFile    
 
 def use_cmvn_sliding(feat,windowsSize=None,std=False):
-    '''
-    Useage:  obj = use_cmvn_sliding(feat) or obj = use_cmvn_sliding(feat,windows=200)
+	'''
+	Usage:  obj = use_cmvn_sliding(feat) or obj = use_cmvn_sliding(feat,windows=200)
 
-    Apply sliding CMVN to feature. Return KaldiArk object. If <windowsSize> is None, the window width will be set larger than frames of <feat>.
-    If < std > is False, only apply mean, or apply both mean and std.
+	Apply sliding CMVN to feature. Return KaldiArk object. If <windowsSize> is None, the window width will be set larger than frames of <feat>.
+	If <std> is "False", only apply "mean", or apply both "mean" and "std".
+	''' 
+	global KALDIROOT,kaidiNotFoundError,ENV
+	if KALDIROOT is None:
+		raise kaidiNotFoundError
+	if isinstance(feat,KaldiArk):
+		pass
+	elif isinstance(feat,KaldiDict):
+		feat = feat.ark
+	else:
+		raise UnsupportedDataType("Expected <feat> is a KaldiArk or KaldiDict object but got {}.".format(type(feat)))
+	if windowsSize==None:
+		featLen = feat.lens[1]
+		maxLen = max([length for utt,length in featLen])
+		windowsSize = math.ceil(maxLen/100)*100
+	else:
+		assert isinstance(windowsSize,int), "Expected <windowsSize> is an int value."
 
-    ''' 
+	if std==True:
+		std='true'
+	else:
+		std='false'
 
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
-
-    if isinstance(feat,KaldiArk):
-        pass
-    elif isinstance(feat,KaldiDict):
-        feat = feat.ark
-    else:
-        raise UnsupportedDataType("Expected KaldiArk KaldiDict but got {}.".format(type(feat)))
-            
-    if windowsSize==None:
-        featLen = feat.lens[1][0]
-        windowsSize = math.ceil(featLen/100)*100
-    else:
-        assert isinstance(windowsSize,int), "Expected windows size is int."
-
-    if std==True:
-        std='true'
-    else:
-        std='false'
-
-    cmd = 'apply-cmvn-sliding --cmn-window={} --min-cmn-window=100 --norm-vars={} ark:- ark:-'.format(windowsSize,std)
-    p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    (out,err) = p.communicate(input=feat)
-    if out == b'':
-        err = err.decode()
-        print(err)
-        raise KaldiProcessError('Use sliding cmvn defeated.')
-    else:
-        return KaldiArk(out)  
+	cmd = 'apply-cmvn-sliding --cmn-window={} --min-cmn-window=100 --norm-vars={} ark:- ark:-'.format(windowsSize,std)
+	p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+	(out,err) = p.communicate(input=feat)
+	if out == b'':
+		err = err.decode()
+		print(err)
+		raise KaldiProcessError('Use sliding cmvn defeated.')
+	else:
+		return KaldiArk(out)
 
 def add_delta(feat,order=2,outFile=None):
-    '''
-    Useage:  newObj = add_delta(feat)
+	'''
+	Usage:  newObj = add_delta(feat)
 
-    Add n-orders delta to feature. Return KaldiArk object or file path if <outFile> is True.
-
-    ''' 
-
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
-
-    if isinstance(feat,KaldiArk):
-        pass
-    elif isinstance(feat,KaldiDict):
-        feat = feat.ark
-    else:
-        raise UnsupportedDataType("Expected KaldiArk KaldiDict but got {}.".format(type(feat)))
-
-    if outFile != None:
-
-        if not outFile.endswith('.ark'):
-            outFile += '.ark'
-            
-        cmd1 = 'add-deltas --delta-order={} ark:- ark:{}'.format(order,outFile)
-
-        p1 = subprocess.Popen(cmd1,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out,err) = p1.communicate(input=feat)
-
-        if not os.path.isfile(outFile):
-            err = err.decode()
-            print(err)
-            raise KaldiProcessError('Add delta defeated.')
-        else:
-            return outFile 
-    else:
-        cmd2 = 'add-deltas --delta-order={} ark:- ark:-'.format(order)
-        p2 = subprocess.Popen(cmd2,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out,err) = p2.communicate(input=feat)
-        if out == b'':
-            err = err.decode()
-            print(err)
-            raise KaldiProcessError('Add delta defeated.')
-        else:
-            return KaldiArk(out)      
+	Add N orders delta to data. If <outFile> is not "None", return file path. Or return a KaldiArk object.
+	''' 
+	global KALDIROOT,kaidiNotFoundError,ENV
+	if KALDIROOT is None:
+		raise kaidiNotFoundError
+	if isinstance(feat,KaldiArk):
+		pass
+	elif isinstance(feat,KaldiDict):
+		feat = feat.ark
+	else:
+		raise UnsupportedDataType("Expected <feat> is a KaldiArk or KaldiDict object but got {}.".format(type(feat)))
+	
+	if outFile != None:
+		assert isinstance(outFile,str), "Expected <outFile> is a name-like string."
+		outFile = os.path.abspath(outFile)
+		if not outFile.endswith('.ark'):
+			outFile += '.ark'
+		cmd1 = 'add-deltas --delta-order={} ark:- ark:{}'.format(order,outFile)
+		p1 = subprocess.Popen(cmd1,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+		(out,err) = p1.communicate(input=feat)
+		if not os.path.isfile(outFile) or os.path.getsize(outFile) == 0:
+			err = err.decode()
+			print(err)
+			if os.path.isfile(outFile):
+				os.remove(outFile)
+			raise KaldiProcessError('Add delta defeated.')
+		else:
+			return outFile
+	else:
+		cmd2 = 'add-deltas --delta-order={} ark:- ark:-'.format(order)
+		p2 = subprocess.Popen(cmd2,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE, env=ENV)
+		(out,err) = p2.communicate(input=feat)
+		if out == b'':
+			err = err.decode()
+			print(err)
+			raise KaldiProcessError('Add delta defeated.')
+		else:
+			return KaldiArk(out)      
 
 def get_ali(aliFile,hmm=None,returnPhone=False):
-    '''
-    Useage:  obj = get_ali('ali.1.gz','graph/final.mdl') or obj = get_ali('ali.1.gz',returnPhone=True)
-
-    Get alignment from ali file. Return a KaldiDict object. If <returnPhone> is True, return phone id, or return pdf id.
-    If <hmm> is None, find the final.mdl automaticlly at the same path with <aliFile>
-    ''' 
-
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
-
-    if isinstance(aliFile,str):
-        if aliFile.endswith('.gz'):
-            pass
-        elif os.path.isdir(aliFile):
-            if aliFile.endswith('/'):
-                aliFile = aliFile[:-1]
-            aliFile += '/*.gz'
-        else:
-            raise PathError('{}: No such file or directory.'.format(aliFile))
-    else:
-        raise UnsupportedDataType("Expected gzip file or folder but got {}.".format(type(aliFile)))
-
-    if hmm == None:
-        i = aliFile.rfind('/')
-        if i > 0:
-            hmm = aliFile[0:i] +'/final.mdl'
-        else:
-            hmm = './final.mdl'
-        if not os.path.isfile(hmm):
-            raise PathError("HMM file was not found. Please assign it by <hmm>")        
-    elif isinstance(hmm,str):
-        if not os.path.isfile(hmm):
-            raise PathError("No such file:{}".format(hmm))
-    else:
-        raise UnsupportedDataType("Expected <hmm> is a path-like string but got {}.".format(type(hmm)))
-
-    if returnPhone:
-        cmd = 'gunzip -c {} | ali-to-phones --per-frame=true {} ark:- ark,t:-'.format(aliFile,hmm)
-    else:
-        cmd = 'gunzip -c {} | ali-to-pdf {} ark:- ark,t:-'.format(aliFile,hmm)
-
-    p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    (out,err) = p.communicate()
-
-    if out == b'':
-        err = err.decode()
-        print(err)
-        raise KaldiProcessError('Get ali data defeated.')
-    else:
-        ali_dict = {}
-        sp = BytesIO(out)
-        for line in sp.readlines():
-            line = line.decode()
-            line = line.strip().split()
-            utt = line[0]
-            matrix = np.array(line[1:],dtype=np.int32)[:,None]
-            ali_dict[utt] = matrix
-        return KaldiDict(ali_dict)
-
-def analyze_counts(aliFile,outFile,countPhone=False,hmm=None,dim=None):
-    '''
-    Useage:  obj = analyze_counts(aliFile,outFile)
-
-    Compute label counts in order to normalize acoustic model posterior probability.
-    We defaultly compute pdf counts but if <countPhone> is True, compute phone counts.   
-    For more help information, look kaldi <analyze-counts> command.
-
-    ''' 
-
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
-
-    if hmm == None:
-        i = aliFile.rfind('/')
-        if i > 0:
-            hmm = aliFile[0:i] +'/final.mdl'
-        else:
-            hmm = './final.mdl'
-        if not os.path.isfile(hmm):
-            raise WrongOperation('Did not find hmm model file. Please assign it.')
-    elif not os.path.isfile(hmm):
-        raise PathError('No such file:{}.'.format(hmm))
-    
-    if dim == None:
-        if countPhone:
-            cmd = 'hmm-info {} | grep -i "phones"'.format(hmm)
-        else:
-            cmd = 'hmm-info {} | grep -i "pdfs"'.format(hmm)
-        p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out,err) = p.communicate()
-        out = out.decode().strip()
-        if out == '':
-            print(err.decode())
-            raise KaldiProcessError('Acquire hmm model information defailed.')
-        else:
-            dim = out.split()[-1]
-
-    options = '--print-args=False --verbose=0 --binary=false --counts-dim={} '.format(dim)
-    if countPhone:
-        getAliOption = 'ali-to-phones --per-frame=true'
-    else:
-        getAliOption = 'ali-to-pdf'
-    cmd = "analyze-counts {}\"ark:{} {} \\\"ark:gunzip -c {} |\\\" ark:- |\" {}".format(options,getAliOption,hmm,aliFile,outFile)
-    p = subprocess.Popen(cmd,shell=True,stderr=subprocess.PIPE)
-    (out,err) = p.communicate()     
-    if not os.path.isfile(outFile):
-        print(err.decode())
-        raise KaldiProcessError('Analyze counts defailed.')
-    else:
-        return outFile
-
-def decompress(data):
-    '''
-    Useage:  obj = decompress(feat)
-
-    Feat are expected KaldiArk object whose data type is "CM", that is kaldi compressed ark data. Return a KaldiArk object.
-    This function is a cover of kaldi-io-for-python tools. For more information about it, please access to https://github.com/vesis84/kaldi-io-for-python/blob/master/kaldi_io/kaldi_io.py 
-
-    '''     
-    def _read_compressed_mat(fd):
-
-        # Format of header 'struct',
-        global_header = np.dtype([('minvalue','float32'),('range','float32'),('num_rows','int32'),('num_cols','int32')]) # member '.format' is not written,
-        per_col_header = np.dtype([('percentile_0','uint16'),('percentile_25','uint16'),('percentile_75','uint16'),('percentile_100','uint16')])
-
-        # Read global header,
-        globmin, globrange, rows, cols = np.frombuffer(fd.read(16), dtype=global_header, count=1)[0]
-        cols = int(cols)
-        rows = int(rows)
-
-        # The data is structed as [Colheader, ... , Colheader, Data, Data , .... ]
-        #                         {           cols           }{     size         }
-        col_headers = np.frombuffer(fd.read(cols*8), dtype=per_col_header, count=cols)
-        col_headers = np.array([np.array([x for x in y]) * globrange * 1.52590218966964e-05 + globmin for y in col_headers], dtype=np.float32)
-        data = np.reshape(np.frombuffer(fd.read(cols*rows), dtype='uint8', count=cols*rows), newshape=(cols,rows)) # stored as col-major,
-
-        mat = np.zeros((cols,rows), dtype='float32')
-        p0 = col_headers[:, 0].reshape(-1, 1)
-        p25 = col_headers[:, 1].reshape(-1, 1)
-        p75 = col_headers[:, 2].reshape(-1, 1)
-        p100 = col_headers[:, 3].reshape(-1, 1)
-        mask_0_64 = (data <= 64)
-        mask_193_255 = (data > 192)
-        mask_65_192 = (~(mask_0_64 | mask_193_255))
-
-        mat += (p0  + (p25 - p0) / 64. * data) * mask_0_64.astype(np.float32)
-        mat += (p25 + (p75 - p25) / 128. * (data - 64)) * mask_65_192.astype(np.float32)
-        mat += (p75 + (p100 - p75) / 63. * (data - 192)) * mask_193_255.astype(np.float32)
-
-        return mat.T,rows,cols        
-    
-    sp = BytesIO(data)
-    newData = []
-
-    while True:
-        data = b''
-        utt = ''
-        while True:
-            char = sp.read(1)
-            data += char
-            char = char.decode()
-            if (char == '') or (char == ' '):break
-            utt += char
-        utt = utt.strip()
-        if utt == '':break
-        binarySymbol = sp.read(2)
-        data += binarySymbol
-        binarySymbol = binarySymbol.decode()
-        if binarySymbol == '\0B':
-            dataType = sp.read(3).decode()
-            if dataType == 'CM ':
-                data += 'FM '.encode()
-                matrix,rows,cols = _read_compressed_mat(sp)
-                data += '\04'.encode()
-                data += struct.pack(np.dtype('uint32').char, rows)
-                data += '\04'.encode()
-                data += struct.pack(np.dtype('uint32').char, cols)
-                data += matrix.tobytes()
-                newData.append(data)
-            else:
-                raise UnsupportedDataType("This is not a compressed ark data.")
-        else:
-            sp.close()
-            raise WrongDataFormat('Miss right binary symbol.')    
-    sp.close()
-    return KaldiArk(b''.join(newData))
+	raise WrongOperation(" .get_ali() function has been removed in current version. Please use .load_ali().")
 
 def load(fileName,useSuffix=None):
-    # Bug '*.ark'
-    '''
-    Useage:  obj = load('feat.npy') or obj = load('feat.ark') or obj = load('feat.scp') or obj = load('feat.lst', useSuffix='scp')
+	'''
+	Usage:  obj = load('feat.npy') or obj = load('feat.ark') or obj = load('feat.scp') or obj = load('feat.lst', useSuffix='scp')
 
-    Load kaldi ark feat file, kaldi scp feat file, KaldiArk file, or KaldiDict file. Return KaldiArk or KaldiDict object.
+	Load Kaldi ark feat file, kaldi scp feat file, KaldiArk file, or KaldiDict file. Return a KaldiArk or KaldiDict object.
+	'''
+	if useSuffix != None:
+		assert isinstance(useSuffix,str), "Expected <useSuffix> is a string."
+		useSuffix = useSuffix.strip().lower()[-3:]
+	else:
+		useSuffix = ""
+	assert useSuffix in ["","scp","ark","npy"], 'Expected <useSuffix> is "ark", "scp" or "npy" but got "{}".'.format(useSuffix)
 
-    '''
+	if isinstance(fileName,str):
+		if os.path.isdir(fileName):
+			raise WrongOperation('Expected file name but got a directory:{}.'.format(fileName))
+		else:
+			p = subprocess.Popen('ls {}'.format(fileName),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()
+			if out == b'':
+				raise PathError("No such file:{}".format(fileName))
+			else:
+				allFiles = out.decode().strip().split('\n')
+	else:
+		raise UnsupportedDataType('Expected <fileName> is file name-like string but got a {}.'.format(type(fileName)))
 
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
+	allData_ark = KaldiArk()
+	allData_dict = KaldiDict()
 
-    if isinstance(fileName,str):
-        if os.path.isdir(fileName):
-            raise WrongOperation('Expected file name but got a directory name:{}.'.format(fileName))
-        else:
-            p = subprocess.Popen('ls {}'.format(fileName),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            (out,err) = p.communicate()
-            if out == b'':
-                raise PathError("No such file:{}".format(fileName))
-            else:
-                out = out.decode().strip().split('\n')
-        
-    else:
-        raise UnsupportedDataType('Expected feature file.')
+	def loadNpyFile(fileName,allData):
+		try:
+			temp = np.load(fileName,allow_pickle=True)
+			data = KaldiDict()
+			#totalSize = 0
+			for utt_mat in temp:
+				data[utt_mat[0]] = utt_mat[1]
+				#totalSize += sys.getsizeof(utt_mat[1])
+			#if totalSize > 10000000000:
+			#    print('Warning: Data is extramely large. It could not be used correctly sometimes.')                
+		except:
+			raise UnsupportedDataType('Expected "npy" data with KaldiDict format but got {}.'.format(fileName))
+		else:
+			allData += data
+		return allData
+	
+	def loadArkScpFile(fileName,allData,suffix):
 
-    if ( useSuffix != None and 'npy' in useSuffix ) or out[0].endswith('.npy'):
-        allData = KaldiDict()
-        for fileName in out:
-            try:
-                temp = np.load(fileName)
-                data = KaldiDict()
-                totalSize = 0
-                for utt_mat in temp:
-                    data[utt_mat[0]] = utt_mat[1]
-                    totalSize += sys.getsizeof(utt_mat[1])
-                if totalSize > 10000000000:
-                    print('Warning: Data is extramely large. It could not be used correctly sometimes.')                
-            except:
-                raise UnsupportedDataType("It is wrong KaldiDict npy data.")
-            else:
-                allData += data
-        return allData
-    else:
-        if ( useSuffix != None and 'ark' in useSuffix ) or out[0].endswith('.ark'):
-            cmd = 'copy-feats ark:'
-        elif ( useSuffix != None and 'scp' in useSuffix ) or out[0].endswith('.scp'):
-            cmd = 'copy-feats scp:'
-        else:
-            raise UnsupportedDataType('Unknown suffix. You can assign useSuffix=<scp> <ark> or <npy>.')
+		global KALDIROOT,kaidiNotFoundError,ENV
+		if KALDIROOT is None:
+			raise kaidiNotFoundError
 
-        allData = []
-        for fileName in out:
-            cmd1 = cmd + '{} ark:-'.format(fileName)
-            p = subprocess.Popen(cmd1,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            (out,err) = p.communicate()
-            if out == b'':
-                err = err.decode()
-                print(err)
-                raise KaldiProcessError('Copy feat defeated.')
-            else:
-                if sys.getsizeof(out) > 10000000000:
-                    print('Warning: Data is extramely large. It could not be used correctly sometimes.') 
-                allData.append(out)
-    
-        return KaldiArk(b''.join(allData))
+		if suffix == "ark":
+			cmd = 'copy-feats ark:'
+		else:
+			cmd = 'copy-feats scp:'
+
+		cmd1 = cmd + '{} ark:-'.format(fileName)
+		p = subprocess.Popen(cmd1,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+		(out,err) = p.communicate()
+		if out == b'':
+			err = err.decode()
+			print(err)
+			raise KaldiProcessError('Copy feat defeated.')
+		else:
+			#if sys.getsizeof(out) > 10000000000:
+			#    print('Warning: Data is extramely large. It could not be used correctly sometimes.') 
+			allData += KaldiArk(out)
+		return allData
+
+	for fileName in allFiles:
+		if fileName[-3:].lower() == "npy":
+			allData_dict = loadNpyFile(fileName,allData_dict)
+		elif fileName[-3:].lower() in ["ark","scp"]:
+			allData_ark = loadArkScpFile(fileName,allData_ark,fileName[-3:].lower())
+		elif useSuffix == "npy":
+			allData_dict = loadNpyFile(fileName,allData_dict)
+		elif useSuffix in ["ark","scp"]:
+			allData_ark = loadArkScpFile(fileName,allData_ark,useSuffix)
+		else:
+			raise UnsupportedDataType('Unknown file format. You can assign the <useSuffix> with "scp", "ark" or "npy".')
+
+	if useSuffix == None:
+		if allFiles[0][-3:].lower() == "npy":
+			return allData_dict + allData_ark.array
+		else:
+			return allData_ark + allData_dict.ark 
+	elif useSuffix == "npy":
+		return  allData_dict + allData_ark.array
+	else:
+		return allData_ark + allData_dict.ark
+
+def load_ali(aliFile,hmm=None,returnPhone=False):
+	'''
+	Usage:  obj = load_ali("ali.1.gz","graph/final.mdl")
+
+	Load force-alignment data from alignment file. Return a KaldiDict object. If <returnPhone> is True, return phone IDs, or return pdf IDs.
+	If <hmm> is None, find the final.mdl automaticlly at the same path with <aliFile>.
+	''' 
+	global KALDIROOT,kaidiNotFoundError,ENV
+	if KALDIROOT is None:
+		raise kaidiNotFoundError
+
+	if isinstance(aliFile,str):
+		p = subprocess.Popen('ls {}'.format(aliFile),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+		(out,err) = p.communicate()
+		if out == b'':
+			raise PathError("No such file or dir:{}".format(aliFile))
+		else:
+			allFiles = out.decode().strip().split('\n')
+	else:
+		raise UnsupportedDataType('Expected filename-like string but got a {}.'.format(type(aliFile)))
+
+	if hmm == None:
+		i = aliFile.rfind('/')
+		if i > 0:
+			hmm = aliFile[0:i] +'/final.mdl'
+		else:
+			hmm = './final.mdl'
+		if not os.path.isfile(hmm):
+			raise PathError("HMM file was not found. Please assign <hmm>.")      
+	elif isinstance(hmm,str):
+		if not os.path.isfile(hmm):
+			raise PathError("No such file:{}".format(hmm))
+	else:
+		raise UnsupportedDataType("Expected <hmm> is a path-like string but got {}.".format(type(hmm)))
+	hmm = os.path.abspath(hmm)
+
+	results = KaldiDict()
+
+	for aliFile in allFiles:
+		if not aliFile.endswith('.gz'):
+			continue
+		else:
+			aliFile = os.path.abspath(aliFile)
+		
+		if returnPhone:
+			cmd = 'gunzip -c {} | ali-to-phones --per-frame=true {} ark:- ark,t:-'.format(aliFile,hmm)
+		else:
+			cmd = 'gunzip -c {} | ali-to-pdf {} ark:- ark,t:-'.format(aliFile,hmm)
+
+		p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+		(out,err) = p.communicate()
+
+		if out == b'':
+			err = err.decode()
+			print(err)
+			raise KaldiProcessError('Load alignment data defeated.')
+		else:
+			sp = BytesIO(out)
+			for line in sp.readlines():
+				line = line.decode()
+				line = line.strip().split()
+				utt = line[0]
+				matrix = np.array(line[1:],dtype=np.int32)[:,None]
+				results[utt] = matrix
+		
+	if len(results.utts) == 0:
+		raise WrongOperation("Not any .gz file has been loaded.")
+	else:
+		return results
+
+def load_lat(latFile,hmm,wordSymbol):
+	'''
+	Usage:  obj = load_lat("lat.gz","graph/final.mdl","graph/words.txt")
+
+	Load lattice data to memory from file. Return a KaldiLattice object.
+	''' 	
+	new = KaldiLattice()
+	new.load(latFile,hmm,wordSymbol)
+
+	return new
+
+def analyze_counts(aliFile,outFile,countPhone=False,hmm=None,dim=None):
+	'''
+	Usage:  obj = analyze_counts(aliFile,outFile)
+
+	Compute alignment counts in order to normalize acoustic model posterior probability.
+	We defaultly compute pdf IDs counts but if <countPhone> is True, compute phone IDs counts.   
+	For more help information, look at the Kaldi <analyze-counts> command.
+	''' 
+
+	global KALDIROOT,kaidiNotFoundError,ENV
+	if KALDIROOT is None:
+		raise kaidiNotFoundError
+
+	if isinstance(aliFile,str):
+		if os.path.isdir(aliFile):
+			raise WrongOperation('Expected file path but got a directory:{}.'.format(aliFile))
+		else:
+			p = subprocess.Popen('ls {}'.format(aliFile),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+			(out,err) = p.communicate()
+			if out == b'':
+				raise PathError("No such file:{}".format(aliFile))
+	else:
+		raise UnsupportedDataType('Expected filename-like string but got a {}.'.format(type(aliFile)))    
+	
+	if hmm == None:
+		i = aliFile.rfind('/')
+		if i > 0:
+			hmm = aliFile[0:i] +'/final.mdl'
+		else:
+			hmm = './final.mdl'
+		if not os.path.isfile(hmm):
+			raise WrongOperation('Did not find HMM file. Please assign <hmm>.')
+	elif not os.path.isfile(hmm):
+		raise PathError('No such file:{}.'.format(hmm))
+	
+	if dim == None:
+		if countPhone:
+			cmd = 'hmm-info {} | grep -i "phones"'.format(hmm)
+		else:
+			cmd = 'hmm-info {} | grep -i "pdfs"'.format(hmm)
+		p = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+		(out,err) = p.communicate()
+		out = out.decode().strip()
+		if out == '':
+			print(err.decode())
+			raise KaldiProcessError('Acquire HMM information defailed.')
+		else:
+			dim = out.split()[-1]
+
+	options = '--print-args=False --verbose=0 --binary=false --counts-dim={} '.format(dim)
+	if countPhone:
+		getAliOption = 'ali-to-phones --per-frame=true'
+	else:
+		getAliOption = 'ali-to-pdf'
+	cmd = "analyze-counts {}\"ark:{} {} \\\"ark:gunzip -c {} |\\\" ark:- |\" {}".format(options,getAliOption,hmm,aliFile,outFile)
+	p = subprocess.Popen(cmd,shell=True,stderr=subprocess.PIPE,env=ENV)
+	(out,err) = p.communicate()     
+	if not os.path.isfile(outFile) or os.path.getsize(outFile) == 0:
+		print(err.decode())
+		if os.path.isfile(outFile):
+			os.remove(outFile)
+		raise KaldiProcessError('Analyze counts defailed.')
+	else:
+		return outFile
+
+def decompress(data):
+	'''
+	Usage:  obj = decompress(feat)
+
+	Expected <data> is a KaldiArk object whose data-type is "CM", kaldi compressed ark data. Return a KaldiArk object.
+	This function is a cover of kaldi-io-for-python tools. For more information about it, please access to https://github.com/vesis84/kaldi-io-for-python/blob/master/kaldi_io/kaldi_io.py 
+	'''     
+	def _read_compressed_mat(fd):
+
+		# Format of header 'struct',
+		global_header = np.dtype([('minvalue','float32'),('range','float32'),('num_rows','int32'),('num_cols','int32')]) # member '.format' is not written,
+		per_col_header = np.dtype([('percentile_0','uint16'),('percentile_25','uint16'),('percentile_75','uint16'),('percentile_100','uint16')])
+
+		# Read global header,
+		globmin, globrange, rows, cols = np.frombuffer(fd.read(16), dtype=global_header, count=1)[0]
+		cols = int(cols)
+		rows = int(rows)
+
+		# The data is structed as [Colheader, ... , Colheader, Data, Data , .... ]
+		#                         {           cols           }{     size         }
+		col_headers = np.frombuffer(fd.read(cols*8), dtype=per_col_header, count=cols)
+		col_headers = np.array([np.array([x for x in y]) * globrange * 1.52590218966964e-05 + globmin for y in col_headers], dtype=np.float32)
+		data = np.reshape(np.frombuffer(fd.read(cols*rows), dtype='uint8', count=cols*rows), newshape=(cols,rows)) # stored as col-major,
+
+		mat = np.zeros((cols,rows), dtype='float32')
+		p0 = col_headers[:, 0].reshape(-1, 1)
+		p25 = col_headers[:, 1].reshape(-1, 1)
+		p75 = col_headers[:, 2].reshape(-1, 1)
+		p100 = col_headers[:, 3].reshape(-1, 1)
+		mask_0_64 = (data <= 64)
+		mask_193_255 = (data > 192)
+		mask_65_192 = (~(mask_0_64 | mask_193_255))
+
+		mat += (p0  + (p25 - p0) / 64. * data) * mask_0_64.astype(np.float32)
+		mat += (p25 + (p75 - p25) / 128. * (data - 64)) * mask_65_192.astype(np.float32)
+		mat += (p75 + (p100 - p75) / 63. * (data - 192)) * mask_193_255.astype(np.float32)
+
+		return mat.T,rows,cols        
+	
+	with BytesIO(data) as sp:
+		newData = []
+
+		while True:
+			data = b''
+			utt = ''
+			while True:
+				char = sp.read(1)
+				data += char
+				char = char.decode()
+				if (char == '') or (char == ' '):break
+				utt += char
+			utt = utt.strip()
+			if utt == '':break
+			binarySymbol = sp.read(2)
+			data += binarySymbol
+			binarySymbol = binarySymbol.decode()
+			if binarySymbol == '\0B':
+				dataType = sp.read(3).decode()
+				if dataType == 'CM ':
+					data += 'FM '.encode()
+					matrix,rows,cols = _read_compressed_mat(sp)
+					data += '\04'.encode()
+					data += struct.pack(np.dtype('uint32').char, rows)
+					data += '\04'.encode()
+					data += struct.pack(np.dtype('uint32').char, cols)
+					data += matrix.tobytes()
+					newData.append(data)
+				else:
+					raise UnsupportedDataType("This is not a compressed ark data.")
+			else:
+				raise WrongDataFormat('Miss right binary symbol.')    
+	return KaldiArk(b''.join(newData))
 
 # ---------- Decode Funtions -----------
 
 def decode_lattice(amp,hmm,hclg,wordSymbol,minActive=200,maxActive=7000,maxMem=50000000,beam=10,latBeam=8,acwt=1,config=None,maxThreads=1,outFile=None):
-    '''
-    Useage:  kaldiLatticeObj = decode_lattice(amp,'graph/final.mdl','graph/hclg')
+	'''
+	Usage: kaldiLatticeObj = decode_lattice(amp,'graph/final.mdl','graph/hclg')
 
-    Decode by generating lattice from acoustic probability. Return KaldiLattice object or file path if <outFile> is True.
-    We provide some usual options, but if you want use more, set < config > = your-configure. Note that if you do this, these usual configures we provided will be ignored.
-    You can use pythonkaldi.check_config('decode-lattice') function to get configure information you could set.
-    Also run shell command "latgen-faster-mapped" to look their meaning.
+	Decode by generating lattice from acoustic probability. Return a KaldiLattice object or file path if <outFile> is not None.
+	Some usual options can be assigned directly. If you want use more, set <config> = your-configure, but if you do this, these usual configures we provided will be ignored.
+	You can use .check_config('decode_lattice') function to get configure information you could set.
+	Also run shell command "latgen-faster-mapped" to look their meaning.
+	''' 
+	global KALDIROOT,kaidiNotFoundError,ENV
+	if KALDIROOT is None:
+		raise kaidiNotFoundError
 
-    ''' 
+	if isinstance(amp,KaldiArk):
+		pass
+	elif isinstance(amp,KaldiDict):
+		amp = amp.ark
+	else:
+		raise UnsupportedDataType("Expected <amp> is a KaldiArk or KaldiDict object.")
+	
+	for i in [hmm,hclg,wordSymbol]:
+		assert isinstance(i,str), "Expected all of <hmm>, <hclg>, <wordSymbol> are path-like string."
+		if not os.path.isfile(i):
+			raise PathError("No such file:{}".format(i))
 
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
+	if maxThreads > 1:
+		kaldiTool = "latgen-faster-mapped-parallel --num-threads={}".format(maxThreads)
+	else:
+		kaldiTool = "latgen-faster-mapped" 
 
-    if isinstance(amp,KaldiArk):
-        pass
-    elif isinstance(amp,KaldiDict):
-        amp = amp.ark
-    else:
-        raise UnsupportedDataType("Expected KaldiArk KaldiDict file")
-    
-    for i in [hmm,hclg,wordSymbol]:
-        if not os.path.isfile(i):
-            raise PathError("No such file:{}".format(i))
+	if config == None:    
+		config = {}
+		config["--allow-partial"] = "true"
+		config["--min-active"] = minActive
+		config["--max-active"] = maxActive
+		config["--max_mem"] = maxMem
+		config["--beam"] = beam
+		config["--lattice-beam"] = latBeam
+		config["--acoustic-scale"] = acwt
+	config["--word-symbol-table"] = wordSymbol
 
-    if maxThreads > 1:
-        kaldiTool = "latgen-faster-mapped-parallel --num-threads={}".format(maxThreads)
-    else:
-        kaldiTool = "latgen-faster-mapped" 
+	if check_config(name='decode_lattice',config=config):
+		for key in config.keys():
+			kaldiTool += ' {}={}'.format(key,config[key])
 
-    if config != None:
-        
-        if check_config(name='decode_lattice',config=config):
-            config['--word-symbol-table'] = wordSymbol
-            for key in config.keys():
-                kaldiTool = ' {}={}'.format(key,config[key])
-
-    else:
-        kaldiTool += ' --allow-partial=true'
-        kaldiTool += ' --min-active={}'.format(minActive)
-        kaldiTool += ' --max-active={}'.format(maxActive)
-        kaldiTool += ' --max_mem={}'.format(maxMem)
-        kaldiTool += ' --beam={}'.format(beam)
-        kaldiTool += ' --lattice-beam={}'.format(latBeam)
-        kaldiTool += ' --acoustic-scale={}'.format(acwt)
-        kaldiTool += ' --word-symbol-table={}'.format(wordSymbol)
-
-    if outFile != None:
-
-        if not outFile.endswith('.gz'):
-            outFile += '.gz'
-
-        cmd1 = '{} {} {} ark:- ark:| gzip -c > {}'.format(kaldiTool,hmm,hclg,outFile)
-        p = subprocess.Popen(cmd1,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out1,err1) = p.communicate(input=amp)
-        if not os.path.isfile(outFile):
-            err1 = err1.decode()
-            print(err1)
-            raise KaldiProcessError('Generate lattice defeat.')
-        else:
-            return outFile
-    else:
-        cmd2 = '{} {} {} ark:- ark:-'.format(kaldiTool,hmm,hclg)
-        p = subprocess.Popen(cmd2,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out2,err2) = p.communicate(input=amp)
-        if out2 == b'':
-            err2 = err2.decode()
-            print(err2)
-            raise KaldiProcessError('Generate lattice defeat.')
-        else:
-            return KaldiLattice(out2,hmm,wordSymbol)
+	if outFile != None:
+		assert isinstance(outFile,str), "Expected <outFile> is name-like string."
+		if not outFile.endswith('.gz'):
+			outFile += '.gz'
+		cmd1 = '{} {} {} ark:- ark:| gzip -c > {}'.format(kaldiTool,hmm,hclg,outFile)
+		p = subprocess.Popen(cmd1,shell=True,stdin=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+		(out1,err1) = p.communicate(input=amp)
+		if not os.path.isfile(outFile) or os.path.getsize(outFile) == 0:
+			err1 = err1.decode()
+			print(err1)
+			if os.path.isfile(outFile):
+				os.remove(outFile)
+			raise KaldiProcessError('Generate lattice defeat.')
+		else:
+			return outFile
+	else:
+		cmd2 = '{} {} {} ark:- ark:-'.format(kaldiTool,hmm,hclg)
+		p = subprocess.Popen(cmd2,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+		(out2,err2) = p.communicate(input=amp)
+		if out2 == b'':
+			err2 = err2.decode()
+			print(err2)
+			raise KaldiProcessError('Generate lattice defeat.')
+		else:
+			return KaldiLattice(out2,hmm,wordSymbol)
 
 # ---------- Other Funtions -----------
 
 def check_config(name,config=None):
-    '''
-    Useage:  configure = check_config(name='compute_mfcc')  or  check_config(name='compute_mfcc',config=your_configure)
-    
-    Get default configure if < config > is None, or check if given < config > has a right format.
+	'''
+	Usage:  configure = check_config(name='compute_mfcc')  or  check_config(name='compute_mfcc',config=your_configure)
+	
+	Get default configure if <config> is None, or check if given <config> has a right format.
+	'''
 
-    '''
+	assert isinstance(name,str), "<name> should be a name-like string."
 
-    assert isinstance(name,str), "<name> should be a name-like string."
+	module = importlib.import_module('exkaldi.function_config')
+	c = module.configure(name)
 
-    module = importlib.import_module('exkaldi.function_config')
-    c = module.configure(name)
+	if c is None:
+		print('Warning: no default configure for name "{}".'.format(name))
+		return None
 
-    if c is None:
-        print("Warning: no default configure for name {}.".format(name))
-        return None
-
-    if config == None:
-        new = {}
-        for key,value in c.items():
-            new[key] = value[0]
-        return new
-    else:
-        if not isinstance(config,dict):
-            raise WrongOperation("<config> has a wrong format. You can use exkaldi.check_config({}) to look expected configure format.".format(name))
-        for k in config.keys():
-            if not k in c.keys():
-                raise WrongOperation('No such key: < {} > in {}.'.format(k,name))
-            else:
-                proto = c[k][1]
-                #if isinstance(config[k],(list,tuple)):
-                #    for vt in config[k]:
-                #        if not isinstance(vt,proto):
-                #            raise WrongDataFormat("configure < {} > is expected {} but got {}.".format(k,proto,type(vt)))
-                if not isinstance(config[k],proto):
-                    raise WrongDataFormat("configure < {} > is expected {} but got {}.".format(k,proto,config[k]))
-            return True
+	if config == None:
+		new = {}
+		for key,value in c.items():
+			new[key] = value[0]
+		return new
+	else:
+		if not isinstance(config,dict):
+			raise WrongOperation('<config> has a wrong format. You can use check_config("{}") to look expected configure format.'.format(name))
+		for k in config.keys():
+			if not k in c.keys():
+				raise WrongOperation('No such key: < {} > in {}.'.format(k,name))
+			else:
+				proto = c[k][1]
+				if isinstance(config[k],bool):
+					raise WrongOperation('configure <{}> is bool value "{}", but we expected str value like "true" or "false".'.format(k,config[k]))
+				elif not isinstance(config[k],proto):
+					raise WrongDataFormat("configure <{}> is expected {} but got {}.".format(k,proto,type(config[k])))
+			return True
 
 def run_shell_cmd(cmd,inputs=None):
-    '''
-    Useage:  out,err = run_shell_cmd('ls -lh')
+	'''
+	Usage:  out,err = run_shell_cmd('ls -lh')
 
-    We provided a basic way to run shell command. Return binary string (out,err). 
+	This is a simple way to run shell command. Return binary string (out,err). 
+	Expected <cmd> is command string.
+	<input> can be string or bytes.
+	'''
 
-    '''
+	if isinstance(cmd,str):
+		shell = True
+	elif isinstance(cmd, list):
+		shell = False
+	else:
+		raise WrongOperation("Expected <cmd> is string or list whose menbers are a command and its options.")
 
-    if inputs != None:
-        if isinstance(inputs,str):
-            inputs = inputs.encode()
-        elif isinstance(inputs,bytes):
-            pass
-        else:
-            raise UnsupportedDataType("Expected <inputs> is str or bytes but got {}.".format(type(inputs)))
+	global ENV
 
-    p = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    (out,err) = p.communicate(input=inputs)
-    return out,err
+	if inputs != None:
+		if isinstance(inputs,str):
+			inputs = inputs.encode()
+		elif isinstance(inputs,bytes):
+			pass
+		else:
+			raise UnsupportedDataType("Expected <inputs> is str or bytes but got {}.".format(type(inputs)))
+
+	p = subprocess.Popen(cmd,shell=shell,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+	(out,err) = p.communicate(input=inputs)
+
+	return out,err
 
 def split_file(filePath,chunks=2):
-    '''
-    Useage:  score = split_file('eval.scp',5)
+	'''
+	Usage:  score = split_file('eval.scp',5)
+	Split a large text file into N smaller files by lines. 
+	The splited files will be put at the same folder as original file and return their paths as a list.
+	'''    
+	assert isinstance(chunks,int) and chunks > 1, "Expected <chunks> is int value and larger than 1."
 
-    Split a large scp file into n smaller files. The splited files will be put at the same folder as original file and return their paths as a list.
-    '''    
-    assert isinstance(chunks,int) and chunks > 1, "Expected <chunks> is int and bigger than 1."
+	if not os.path.isfile(filePath):
+		raise PathError("No such file:{}.".format(filePath))
 
-    if not os.path.isfile(filePath):
-        raise PathError("No such file:{}.".format(filePath))
+	with open(filePath,'r',encoding='utf-8') as fr:
+		data = fr.readlines()
 
-    with open(filePath,'r',encoding='utf-8') as fr:
-        data = fr.readlines()
-    lines = len(data)
-    chunkLines = lines//chunks
+	lines = len(data)
+	chunkLines = lines//chunks
 
-    if chunkLines == 0:
-        chunkLines = 1
-        chunks = lines
-        t = 0
-    else:
-        t = lines - chunkLines * chunks
+	if chunkLines == 0:
+		chunkLines = 1
+		chunks = lines
+		t = 0
+	else:
+		t = lines - chunkLines * chunks
 
-    a = len(str(chunks))
-    files = []
-    suffixIndex = filePath.rfind('.')
-    if suffixIndex != -1:
-        newFile = filePath[0:suffixIndex] + "_%0{}d".format(a) + filePath[suffixIndex:]
-    else:
-        newFile = filePath + "_%0{}d".format(a)
+	a = len(str(chunks))
+	files = []
 
-    for i in range(chunks):
-        if i < t:
-            chunkData = data[i*(chunkLines+1):(i+1)*(chunkLines+1)]
-        else:
-            chunkData = data[i*chunkLines:(i+1)*chunkLines]
-        with open(newFile%(i),'w',encoding='utf-8') as fw:
-            fw.write(''.join(chunkData))
-        files.append(newFile%(i))
-    
-    return files
+	filePath = os.path.abspath(filePath)
+	dirIndex = filePath.rfind('/')
+	if dirIndex == -1:
+		dirName = ""
+		fileName = filePath
+	else:
+		dirName = filePath[:dirIndex+1]
+		fileName = filePath[dirIndex+1:]
+
+	suffixIndex = fileName.rfind('.')
+	if suffixIndex != -1:
+		newFile = dirName + fileName[0:suffixIndex] + "_%0{}d".format(a) + fileName[suffixIndex:]
+	else:
+		newFile = dirName + fileName + "_%0{}d".format(a)
+
+	for i in range(chunks):
+		if i < t:
+			chunkData = data[i*(chunkLines+1):(i+1)*(chunkLines+1)]
+		else:
+			chunkData = data[i*chunkLines:(i+1)*chunkLines]
+		with open(newFile%(i),'w',encoding='utf-8') as fw:
+			fw.write(''.join(chunkData))
+		files.append(newFile%(i))
+	
+	return files
 
 def pad_sequence(data,shuffle=False,pad=0):
-    '''
-    Useage:  data,lengths = pad_sequence(dataList)
+	'''
+	Usage:  data,lengths = pad_sequence(listData)
 
-    Pad sequences with max length. < data > is expected as a list whose members are sequence data with a shape of [ frames,featureDim ].
+	Pad sequences with maximum length of one batch data. <data> should be a list object whose members have various sequence-lengths.
+	If <shuffle> is "True", pad each sequence with random start-index and return padded data and length information of (startIndex,endIndex) of each sequence.
+	If <shuffle> is "False", align the start index of all sequences then pad them rear. This will return length information of only endIndex.
+	'''
+	assert isinstance(data,list), "Expected <data> is a list but got {}.".format(type(data))
+	assert isinstance(pad,(int,float)), "Expected <pad> is an int or float value but got {}.".format(type(data))
 
-    If <shuffle> is True, pad each sequence with random start index and return padded data and length information of (startIndex,endIndex) of each sequence.
+	lengths = []
+	for i in data:
+		lengths.append(len(i))
+	
+	maxLen = int(max(lengths))
+	batchSize = len(lengths)
 
-    If <shuffle> is False, align the start index of all sequences then pad them rear. This will return length information of only endIndex.
-    '''    
-    assert isinstance(data,list), "Expected < data > is a list but got {}.".format(type(data))
-    assert isinstance(pad,(int,float)), "Expected < pad > is an int or float but got {}.".format(type(data))
+	if len(data[0].shape) == 1:
+		newData = pad * np.ones([maxLen,batchSize])
+		for k in range(batchSize):
+			snl = len(data[k])
+			if shuffle:
+				n = maxLen - snl
+				stp = random.randint(0,n)
+				newData[stp:stp+snl,k] = data[k]
+				lengths[k] = (stp,stp+snl)
+			else:
+				newData[0:snl,k] = data[k]
 
-    lengths = []
-    for i in data:
-        lengths.append(len(i))
-    
-    maxLen = int(max(lengths))
-    batchSize = len(lengths)
+	elif len(data[0].shape) == 2:
+		dim = data[0].shape[1]
+		newData = pad * np.ones([maxLen,batchSize,dim])
+		for k in range(batchSize):
+			snl = len(data[k])
+			if shuffle:
+				n = maxLen - snl
+				stp = random.randint(0,n)
+				newData[stp:stp+snl,k,:] = data[k]
+				lengths[k] = (stp,stp+snl)
+			else:
+				newData[0:snl,k,:] = data[k]
 
-    if len(data[0].shape) == 1:
-        data = pad * np.ones([maxLen,batchSize])
-        for k in range(batchSize):
-            snt = len(data[k])
-            if shuffle:
-                n = maxLen - snt
-                n = random.randint(0,n)
-                data[n:n+snt,k] = data[k]
-                lengths[k] = (n,n+snt)
-            else:
-                data[0:snt,k] = data[k]
-    elif len(data[0].shape) == 2:
-        dim = data[0].shape[1]
-        data = pad * np.ones([maxLen,batchSize,dim])
-        for k in range(batchSize):
-            snt = len(data[k])
-            if shuffle:
-                n = maxLen - snt
-                n = random.randint(0,n)
-                data[n:n+snt,k,:] = data[k]
-                lengths[k] = (n,n+snt)
-            else:
-                data[0:snt,k,:] = data[k]
-    elif len(data[0].shape) >= 3:
-        otherDims = data[0].shape[2:]
-        allDims = 1
-        for i in otherDims:
-            allDims *= i
-        data = pad * np.ones([maxLen,batchSize,allDims])
-        for k in range(batchSize):
-            snt = len(data[k])
-            if shuffle:
-                n = maxLen - snt
-                n = random.randint(0,n)
-                data[n:n+snt,k,:] = data[k].reshape([snt,allDims])
-                lengths[k] = (n,n+snt)
-            else:
-                data[0:snt,k,:] = data[k].reshape([snt,allDims])
-        data = data.reshape([maxLen,batchSize,*otherDims])
-    return data, lengths
+	elif len(data[0].shape) >= 3:
+		otherDims = data[0].shape[1:]
+		allDims = 1
+		for i in otherDims:
+			allDims *= i
+		newData = pad * np.ones([maxLen,batchSize,allDims])
+		for k in range(batchSize):
+			snl = len(data[k])
+			if shuffle:
+				n = maxLen - snl
+				stp = random.randint(0,n)
+				newData[stp:stp+snl,k,:] = data[k].reshape([snl,allDims])
+				lengths[k] = (stp,stp+snl)
+			else:
+				newData[0:snl,k,:] = data[k].reshape([snl,allDims])
+		newData = newData.reshape([maxLen,batchSize,*otherDims])
 
-def unpack_padded_sequence(data,lengths,batchSizeFirst=False):
+	return newData, lengths
 
-    '''
-    Useage:  listData = pad_sequence(data,lengths)
+def unpack_padded_sequence(data,lengths,batchSizeDim=1):
+	'''
+	Usage:  listData = unpack_padded_sequence(data,lengths)
 
-    This is a reverse operation of pad_sequence() function. Return a list whose members are sequences.
-    '''   
+	This is a reverse operation of .pad_sequence() function. Return a list whose members are sequences.
+	We defaultly think the dimension 0 of <data> is sequence-length and the dimension 1 is batch-size.
+	If the dimension of batch-size is not 1, assign the <batchSizeDim> please.
+	'''   
+	assert isinstance(data,np.ndarray), "Expected <data> is NumPy array but got {}.".format(type(data))
+	assert isinstance(lengths,list), "Expected <lengths> is list whose members are padded start position ( and end position)."
+	assert isinstance(batchSizeDim,int) and batchSizeDim >= 0, "<batchSizeDim> should be a non-negative int value."
+	assert batchSizeDim < len(data.shape), "<batchSizeDim> is out of the dimensions of <data>."
+	
+	if batchSizeDim != 0:
+		dims = [ d for d in range(len(data.shape))]
+		dims.remove(batchSizeDim)
+		newDim = [batchSizeDim,*dims]
+		data = data.transpose(newDim)
 
-    assert isinstance(data,np.ndarray), "Expected <data> is numpy array but got {}.".format(type(data))
-    
-    if not batchSizeFirst:
-        s = data.shape[2:]
-        data = data.transpose([1,0,*s])
+	assert len(data) <= len(lengths), "<lengths> is shorter than batch size."
 
-    new = []
-    for i,j in enumerate(data):
-        if isinstance(lengths[i],int):
-            new.append(j[0:lengths[i]])
-        else:
-            new.append(j[lengths[i][0]:lengths[i][1]])
-    
-    return new
+	new = []
+	for i,j in enumerate(data):
+		if isinstance(lengths[i],int):
+			new.append(j[0:lengths[i]])
+		elif isinstance(lengths[i],(list,tuple)) and len(lengths[i]) == 2:
+			new.append(j[lengths[i][0]:lengths[i][1]])
+		else:
+			raise WrongOperation("<lengths> has wrong format.")
+	
+	return new
 
-def wer(ref,hyp,mode='present',ignore=None, p=True):
-    '''
-    Useage:  score = compute_wer('ref.txt','pre.txt',ignore='<sil>') or score = compute_wer(out[1],'ref.txt')
+def wer(ref,hyp,ignore=None,mode='all'):
+	'''
+	Usage:  score = wer('text','1_best',ignore='<sil>')
 
-    Compute wer between prediction result and reference text. Return a dict object with score information like:
-    {'WER':0,'allWords':10,'ins':0,'del':0,'sub':0,'SER':0,'wrongSentences':0,'allSentences':1,'missedSentences':0}
-    Both <hyp> and <ref> can be text file or result which obtained from KaldiLattice.get_1best_word().  
+	Compute WER (word error rate) between <ref> and <hyp>. 
+	Return a dict object with score information like: {'WER':0,'allWords':10,'ins':0,'del':0,'sub':0,'SER':0,'wrongSentences':0,'allSentences':1,'missedSentences':0}
+	Both <hyp> and <ref> can be text files or list objects.
+	'''
+	assert mode in ['all','present'], 'Expected <mode> to be "present" or "all".'
 
-    '''
+	global KALDIROOT,kaidiNotFoundError,ENV
+	if KALDIROOT is None:
+		raise kaidiNotFoundError
 
-    if KALDIROOT == None:
-        raise kaldiNotFoundError
+	if ignore == None:
 
-    if ignore == None:
+		if isinstance(hyp,list):
+			out1 = "\n".join(hyp)
+		elif isinstance(hyp,str) and os.path.isfile(hyp):
+			with open(hyp,'r',encoding='utf-8') as fr:
+				out1 = fr.read()
+		else:
+			raise UnsupportedDataType('<hyp> is not a result-list or file avalible.')
 
-        if isinstance(hyp,list):
-            out1 = "\n".join(hyp)
-        elif isinstance(hyp,str) and os.path.isfile(hyp):
-            with open(hyp,'r',encoding='utf-8') as fr:
-                out1 = fr.read()
-        else:
-            raise UnsupportedDataType('Hyp is not a result-list or file avalible.')
+		if out1 == '':
+			raise WrongDataFormat("<hyp> has not data to score.")
+		else:
+			out1 = out1.encode()
 
-        if out1 == '':
-            raise WrongDataFormat("Hyp has not correct data.")
-        else:
-            out1 = out1.encode()
+		if isinstance(ref,list):
+			out2 = "\n".join(ref)
+		elif isinstance(ref,str) and os.path.isfile(ref):
+			with open(ref,'r',encoding='utf-8') as fr:
+				out2 = fr.read()
+		else:
+			raise UnsupportedDataType('<ref> is not a result-list or file avalible.')
 
-        if isinstance(ref,list):
-            out2 = "\n".join(ref)
-        elif isinstance(ref,str) and os.path.isfile(ref):
-            with open(ref,'r',encoding='utf-8') as fr:
-                out2 = fr.read()
-        else:
-            raise UnsupportedDataType('Ref is not a result-list or file avalible.')
+		if out2 == '':
+			raise WrongDataFormat("<ref> has not data to score.")
+		
+	else:
+		assert isinstance(ignore,str), "Expected <ignore> to be a string."
+		assert len(ignore.strip()) > 0, "<ignore> is not a string avaliable."
 
-        if out2 == '':
-            raise WrongDataFormat("Ref has not correct data.")
-        
-    else:
-        if not (isinstance(ignore,str) and len(ignore) > 0):
-            raise WrongOperation('<ignore> must be a string avaliable.')
+		if isinstance(hyp,list):
+			hyp = ("\n".join(hyp)).encode()
+			p1 = subprocess.Popen('sed "s/{} //g"'.format(ignore),shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+			(out1,err1) = p1.communicate(input=hyp)
+		elif isinstance(hyp,str) and os.path.isfile(hyp):
+			p1 = subprocess.Popen('sed "s/{} //g" <{}'.format(ignore,hyp),shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+			(out1,err1) = p1.communicate()
+		else:
+			raise UnsupportedDataType('<hyp> is not a result-list or file avalible.')
 
-        if isinstance(hyp,list):
-            hyp = ("\n".join(hyp)).encode()
-            p1 = subprocess.Popen('sed "s/{} //g"'.format(ignore),shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            (out1,err1) = p1.communicate(input=hyp)
-        elif isinstance(hyp,str) and os.path.isfile(hyp):
-            p1 = subprocess.Popen('sed "s/{} //g" <{}'.format(ignore,hyp),shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            (out1,err1) = p1.communicate()     
-        else:
-            raise UnsupportedDataType('Hyp is not a result-list or file avalible.')
+		if out1 == b'':
+			raise WrongDataFormat("<hyp> has not data to score.")
 
-        if out1 == b'':
-            raise WrongDataFormat("Hyp has not correct data.")
+		if isinstance(ref,list):
+			ref = ("\n".join(ref)).encode()
+			p2 = subprocess.Popen('sed "s/{} //g"'.format(ignore),shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+			(out2,err2) = p2.communicate(input=ref)
+		elif isinstance(ref,str) and os.path.isfile(ref):
+			p2 = subprocess.Popen('sed "s/{} //g" <{}'.format(ignore,ref),shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+			(out2,err2) = p2.communicate()
+		else:
+			raise UnsupportedDataType('<ref> is not a result-list or file avalible.') 
 
-        if isinstance(ref,list):
-            ref = ("\n".join(ref)).encode()
-            p2 = subprocess.Popen('sed "s/{} //g"'.format(ignore),shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            (out2,err2) = p2.communicate(input=ref)
-        elif isinstance(ref,str) and os.path.isfile(ref):
-            p2 = subprocess.Popen('sed "s/{} //g" <{}'.format(ignore,ref),shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            (out2,err2) = p2.communicate()
-        else:
-            raise UnsupportedDataType('Ref is not a result-list or file avalible.') 
+		if out2 == b'':
+			raise WrongDataFormat("<ref> has not data to score.")
 
-        if out2 == b'':
-            raise WrongDataFormat("Ref has not correct data.")
+		out2 = out2.decode()
 
-        out2 = out2.decode()
+	with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as fw:
+		fw.write(out2)
+		fw.seek(0)
+		cmd = 'compute-wer --text --mode={} ark:{} ark,p:-'.format(mode,fw.name)
+		p3 = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV)
+		(out3,err3) = p3.communicate(input=out1)
+	
+	if out3 == b'':
+		err3 = err3.decode()
+		print(err3)
+		raise KaldiProcessError('Compute WER defeated.')
+	else:
+		out = out3.decode().split("\n")
+		score = {}
+		pattern1 = '%WER (.*) \[ (.*) \/ (.*), (.*) ins, (.*) del, (.*) sub \]'
+		pattern2 = "%SER (.*) \[ (.*) \/ (.*) \]"
+		pattern3 = "Scored (.*) sentences, (.*) not present in hyp."
+		s1 = re.findall(pattern1,out[0])[0]
+		s2 = re.findall(pattern2,out[1])[0]
+		s3 = re.findall(pattern3,out[2])[0]    
+		score['WER']=float(s1[0])
+		score['allWords']=int(s1[2])
+		score['ins']=int(s1[3])
+		score['del']=int(s1[4])
+		score['sub']=int(s1[5])
+		score['SER']=float(s2[0])
+		score['wrongSentences']=int(s2[1])        
+		score['allSentences']=int(s2[2])
+		score['missedSentences']=int(s3[1])
 
-    with tempfile.NamedTemporaryFile('w+',encoding='utf-8') as fw:
-        fw.write(out2)
-        fw.seek(0)
-        cmd = 'compute-wer --text --mode={} ark:{} ark,p:-'.format(mode,fw.name)
-        p3 = subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        (out3,err3) = p3.communicate(input=out1)
-    
-    if out3 == b'':
-        err3 = err3.decode()
-        print(err3)
-        raise KaldiProcessError('Compute wer defeated.')
-    else:
-        out = out3.decode()
-        if not p:
-            print(out)
-        score = {}
-        out = out.split("\n")
-        pattern1 = '%WER (.*) \[ (.*) \/ (.*), (.*) ins, (.*) del, (.*) sub \]'
-        pattern2 = "%SER (.*) \[ (.*) \/ (.*) \]"
-        pattern3 = "Scored (.*) sentences, (.*) not present in hyp."
-        s1 = re.findall(pattern1,out[0])[0]
-        s2 = re.findall(pattern2,out[1])[0]
-        s3 = re.findall(pattern3,out[2])[0]    
-        score['WER']=float(s1[0])
-        score['allWords']=int(s1[2])
-        score['ins']=int(s1[3])
-        score['del']=int(s1[4])
-        score['sub']=int(s1[5])
-        score['SER']=float(s2[0])
-        score['wrongSentences']=int(s2[1])        
-        score['allSentences']=int(s2[2])
-        score['missedSentences']=int(s3[1])
+		return score
 
-        return score
+def accuracy(ref,hyp,ignore=None,mode='all'):
+	'''
+	Usage:  score = accuracy(label,prediction,ignore=0)
 
-def accuracy(predict,label,ignore=None,mode='all'):
-    '''
-    Useage:  score = accuracy(predict,label,ignore=0)
+	If <mode> is "all", compute one-one matching score. For example, <ref> is (1,2,3,4), and <hyp> is (1,2,2,4), the score will be 0.75.
+	If <mode> is "present", only the members of <hyp> which appeared in <ref> will be scored no matter which position it is. 
+	For example, <ref> is (1,2,3,4), and <hyp> is (5,4,7,1,9), only "4" and "1" are right results so the score will be 0.4.
+	Both <ref> and <hyp> are expected to be iterable objects like list, tuple or NumPy array. They will be flattened before scoring.
+	Ignoring specific values if <ignore> is not None.
+	'''
+	assert mode in ['all','present'], 'Expected <mode> to be "present" or "all".'
 
-    Compute one-one match score. for example predict is (1,2,3,4), and label is (1,2,2,4), the score will be 0.75.
-    Both <predict> and <label> are expected list, tuple or NumPy array with int members. They will be flatten before score.
-    Ignoring value can be assigned with <ignore>.
-    If <mode> is all, it will raise ERROR when the length of predict and label is different.
-    If <mode> is present, compare depending on the shorter one.
-    '''
-    assert mode in ['all','present'], 'Expected <mode> is present or all.'
+	def flatten(iterableObj):
+		new = []
+		for i in iterableObj:
+			if ignore != None:
+				if isinstance(i,np.ndarray):
+					if i.all() == ignore:
+						continue
+				elif i == ignore:
+					continue
+			if isinstance(i,str) and len(i) <= 1:
+				new.append(i)
+			elif not isinstance(i,Iterable):
+				new.append(i)
+			else:
+				new.extend(flatten(i))
+		return new
 
-    def flatten(iterableObj):
-        new = []
-        for i in iterableObj:
-            if ignore != None:
-                if isinstance(i,np.ndarray):
-                    if i.all() == ignore:
-                        continue
-                elif i == ignore:
-                    continue
-            if isinstance(i,str) and len(i) <= 1:
-                new.append(i)
-            elif not isinstance(i,Iterable):
-                new.append(i)
-            else:
-                new.extend(flatten(i))
-        return new
+	x = flatten(ref)
+	y = flatten(hyp)
 
-    x = flatten(predict)
-    y = flatten(label)
+	if mode == 'all':
+		i = 0
+		score = 0
+		while True:
+			if i >= len(x) or i >= len(y):
+				break
+			elif x[i] == y[i]:
+				score += 1
+			i += 1
+		if i < len(x) or i < len(y):
+			raise WrongOperation('<ref> and <hyp> have different length to score.')
+		else:
+			if len(x) == 0:
+				return 1.0
+			else:
+				return score/len(x)
+	else:
+		x = sorted(x)
+		score = 0
+		for i in y:
+			if i in x:
+				score += 1
+		if len(y) == 0:
+			if len(x) == 0:
+				return 1.0
+			else:
+				return 0.0
+		else:
+			return score/len(y)
 
-    i = 0
-    score = []
-    while True:
-        if i >= len(x) or i >= len(y):
-            break
-        elif x[i] == y[i]:
-            score.append(1)
-        else:
-            score.append(0)
-        i += 1
-   
-    if mode == 'present':
-        return float(np.mean(score))
-    else:
-        if i < len(predict) or i < len(label):
-            raise WrongOperation('<present> and <label> have different length to score.')
-        else:
-            return float(np.mean(score))
+def edit_distance(ref,hyp,ignore=None):
+	'''
+	Usage: score = edit_distance(predict,target,ignore=0)
 
-def edit_distance(predict,label,ignore=None):
-    '''
-    Useage:  score = edit_distance(predict,label,ignore=0)
+	Compute edit-distance score. 
+	Both <ref> and <hyp> should be iterable objects such as string, list, tuple, or NumPy array.
+	'''
+	assert isinstance(ref,Iterable), "<ref> is not a iterable object."
+	assert isinstance(hyp,Iterable), "<hyp> is not a iterable object."
+	
+	def flatten(iterableObj):
+		new = []
+		for i in iterableObj:
+			if ignore != None:
+				if isinstance(i,np.ndarray):
+					if i.all() == ignore:
+						continue
+				elif i == ignore:
+					continue
+			if isinstance(i,str) and len(i) <= 1:
+				new.append(i)
+			elif not isinstance(i,Iterable):
+				new.append(i)
+			else:
+				new.extend(flatten(i))
+		return new
 
-    Compute edit distance score. 
-    Both <predict> and <label> can be string, list, tuple, or NumPy array.
-    '''
-    #assert isinstance(x,str) and isinstance(y,str), "Expected both <x> and <y> are string."
-    
-    def flatten(iterableObj):
-        new = []
-        for i in iterableObj:
-            if ignore != None:
-                if isinstance(i,np.ndarray):
-                    if i.all() == ignore:
-                        continue
-                elif i == ignore:
-                    continue
-            if isinstance(i,str) and len(i) <= 1:
-                new.append(i)
-            elif not isinstance(i,Iterable):
-                new.append(i)
-            else:
-                new.extend(flatten(i))
-        return new
+	x = flatten(ref)
+	y = flatten(hyp)
 
-    x = flatten(predict)
-    y = flatten(label)
+	lenX = len(x)
+	lenY = len(y)
 
-    lenX = len(x)
-    lenY = len(y)
+	mapping = np.zeros((lenX+1,lenY+1))
 
-    mapping = np.zeros((lenX+1,lenY+1))
-
-    for i in range(lenX+1):
-        mapping[i][0] = i
-    for j in range(lenY+1):
-        mapping[0][j] = j
-     
-    for i in range(1,lenX+1):
-        for j in range(1,lenY+1):
-            if x[i-1] == y[j-1]:
-                delta = 0
-            else:
-                delta = 1       
-            mapping[i][j] = min(mapping[i-1][j-1]+delta, min(mapping[i-1][j]+1, mapping[i][j-1]+1))
-    
-    return mapping[lenX][lenY]
+	for i in range(lenX+1):
+		mapping[i][0] = i
+	for j in range(lenY+1):
+		mapping[0][j] = j
+	for i in range(1,lenX+1):
+		for j in range(1,lenY+1):
+			if x[i-1] == y[j-1]:
+				delta = 0
+			else:
+				delta = 1       
+			mapping[i][j] = min(mapping[i-1][j-1]+delta, min(mapping[i-1][j]+1, mapping[i][j-1]+1))
+	
+	return mapping[lenX][lenY]
 
 def log_softmax(data,axis=1):
+	'''
+	Usage: out = log_softmax(data,1)
 
-    assert isinstance(data,np.ndarray), "Expected numpy ndarray data but got {}.".format(type(data))
-    assert axis >=0 and axis < len(data.shape), '{} is out of the dimensions of data.'
+	Compute log softmax output of <data> in dimension <axis>: 
+					data - log(sum(exp(data))).
+	<data> should be a NumPy array.
+	'''
+	assert isinstance(data,np.ndarray), "Expected <data> is NumPy ndarray but got {}.".format(type(data))
+	assert isinstance(axis,int) and axis >= 0, "<axis> should be a positive int value."
+	assert axis < len(data.shape), '<axis> {} is out of the dimensions of <data>.'.format(axis)
 
-    tShape = list(data.shape)
-    tShape[axis] = 1
-    data = np.array(data,dtype='float32')
-    dataExp = np.exp(data)
-    dataExpLog = np.log(np.sum(dataExp,axis)).reshape(tShape)
+	dataShape = list(data.shape)
+	dataShape[axis] = 1
+	dataExp = np.exp(data)
+	dataExpLog = np.log(np.sum(dataExp,axis)).reshape(dataShape)
 
-    return data - dataExpLog
+	return data - dataExpLog
