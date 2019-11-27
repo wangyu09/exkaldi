@@ -1,20 +1,22 @@
 # ExKaldi Automatic Speech Recognition Toolkit
-ExKaldi toolkit is an extension package for Kaldi speech recognition toolkit. It is developed to build an interface between the Kaldi toolkit and deep learning frameworks, 
+ExKaldi toolkit is an extension package for Kaldi speech recognition toolkit. 
+It is developed to build an interface between the Kaldi toolkit and deep learning frameworks, 
 such as PyTorch and Chainer, with Python language and further help users customize speech recognition system easily. 
-A set of functions of ExKaldi are implemented by Kaldi, and serval Input-Output interfaces are designed to transform their data format so that it is flexible to process speech waveform, 
+A set of functions of ExKaldi are implemented by Kaldi, 
+and serval Input-Output interfaces are designed to transform their data format so that it is flexible to process speech waveform, 
 extract acoustic features, perform speech decoding and even deal with lattices produced by the decoder, with Python. 
-Based on this, ExKaldi further provides tools to support training a DNN-based acoustic model, and improve their performance by, for example, multiple tasks with different labels. 
-With jointing Kaldi and deep learning frameworks, integrated solutions are presented in ExKaldi from feature extracting to decoding to put up a customized speech recognition system quickly. 
+Based on this, ExKaldi further provides tools to support training a DNN-based acoustic model, 
+and improve their performance by, for example, multiple tasks with different labels. 
+With jointing Kaldi and deep learning frameworks, 
+integrated solutions are presented in ExKaldi from feature extracting to decoding to put up a customized speech recognition system quickly. 
 
 ## Start with ExKaldi
 
-The use of ExKaldi tools is based on that Kaldi ASR toolkit has already been correctly installed and compiled.
-
-1. Download the Kaldi ASR toolkit.
+1. Install Kaldi ASR toolkit. Download the Kaldi ASR toolkit firstly.
 ```
 git clone https://github.com/kaldi-asr/kaldi.git kaldi --origin upstream
 ```
-Following these three tutorial files to install and compile it.
+And follow these three tutorial files to install and compile it.
 ```
 kaldi/INSTALL
 kaldi/tools/INSTALL
@@ -23,7 +25,7 @@ kaldi/src/INSTALL
 
 2. Install ExKaldi toolkit from PyPi library.
 ```
-pip install exkaldi  (It has not been released now, so install it in the follow way please)
+pip install exkaldi
 ```
 You can also clone the ExKaldi source code from our github project, then make it a pypi package and install it.
 ```
@@ -34,7 +36,7 @@ cd ..
 pip install exkaldi/dist/*
 ```
 
-3. We prepared some sample programs to show how to use ExKaldi to train a coustic model and build a ASR system.
+3. We prepared some example programs to show how to use ExKaldi to train a coustic model and build a ASR system.
 Please download them from https://github.com/wangyu09/exkaldi/examplecode (or clone the ExKaldi source code). 
 Framework, Chainer or Pytorch, is expected in you machine. Concerning Chainer framework, know more about it from https://chainer.org/ .
 You can install it directly by runing:
@@ -47,26 +49,31 @@ Run the follow scipts to obtain them respectively. Please prepare TIMIT corpus i
 ```
 cd kaldi/egs/timit/s5
 ```
-Modify the TIMIT path, cmd and path cofigure and then run script up to Karel's DNN.
+Modify the TIMIT path, cmd and path cofigure. Then run script up to Karel's DNN.
 ```
 ./run.sh
 local/nnet/run_dnn.sh
 ```
-Then get alignment.
+Then get alignment data. It will be label to train DNN model.
 ```
 steps/nnet/align.sh --nj 4 data-fmllr-tri3/train data/lang exp/dnn4_pretrain-dbn_dnn exp/dnn4_pretrain-dbn_dnn_ali
 steps/nnet/align.sh --nj 4 data-fmllr-tri3/dev data/lang exp/dnn4_pretrain-dbn_dnn exp/dnn4_pretrain-dbn_dnn_ali_dev
+steps/nnet/align.sh --nj 4 data-fmllr-tri3/test data/lang exp/dnn4_pretrain-dbn_dnn exp/dnn4_pretrain-dbn_dnn_ali_test
 ```
 
-5. After finishing all work above, run the example python program. You can adjust more configure as well.
+5. After finishing all work above, run the example python program. You can adjust more configure.
 ```
 python TIMIT_DNN_fmllr_chainer.py -TIMITROOT <your path>
 ```
-Results will be save in out directory.
+Results will be save in output directory.
 
 
 ## Concepts and Usage
-The core functions in ExKaldi tool are performed with using "subprocess" to run shell cmd of Kaldi tools. Based on this, we designed a series of classes and approaches to use them in a flexible way and it is more familiar for python programmer. ExKaldi toolkit of current version mainly consists of one part which implements Kaldi functions such as processing feature and lattice, and another part which supports training DNN-based acoustic model with deep learning framework such as Chainer and Pytorch, and the other part which simply allows user record their voice from microphone and recognize it with their customized ASR system. 
+The core functions in ExKaldi tool are performed with using "subprocess" to run shell cmd of Kaldi tools. 
+Based on this, we designed a series of classes and approaches to use them in a flexible way and it is more familiar for python programmer. 
+ExKaldi toolkit of current version mainly consists of one part which implements Kaldi functions such as processing feature and lattice, 
+and another part which supports training DNN-based acoustic model with deep learning framework such as Chainer and Pytorch, 
+and the other part which simply allows user record their voice from microphone and recognize it with their customized ASR system. 
 
 _-----------------------------------------------< ExKaldi API >-----------------------------------------------------_
 
@@ -290,7 +297,7 @@ sacle lattice and return a new scaled KaldiLattice object.
 `.add_penalty(penalty=0)`  
 add words insertion penalty and return a new KaldiLattice object.
 
-`.save(fileName,copyFile=False)`  
+`.save(fileName,copyFile=False)`
 save lattice as .gz file. If < copyFile > is True, will copy HMM file and wordSymbol file to the same directory as saved lattice file. 
 
 `__add__`  
@@ -707,7 +714,6 @@ Compute the log-softmax value of a NumPy array data.
 
 `data` _NumPy array_       
 `axis` _demension, default=1_ 
-
 
 ### DataIterator(scpFiles,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,retainData=0.0)
 

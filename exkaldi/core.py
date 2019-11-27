@@ -35,6 +35,8 @@ ENV = None
 KALDIROOT = None
 kaidiNotFoundError = PathError('Kaldi ASR toolkit has not been found.')
 
+# ------------ Environment Functions -----------
+
 def get_env():
 	'''
 	Usage:  ENV = get_env()
@@ -60,7 +62,8 @@ def get_kaldi_path():
 		p = subprocess.Popen('which copy-feats',shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 		(out,err) = p.communicate()
 		if out == b'':
-			print("Warning: Kaldi has not been found. You can set it with .set_kaldi_path() function. If not, ERROR will occur when implementing part of core functions.")
+			print("Warning: Kaldi has not been found. You can set it with .set_kaldi_path() function. \
+							If not, ERROR will occur when implementing part of core functions.")
 		else:
 			KALDIROOT = out.decode().strip()[0:-23]
 	
@@ -84,7 +87,7 @@ def set_kaldi_path(path):
 	p = subprocess.Popen('ls {}/src/featbin/copy-feats'.format(path),shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 	(out,err) = p.communicate()
 	if out == b'':
-		raise WrongOperation("{} is not a Kaldi root directory avaliable.".format(path))
+		raise WrongOperation('{} is not a Kaldi root directory avaliable.'.format(path))
 	
 	global KALDIROOT, ENV
 
@@ -112,7 +115,7 @@ def set_kaldi_path(path):
 	systemPATH.append(path+'/src/nnetbin')
 	ENV['PATH'] = ":".join(systemPATH)
 
-# ------------ Basic Classes ------------
+# ------------ Classes ------------
 
 class KaldiArk(bytes):
 	'''
@@ -1911,8 +1914,6 @@ class KaldiLattice(object):
 
 		return KaldiLattice(newLat, self._hmm, self._wordSymbol)
 
-# ------------ Other Classes -----------
-
 class Supporter(object):
 	'''
 	Usage:  supporter = Supporter(outDir='Result')
@@ -2407,7 +2408,7 @@ class DataIterator(object):
 
 		return reIterator
 
-# ---------- Basic Class Functions ------- 
+# ---------- Class Functions ------- 
 
 def save(data,*params):
 	'''
@@ -2515,7 +2516,7 @@ def splice(data,left=4,right=None):
 	else:
 		raise UnsupportedDataType("Expected KaldiDict or KaldiArk data but got {}.".format(type(data)))     
 
-# ---------- Feature and Label Process Fucntions -----------
+# ---------- Feature & Label Process Fucntions -----------
 
 def compute_mfcc(wavFile,rate=16000,frameWidth=25,frameShift=10,melBins=23,featDim=13,windowType='povey',useSuffix=None,config=None,asFile=False):
 	'''
