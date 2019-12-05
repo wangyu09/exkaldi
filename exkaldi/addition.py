@@ -1,84 +1,117 @@
 
-import pyaudio
-import wave
-import queue
-import threading
+import wave,pyaudio
+import threading,queue
 import time
 import socket
 import math
 import tempfile
 import os
+import gc
 
 class WrongOperation(Exception):pass
 class PathError(Exception):pass
 class NetworkError(Exception):pass
     
-## Not receive but can send
-## not send but receive wait
+## No "receive" >> can "send"
+## No "send" >> "receive" wait
 
 class Client(object):
-
+    '''
+    Usage: 
+        with Client() as client:
+            -- main code -- 
+    
+    Client object can record voice frim microphone and recognize (or send to server).
+    Run your code under the "with" grammar.
+    '''
     def __init__(self):
 
+        self.__reset_sources()
+        
+        self.safeFlag = True
+        self.config_wave_format(Format='int32')
+        self.safeFlag = False
+    
+    def __reset_sources(self):
         self.p = pyaudio.PyAudio()
         self.client = None
-
         self.threadManager = {}
         self._counter = 0
-
         self.dataQueue = queue.Queue()
         self.resultQueue = queue.Queue()
-        
+        self.finalRecognizedResult = [""]
         self.localErrFlag = False
         self.remoteErrFlag = False
         self.endFlag = False
-        self.safeFlag = False
-
-        self.config_wave_format()
+        self.safeFlag = False 
+        
+        gc.collect()
 
     def __enter__(self,*args):
         self.safeFlag = True
         return self
     
     def __exit__(self,errType,errValue,errTrace):
+        # Stop all tasks
         if errType == KeyboardInterrupt:
             self.endFlag = True
+        else:
+            self.localErrFlag = True
         self.wait()
+        # Clear and Reset
         if self.client != None:
             self.client.close()
         self.p.terminate()
 
-        #self._counter = 0
-        #self.dataQueue.queue.clear()
-        #self.resultQueue.queue.clear()
-        #self.client=None
-        #for name in self.threadManager.keys():
-        #   self.threadManager[name] = None
-        #self.endFlag = False
-        #self.errFlag = False
+        self.__reset_sources()
     
     def wait(self):
+        '''
+        Usage:  client.wait()
+        
+        Wait all threads over. 
+        '''
+        if self.safeFlag is False:
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
+        
         for name,thread in self.threadManager.items():
             if thread.is_alive():
                 thread.join()
 
     def close(self):
+        '''
+        Usage:  client.close()
+        
+        Close this client object. After done this, current will be unavailable.
+        '''
+        if self.safeFlag is False:
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
+            
         self.endFlag = True
         self.__exit__(None,None,None)
 
     def config_wave_format(self,Format=None,Width=None,Channels=1,Rate=16000,ChunkFrames=1024):
-
-        assert Channels==1 or Channels==2, "Expected <Channels> is 1 or 2 but got {}.".format(Channels)
+        '''
+        Usage:  client.config_wave_format(Format="int32")
+        
+        Set the wav parameters when recording from microphone.
+        If reading from file, it will be set automatically.
+        '''        
+        if self.safeFlag is False:
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
+        
+        assert Channels in [1,2], "Expected <Channels> is 1 or 2 but got {}.".format(Channels)
 
         if Format != None:
             assert Format in ['int8','int16','int32'], "Expected <Format> is int8, int16 or int32 but got{}.".format(Format)
             assert Width == None, 'Only one of <Format> and <Width> is expected to be assigned but both two are gotten.'
+            self.formats = Format
             if Format == 'int8':
                 self.width = 1
             elif Format == 'int16':
                 self.width = 2
             else:
-                self.width = 4           
+                self.width = 4
         else:
             assert Width != None, 'Expected to assign one value of <Format> aor <Width> but got two None.'
             assert Width in [1,2,4], "Expected <Width> is 1, 2 or 4 but got{}.".format(Width)
@@ -90,17 +123,21 @@ class Client(object):
             else:
                 self.formats = 'int32'
     
-        self.formats = Format
         self.channels = Channels
         self.rate = Rate
         self.chunkFrames = ChunkFrames
         self.chunkSize = self.width*Channels*ChunkFrames
 
     def read(self,wavFile):
-
-        if self.safeFlag == False:
-            raise WrongOperation('We only allow user to run speak client by using <with> grammar.')
-
+        '''
+        Usage:  client.read("test.wav")
+        
+        Read wav data from file. This will be used to test ASR system.
+        '''        
+        if self.safeFlag is False:
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
+        
+        assert isinstance(wavFile,str), "<wavFile> should be a file-name like string."
         if not os.path.isfile(wavFile):
             raise PathError('No such wav file: {}.'.format(wavFile))
         
@@ -113,13 +150,12 @@ class Client(object):
         def readWave(wavFile,dataQueue):
             try:
                 self._counter = 0
-
                 wf = wave.open(wavFile,'rb')
                 wfRate = wf.getframerate()
                 wfChannels = wf.getnchannels()
                 wfWidth = wf.getsampwidth()
                 if not wfWidth in [1,2,4]:
-                    raise WrongOperation("Only int8, int16 or int32 wav data can be accepted.")
+                    raise WrongOperation('Only these wav file with a data type of "int8", "int16" or "int32" can be accepted.')
                 
                 self.config_wave_format(None,wfWidth,wfChannels,wfRate,1024)
 
@@ -155,7 +191,11 @@ class Client(object):
         self.threadManager['read'].start()
 
     def record(self,seconds=None):
-
+        '''
+        Usage:  client.record(seconds=5)
+        
+        Record wav data from microphone. If seconds is None, you can use ctrl+C to stop recording.
+        '''             
         if self.safeFlag == False:
             raise WrongOperation('We only allow user to run speak client by using <with> grammar.')
 
@@ -167,7 +207,7 @@ class Client(object):
 
         if seconds != None:
             assert isinstance(seconds,(int,float)) and seconds > 0,'Expected <seconds> is positive int or float number.'
-
+        
         def recordWave(seconds,dataQueue):
             try:
                 self._counter = 0
@@ -203,7 +243,7 @@ class Client(object):
                         self._counter = seconds
                 else:
                     while True:
-                        stream.read(self.chunkFrames)
+                        data = stream.read(self.chunkFrames)
                         dataQueue.put(data)
                         self._counter += secPerRecord
                         if True in [self.localErrFlag, self.endFlag, self.remoteErrFlag]:
@@ -224,9 +264,15 @@ class Client(object):
         self.threadManager['record'].start()
 
     def recognize(self,func,args=None,interval=0.3):
-
+        '''
+        Usage:  client.recognize(recogFunc)
+        
+        Recognize wav.
+        <func> received path name of chunk wav file (and <args>).
+        <interval> is the seconds of each chunk wav data.
+        '''      
         if not self.safeFlag:
-            raise WrongOperation('We only allow user to run speak client by using <with> grammar.')
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
         
         if 'recognize' in self.threadManager.keys() and self.threadManager['recognize'].is_alive():
             raise WrongOperation('Another recognition task is running now.')
@@ -236,23 +282,23 @@ class Client(object):
 
         def recognizeWave(dataQueue,func,args,resultQueue,interval):
             
-            class VOD(object):
+            class VAD(object):
                 def __init__(self):
                     self.lastRe = None
                     self.c = 0
                 def __call__(self,re):
                     if re == self.lastRe:
                         self.c  += 1
-                        if self.c == 3:
-                            self.c = 1
+                        if self.c == 2:
+                            self.c = 0
                             return True
                         else:
                             return False
                     self.lastRe = re
-                    self.c = 1
+                    self.c = 0
                     return False
                     
-            vod = VOD()
+            vad = VAD()
 
             dataPerReco = []
             timesPerReco = None
@@ -260,17 +306,17 @@ class Client(object):
 
             try:
                 while True:
-                    if self.localErrFlag == True:
+                    if self.localErrFlag is True:
                         break
                     if dataQueue.empty():
                         if ('read' in self.threadManager.keys() and self.threadManager['read'].is_alive()) or ('record' in self.threadManager.keys() and self.threadManager['record'].is_alive()):
                             time.sleep(0.01)
                         else:
-                            raise WrongOperation('Excepted data input from Read(file) or Record(microphone).')
+                            raise WrongOperation('Excepted data input by Read(file) or Record(microphone).')
                     else:
                         chunkData = dataQueue.get()
-                        if timesPerReco == None:
-                            # Compute timesPerReco and Throw the first message
+                        if timesPerReco is None:
+                            #Compute timesPerReco and Throw the first message
                             timesPerReco = math.ceil(self.rate*interval/self.chunkFrames)
                             continue
                         if chunkData == 'endFlag':
@@ -278,6 +324,7 @@ class Client(object):
                         else:
                             dataPerReco.append(chunkData)
                             count += 1
+                            
                         if count >= timesPerReco:
                             if len(dataPerReco) > 0:
                                 with tempfile.NamedTemporaryFile('w+b',suffix='.wav') as waveFile:
@@ -295,9 +342,9 @@ class Client(object):
                                 resultQueue.put((True,result))
                                 break
                             else:
-                                sof = vod(result)
+                                sof = vad(result)
                                 resultQueue.put((sof,result))
-                                if sof:
+                                if sof is True:
                                     dataPerReco = []
                                 count = 0
             except Exception as e:
@@ -307,27 +354,32 @@ class Client(object):
                 if self.localErrFlag == True:
                     pass
                 else:
-                    resultQueue.append('endFlag')
+                    resultQueue.put('endFlag')
 
         self.threadManager['recognize'] = threading.Thread(target=recognizeWave,args=(self.dataQueue,func,args,self.resultQueue,interval,))
-        self.threadManager['record'].start()
+        self.threadManager['recognize'].start()
 
     def connect_to(self, proto='TCP', targetHost=None, targetPort=9509, timeout=10):
-
-        if not self.safeFlag:
-            raise WrongOperation('Please run with safe mode by using <with> grammar.')
+        '''
+        Usage:  client.connect_to( proto='TCP', targetHost="192.168.1.1", targetPort=9509)
+        
+        Connected to remote server. We use defaultly TCP proto and port number 9509.
+        <timeout> is network communication timeout.
+        '''    
+        if self.safeFlag is False:
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
 
         if self.client != None:
             raise WrongOperation('Another local client is working.')
 
         assert proto in ['TCP','UDP'], "Expected <proto> is TCP or UDP but got {}.".format(proto)
-
+        
         self.proto = proto
         self.targetHost = targetHost
         self.targetPort = targetPort
 
         if timeout != None:
-            assert isinstance(time,int),'Expected <timeout> seconds is positive int number but got {}.'.format(timeout)
+            assert isinstance(timeout,int),'Expected <timeout> seconds is positive int number but got {}.'.format(timeout)
             socket.setdefaulttimeout(timeout)
         
         if proto == 'TCP':
@@ -338,11 +390,10 @@ class Client(object):
                 if verification != b'hello world':
                     raise NetworkError('Connection anomaly.')
             except ConnectionRefusedError:
-                raise NetworkError('Target server has not been activated.')
-            finally:
                 self.client.close()
                 self.client = None
                 self.localErrFlag = True
+                raise NetworkError('Target server has not been activated.')
         else:
             self.client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.client.sendto(b'hello world',(targetHost,targetPort))
@@ -356,23 +407,26 @@ class Client(object):
                 if i == 5:
                     raise NetworkError('Cannot communicate with target server.')
             except TimeoutError:
-                raise NetworkError('Target server seems has not been activated.')
-            finally:
                 self.client.close()
                 self.client = None
                 self.localErrFlag = True
+                raise NetworkError('Target server seems has not been activated.')
 
         return True
 
     def send(self):
-
+        '''
+        Usage:  client.send()
+        
+        Send recored or read data to connected remote server.
+        '''    
         if not self.safeFlag:
-            raise WrongOperation('Please run with safe mode by using <with> grammar.')
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
         
         if 'send' in self.threadManager.keys() and self.threadManager['send'].is_alive():
             raise WrongOperation('Another send task is running now.')      
 
-        if self.client == None:
+        if self.client is None:
             raise WrongOperation('No activated local client.')
         
         if 'recognize' in self.threadManager.keys() and self.threadManager['recognize'].is_alive():
@@ -417,9 +471,13 @@ class Client(object):
         self.threadManager['send'].start()
     
     def receive(self):
-
+        '''
+        Usage:  client.receive()
+        
+        Receive recognied result from connected remote server.
+        '''   
         if not self.safeFlag:
-            raise WrongOperation('Please run with safe mode by using <with> grammar.')
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
         
         if 'receive' in self.threadManager.keys() and self.threadManager['receive'].is_alive():
             raise WrongOperation('Another receive task is running now.')
@@ -432,6 +490,7 @@ class Client(object):
 
         def recvResult(resultQueue):
             try:
+                retainedResult = []
                 while True:
                     if self.localErrFlag == True:
                         break               
@@ -445,9 +504,17 @@ class Client(object):
                                 break
                         if i == 5:
                             raise NetworkError('Communication between local client and remote server worked anomaly.')
-                    message = message.decode.strip()
+                    message = message.decode().strip()
                     if message in ['endFlag','errFlag']:
                         break
+                    if message[0] == "T":
+                        retainedResult.append(message[2:])
+                    else:
+                        if message[0] == "Y":
+                            resultQueue.put((True, "".join(retainedResult)+message[2:]))
+                        else:
+                            resultQueue.put((False, "".join(retainedResult)+message[2:]))
+                        retainedResult = []
             except TimeoutError:
                 raise NetworkError('Please ensure server has been activated.')
             except Exception as e:
@@ -455,6 +522,7 @@ class Client(object):
                 raise e
             else:
                 if message == 'errFlag':
+                    print('Warning: Error occured at remote server!')
                     self.remoteErrFlag == True
                 else:
                     resultQueue.put('endFlag')
@@ -463,6 +531,15 @@ class Client(object):
         self.threadManager['receive'].start()
 
     def get(self):
+        '''
+        Usage:  client.get()
+        
+        Get lastest recognied result from result queue.
+        If all results have been taken out, return None.
+        '''
+        if not self.safeFlag:
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
+            
         while True:
             if self.resultQueue.empty():
                 if ('recognize' in self.threadManager.keys() and self.threadManager['recognize'].is_alive()) or ('receive' in self.threadManager.keys() and self.threadManager['receive'].is_alive()):
@@ -474,62 +551,91 @@ class Client(object):
                 if message == 'endFlag':
                     return None
                 else:
-                    return message
+                    self.finalRecognizedResult[-1] = message[1]
+                    if message[0] is True:
+                        self.finalRecognizedResult.append("")
+                    return "".join(self.finalRecognizedResult)
 
     @property
     def timer(self):
-        return self._counter
+        return round(self._counter,2)
 
 class Server(object):
-
+    '''
+    Usage: 
+        with Serve() as serve:
+            -- main code -- 
+    
+    Serve object is used to reveive data from remote client and recognize it, then return the result to it.
+    '''
     def __init__(self, proto='TCP', bindHost=None, bindPort=9509):
 
+        self.__reset_sources()
+        
+        socket.setdefaulttimeout(20)
+        
+        if bindHost != None:
+            self.bind(proto,bindHost,bindPort)
+    
+    def __reset_sources(self):
         self.client = None
         self.threadManager = {}
-
         self.dataQueue = queue.Queue()
         self.resultQueue = queue.Queue()
-
+        self.finalRecognizedResult = [""]
         self.localErrFlag = False
         self.remoteErrFlag = False
         self.safeFlag = False
         self.bindHost = None
         self.bindPort = None
-
-        socket.setdefaulttimeout(20)
         
-        if bindHost != None:
-            self.bind(proto,bindHost,bindPort)
+        gc.collect()
     
     def __enter__(self):
         self.safeFlag = True
         return self
     
     def __exit__(self,errType,errValue,errTrace):
+        if errType != None:
+            self.localErrFlag = True 
         self.wait()
         time.sleep(1)
         if self.client != None:
-            self.client
-        
+            self.client.close()
+        self.__reset_sources()
 
     def wait(self):
+        '''
+        Usage:  server.wait()
+        
+        Wait all threads over. 
+        '''
+        if self.safeFlag is False:
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
+
         for name,thread in self.threadManager.items():
             if thread.is_alive():
                 thread.join()
 
     def _config_wave_format(self,Format=None,Width=None,Channels=1,Rate=16000,ChunkFrames=1024):
+        '''
+        Wave data format will be set automatically when it receive the first message.
+        '''
+        if self.safeFlag is False:
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
 
-        assert Channels==1 or Channels==2,"Expected <Channels> is 1 or 2 but got {}.".format(Channels)
+        assert Channels==1 or Channels==2, "Expected <Channels> is 1 or 2 but got {}.".format(Channels)
 
         if Format != None:
             assert Format in ['int8','int16','int32'], "Expected <Format> is int8, int16 or int32 but got{}.".format(Format)
             assert Width == None, 'Only one of <Format> and <Width> is expected to assigned but both two.'
+            self.formats = Format 
             if Format == 'int8':
                 self.width = 1
             elif Format == 'int16':
                 self.width = 2
             else:
-                self.width = 4           
+                self.width = 4        
         else:
             assert Width != None, 'Expected one value in <Format> and <Width> but got two None.'
             assert Width in [1,2,4], "Expected <Width> is 1, 2 or 4 but got{}.".format(Format)
@@ -541,20 +647,23 @@ class Server(object):
             else:
                 self.formats = 'int32'
     
-        self.formats = Format
         self.channels = Channels
         self.rate = Rate
         self.chunkFrames = ChunkFrames
         self.chunkSize = self.width*Channels*ChunkFrames
     
     def bind(self, proto='TCP', bindHost=None, bindPort=9509):
-
-        assert proto in ['TCP','UDP'],'Expected proto TCP or UDP but got {}'.format(proto)
+        '''
+        Usage:  client.bind(proto='TCP', bindHost="192.168.1.1", bindPort=9509)
+        
+        Bind the IP address and Port of this machine as server. 
+        '''   
+        assert proto in ['TCP','UDP'],'Expected <proto> is "TCP" or "UDP" but got {}.'.format(proto)
 
         if self.bindHost != None:
             raise WrongOperation('Server has already bound to {}.'.format((self.bindHost,self.bindPort)))
         
-        assert bindHost != None, 'Expected <host> is not None.'
+        assert bindHost != None, 'Expected <bindHost> is not None.'
 
         if proto == 'TCP':
             self.server = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
@@ -568,12 +677,16 @@ class Server(object):
         self.bindPort = bindPort
 
     def connect_from(self,targetHost):
+        '''
+        Usage:  client.connect_from(targetHost="192.168.1.1")
+        
+        Connected to remote client.
+        '''   
+        if self.safeFlag is False:
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
 
-        if not self.safeFlag:
-            raise WrongOperation('Please run with safe mode by using <with> grammar.')
-
-        if self.bindHost == None:
-            raise WrongOperation('Bind Host IP and Port firstly by using .bind() method.')
+        if self.bindHost is None:
+            raise WrongOperation('Please bind host IP and Port by using .bind() method.')
 
         if self.client != None:
             raise WrongOperation('Another connection is running right now.')
@@ -600,26 +713,31 @@ class Server(object):
                 i += 1
         except Exception as e:
             self.localErrFlag = True
-            raise e
-        except socket.timeout:
-            raise NetworkError('No connect-application from any remote client.')
+            if isinstance(e,socket.timeout):
+                raise NetworkError('No connect-application from any remote client.')
+            else:
+                raise e
         else:
             if i >= 5:
                 self.client = None
                 self.localErrFlag = True
-                raise NetworkError("Cannot connect from {}".format(targetHost))
+                raise NetworkError("Cannot connect from {}.".format(targetHost))
             else:
                 return True
 
     def receive(self):
-
+        '''
+        Usage:  server.receive()
+        
+        Receive wav data from connected remote client.
+        '''  
         if not self.safeFlag:
-            raise WrongOperation('Please run with safe mode by using <with> grammar.')
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
 
         if 'receive' in self.threadManager.keys() and self.threadManager['receive'].is_alive():
-            raise WrongOperation('Another receive thread is running now')
+            raise WrongOperation('Another receive thread is running now.')
         
-        if self.client == None:
+        if self.client is None:
             raise WrongOperation('Did not connect from any remote client.')
 
         def recvWave(dataQueue):
@@ -634,16 +752,21 @@ class Server(object):
                             break                            
                     if i == 5:
                         raise NetworkError('Communicate between server and remote client worked anomaly.')
-                vertification = vertification.decode().strip().split(',')
-                self._config_wave_format(vertification[0],None,int(vertification[1]),int(vertification[2]),int(vertification[3]))
+                if vertification == b'':
+                    print("Remote client did not send any data or data had been lost fully.")
+                    self.remoteErrFlag = True
+                else:
+                    vertification = vertification.decode().strip().split(',')
+                    self._config_wave_format(vertification[0],None,int(vertification[1]),int(vertification[2]),int(vertification[3]))
             except Exception as e:
                 self.localErrFlag = True
-                raise e                    
-            except socket.timeout:
-                raise NetworkError('Did not received any data from remote client.')
+                if isinstance(e,socket.timeout):
+                    raise NetworkError('Did not received any data from remote client.')
+                else:
+                    raise e
             else:
                 while True:
-                    if self.localErrFlag == True:
+                    if True in [self.localErrFlag,self.remoteErrFlag]:
                         break
                     try:
                         if self.proto == 'TCP':
@@ -658,11 +781,13 @@ class Server(object):
                                 raise NetworkError('Communicate between server and remote client worked anomaly.')
                     except Exception as e:
                         self.localErrFlag = True
-                        raise e 
-                    except socket.timeout:
-                        raise NetworkError('Did not received any data from remote client.')
+                        if isinstance(e,socket.timeout):
+                            raise NetworkError('Did not received any data from remote client.')
+                        else:
+                            raise e 
                     else:
                         if message == b'errFlag':
+                            print("Warning: Error occured at remote client!")
                             self.remoteErrFlag = True
                             break
                         elif message == b'endFlag':
@@ -675,32 +800,38 @@ class Server(object):
         self.threadManager['receive'].start()
 
     def recognize(self,func,args=None,interval=0.3):
-
+        '''
+        Usage:  client.recognize(recogFunc)
+        
+        Recognize wav.
+        <func> received path name of chunk wav file (and <args>).
+        <interval> is the seconds of each chunk wav data.
+        '''      
         if not self.safeFlag:
-            raise WrongOperation('We only allow user to run speak client by using <with> grammar.')
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
         
         if 'recognize' in self.threadManager.keys() and self.threadManager['recognize'].is_alive():
-            raise WrongOperation('Another recognize task is running now.')
+            raise WrongOperation('Another recognition task is running now.')
 
         def recognizeWave(dataQueue,func,args,resultQueue,interval):
-
-            class VOD(object):
+            
+            class VAD(object):
                 def __init__(self):
                     self.lastRe = None
                     self.c = 0
                 def __call__(self,re):
                     if re == self.lastRe:
                         self.c  += 1
-                        if self.c == 3:
-                            self.c = 1
+                        if self.c == 2:
+                            self.c = 0
                             return True
                         else:
                             return False
                     self.lastRe = re
-                    self.c = 1
+                    self.c = 0
                     return False
                     
-            vod = VOD()
+            vad = VAD()
 
             dataPerReco = []
             timesPerReco = None
@@ -710,15 +841,15 @@ class Server(object):
                 while True:
                     if True in [self.localErrFlag,self.remoteErrFlag]:
                         break
-                    elif dataQueue.empty():
-                        if 'receive' in self.threadManager.keys() and self.threadManager['receive'].is_alive():
+                    if dataQueue.empty():
+                        if ('receive' in self.threadManager.keys() and self.threadManager['receive'].is_alive()):
                             time.sleep(0.01)
                         else:
-                            raise WrongOperation('Excepted data input from Receive().')
+                            raise WrongOperation('Excepted data input by Receive() from remote client.')
                     else:
                         chunkData = dataQueue.get()
-                        if timesPerReco == None:
-                            # Compute timesPerReco and Throw the first message
+                        if timesPerReco is None:
+                            #Compute timesPerReco and Throw the first message
                             timesPerReco = math.ceil(self.rate*interval/self.chunkFrames)
                             continue
                         if chunkData == 'endFlag':
@@ -726,7 +857,7 @@ class Server(object):
                         else:
                             dataPerReco.append(chunkData)
                             count += 1
-
+                        
                         if count >= timesPerReco:
                             if len(dataPerReco) > 0:
                                 with tempfile.NamedTemporaryFile('w+b',suffix='.wav') as waveFile:
@@ -739,42 +870,44 @@ class Server(object):
                                     if args != None:
                                         result = func(waveFile.name,args)
                                     else:
-                                        result = func(waveFile.name)        
+                                        result = func(waveFile.name) 
+                            else:
+                                result = " "
                             if count > timesPerReco:
                                 resultQueue.put((True,result))
                                 break
                             else:
-                                sof = vod(result)
+                                sof = vad(result)
                                 resultQueue.put((sof,result))
-                                if sof:
+                                if sof is True:
                                     dataPerReco = []
                                 count = 0
             except Exception as e:
                 self.localErrFlag = True
                 raise e
             else:
-                if self.localErrFlag == True or self.remoteErrFlag == True:
+                if True in [self.localErrFlag,self.remoteErrFlag]:
                     pass
                 else:
-                    resultQueue.append('endFlag')
+                    resultQueue.put('endFlag')
 
         self.threadManager['recognize'] = threading.Thread(target=recognizeWave,args=(self.dataQueue,func,args,self.resultQueue,interval,))
-        self.threadManager['record'].start()
+        self.threadManager['recognize'].start()
 
     def send(self):
-
+        '''
+        Usage:  server.send()
+        
+        Send recognized results to connected remote client.
+        '''
         if not self.safeFlag:
-            raise WrongOperation('Please run under safe state by using <with> grammar')
-            #print('Running without safe mode. Please use exit() function finally to ensure tasks safely')
+             raise WrongOperation('We only allow user to use client under <with> grammar.')
 
         if 'send' in self.threadManager.keys() and self.threadManager['send'].is_alive():
             raise WrongOperation('Another send thread is running now')
 
-        if self.client == None:
+        if self.client is None:
             raise WrongOperation('No activated server client')
-
-        if resultQueue == None:
-            resultQueue = self.resultQueue
 
         def sendResult(resultQueue):
             try:
@@ -796,7 +929,8 @@ class Server(object):
                             #we will send data with a format: sectionOverFlag(Y/N/T) + ' ' + resultData + placeHolderSymbol(' ')
                             rSize = self.chunkSize - 2  # -len("Y ")
                             #result is likely longer than rSize, so cut it
-                            #Get the N front rSize part, give them all 'Y' sign   
+                            #Get the N front rSize part, give them all 'Y' sign
+                            i = 0
                             for i in range(len(message[1])//rSize):
                                 data.append('T ' + message[1][i*rSize:(i+1)*rSize])
                             if len(message[1][i*rSize:]) > 0:
@@ -840,6 +974,15 @@ class Server(object):
         self.threadManager['send'].start()                
 
     def get(self):
+        '''
+        Usage:  server.get()
+        
+        Get lastest recognied result from result queue.
+        If .send() is running, ERROR will be raised.
+        '''  
+        if not self.safeFlag:
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
+
         while True:
             if self.resultQueue.empty():
                 if ('recognize' in self.threadManager.keys() and self.threadManager['recognize'].is_alive()) or ('receive' in self.threadManager.keys() and self.threadManager['receive'].is_alive()):
@@ -851,4 +994,38 @@ class Server(object):
                 if message == 'endFlag':
                     return None
                 else:
-                    return message
+                    self.finalRecognizedResult[-1] = message[1]
+                    if message[0] is True:
+                        self.finalRecognizedResult.append("")
+                    return "".join(self.finalRecognizedResult)
+    
+    def run(self,targetHost,func,args=None,proto='TCP',bindHost=None,bindPort=9509,interval=0.3):
+        '''
+        Usage:  server = Server()
+                server.run(targetHost="192.168.1.1",func=func,bindHost="192.168.1.2")
+        
+        This is a integrated method: connect to remote client >> received data >> recognize >> send result back to client. 
+        '''
+        
+        self.__reset_sources()
+        self.safeFlag = True
+        
+        try:
+            if self.bindHost is None:
+                assert bindHost != None, 'Expected <bindHost> is not None.'
+                self.bind(proto, bindHost, bindPort)
+                print('Server has been bound on IP:{} and Port{}.'.format(bindHost,bindPort))
+
+            print("Wait connection application from target IP {}...".format(targetHost))
+            if self.connect_from(targetHost):
+                print("Connected successfully!")
+
+            print("Start receive >> recognize >> send-back loop.")
+            self.receive()
+            self.recognize(func,args,interval)
+            server.send()
+            server.wait()
+            print("Task over.")
+        finally:
+            self.__exit__(None,None,None)
+        

@@ -18,9 +18,9 @@ git clone https://github.com/kaldi-asr/kaldi.git kaldi --origin upstream
 ```
 And follow these three tutorial files to install and compile it.
 ```
-kaldi/INSTALL
-kaldi/tools/INSTALL
-kaldi/src/INSTALL
+less kaldi/INSTALL
+less kaldi/tools/INSTALL
+less kaldi/src/INSTALL
 ```
 
 2. Install ExKaldi toolkit from PyPi library.
@@ -117,9 +117,7 @@ _-----------------------------------------------< ExKaldi API >-----------------
     - [function: log_softmax](#log_softmaxdataother-parameters_)
     - [class: DataIterator](#dataiteratorscpfilesprocessfuncbatchsizechunksautootherargsnoneshufflefalseretaindata00)
     - [class: Supporter](#supporteroutdirresult)
-- [Addition](#client)
-    - [class: Client](#client)
-    - [class: Server](#server)
+
 ### KaldiArk()   
 
 < class description >  
@@ -806,10 +804,3 @@ If < byDeltaRate > is True, use 1-order delta to judge. Or use value itself.
 Return training information of each epoch reported. If < fromLogFile > is not None, read these information from file.
 If < keepitems > is True, return information by name of items.
 
-### Client()
-
-< class description >
-
-### Server()
-
-< class description >

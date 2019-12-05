@@ -1,7 +1,7 @@
 
 # -*- coding: UTF-8 -*-
 ################# Version Information ################
-# ExKaldi, version 0.2.1
+# ExKaldi, version 0.1.1
 # Yu Wang, Chee Siang Leow, Hiromitsu Nishizaki (University of Yamanashi)
 # Akio Kobayashi (Tsukuba University of Technology)
 # Takehito Utsuro (University of Tsukuba)
@@ -62,8 +62,7 @@ def get_kaldi_path():
 		p = subprocess.Popen('which copy-feats',shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 		(out,err) = p.communicate()
 		if out == b'':
-			print("Warning: Kaldi has not been found. You can set it with .set_kaldi_path() function. \
-							If not, ERROR will occur when implementing part of core functions.")
+			print("Warning: Kaldi has not been found. You can set it with .set_kaldi_path() function. If not, ERROR will occur when implementing part of core functions.")
 		else:
 			KALDIROOT = out.decode().strip()[0:-23]
 	
@@ -149,7 +148,7 @@ class KaldiArk(bytes):
 			if dataType == 'CM ':
 				fp.close()
 				raise UnsupportedDataType('This is compressed ark data. Use load(<arkFile>) function to load ark file again or \
-											use decompress(<KaldiArk>) function to decompress it firstly.')                    
+					use decompress(<KaldiArk>) function to decompress it firstly.')                    
 			elif dataType == 'FM ' or dataType == 'IM ':
 				sampleSize = 4
 			elif dataType == 'DM ' or dataType == 'UM ':
@@ -2373,14 +2372,14 @@ class DataIterator(object):
 		if self._isNewEpoch is True:
 			return 1.
 		else:
-			return self.currentEpochPosition/self.epochSize
+			return round(self.currentEpochPosition/self.epochSize,2)
 	
 	@property
 	def chunkProgress(self):
 		if self._isNewChunk is True:
 			return 1.
 		else:
-			return self.currentPosition/len(self.currentDataset)
+			return round(self.currentPosition/len(self.currentDataset),2)
 
 	def get_retained_data(self,processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False,retainData=0.0):
 
