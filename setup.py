@@ -19,7 +19,6 @@ setup(
     install_requires=["numpy>=1.16","PyAudio>=0.2"],
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: Apache License:: 2.0",
-        "Operating System :: OS Independent",
+        "License :: OSI Approved :: Apache Software License",
     ],
 )
