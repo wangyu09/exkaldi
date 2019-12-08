@@ -4006,7 +4006,11 @@ def log_softmax(data,axis=1):
 
 	dataShape = list(data.shape)
 	dataShape[axis] = 1
-	dataExp = np.exp(data)
-	dataExpLog = np.log(np.sum(dataExp,axis)).reshape(dataShape)
-
-	return data - dataExpLog
+	maxValue = data.max(axis,keepdims=True)
+	dataNor = data - maxValue
+	
+	dataExp = np.exp(dataNor)
+	dataExpSum = np.sum(dataExp,axis)
+	dataExpSumLog = np.log(dataExpSum) + maxValue.reshape(dataExpSum.shape)
+	
+	return data - dataExpSumLog.reshape(dataShape)
