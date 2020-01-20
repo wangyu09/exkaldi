@@ -185,6 +185,8 @@ if chunks > 1, return list whose members are KaldiArk objects.
 if uttList != None, select utterances if utterance id appeared.
 only one of these three options will works by order.   
 
+- [return top](#concepts-and-usage)
+
 ### KaldiDict() 
 
 < class description >  
@@ -268,6 +270,8 @@ return a KaldiDict object: traverse all utterances, and if one is longer than 1.
 `.tuple_value(others,sort=False)`    
 Tuple the utterance of the same ID from different objects. Return a list whose members are tuple: (utterance IDs, the utterances of others)
 
+- [return top](#concepts-and-usage)
+
 ### KaldiLattice(lat=None,hmm=None,wordSymbol=None) 
 
 < class description >
@@ -317,6 +321,8 @@ save lattice as .gz file. If < copyFile > is True, will copy HMM file and wordSy
 
 `__add__`  
 add another lattice. Note that it is just a simple addtional operation to intergrat several lattices as a big one.
+
+- [return top](#concepts-and-usage)
 
 ### load(fileName,_**other parameters_) 
 
