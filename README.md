@@ -125,15 +125,15 @@ _-----------------------------------------------< ExKaldi API >-----------------
     - [function: log_softmax](#log_softmaxdataother-parameters_)
     - [class: DataIterator](#dataiteratorscpfilesprocessfuncbatchsizechunksautootherargsnoneshufflefalseretaindata00)
     - [class: Supporter](#supporteroutdirresult)
-- [Graph](#kaldiark)
-    - [class: LexiconBank](#kaldiark)
-    - [function: train_ngrams](#loadfilenameother-parameters)
-    - [function: make_L](#loadfilenameother-parameters)
-    - [function: make_G](#loadfilenameother-parameters)
-    - [function: compose_LG](#loadfilenameother-parameters)
-    - [function: compose_CLG](#loadfilenameother-parameters)
-    - [function: compose_HCLG](#loadfilenameother-parameters)
-    - [function: fst_is_stochastic](#loadfilenameother-parameters)
+- [Graph](#lexiconbankpronlexiconother-parameters)
+    - [class: LexiconBank](#lexiconbankpronlexiconother-parameters)
+    - [function: train_ngrams](#train_ngramsdictionaryntextfileoutfileother-parameters)
+    - [function: make_L](#make_ldictionaryoutfileother-parameters)
+    - [function: make_G](#make_gdictionaryarpalmoutfileother-parameters)
+    - [function: compose_LG](#compose_lglfilegfileoutfile)
+    - [function: compose_CLG](#compose_clgdictionarylgfiletreefileoutfile)
+    - [function: compose_HCLG](#compose_hclgclgfilehmmfiletreefileilabelinfofileoutfileother-parameters)
+    - [function: fst_is_stochastic](#fst_is_stochasticfstfile)
 
 ### KaldiArk()   
 
@@ -958,3 +958,13 @@ Compose CLG.fst and final.mdl to HCLG.fst.
 `transScale` _the transfer probability_  
 `loopScale` _the self-loop probability_ 
 `removeOOVFile` _If it is a file name, remove the OVV provided by this file_ 
+
+### fst_is_stochastic(fstFile) 
+
+< function description >
+
+Check if fst is stochastic. If not return the loss value.
+
+< Parameters >  
+
+`fstFile` _fst file name_   
