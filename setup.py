@@ -8,7 +8,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="exkaldi",
-    version="0.1.1",
+    version="0.2.1",
     author="Yu Wang",
     author_email="wangyu@alps-lab.org",
     description="ExKaldi Automatic Speech Recognition Toolkit",

@@ -185,7 +185,7 @@ if chunks > 1, return list whose members are KaldiArk objects.
 if uttList != None, select utterances if utterance id appeared.
 only one of these three options will works by order.   
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### KaldiDict() 
 
@@ -270,7 +270,7 @@ return a KaldiDict object: traverse all utterances, and if one is longer than 1.
 `.tuple_value(others,sort=False)`    
 Tuple the utterance of the same ID from different objects. Return a list whose members are tuple: (utterance IDs, the utterances of others)
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### KaldiLattice(lat=None,hmm=None,wordSymbol=None) 
 
@@ -322,7 +322,7 @@ save lattice as .gz file. If < copyFile > is True, will copy HMM file and wordSy
 `__add__`  
 add another lattice. Note that it is just a simple addtional operation to intergrat several lattices as a big one.
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### load(fileName,_**other parameters_) 
 
@@ -336,7 +336,7 @@ Return KaldiArk or KaldiDict object.
 `filePath` _file path with a suffix '.ark' or '.scp' or '.npy'_
 `useSuffix`  _when file has another suffix, you can declare it, default = None_
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### save(data,_**other parameters_)
 
@@ -350,7 +350,7 @@ It is the same as .save method of KaldiArk or KaldiDict.
 `data` _KaldiArk, KaldiDict, or KaldiLattice object_
 `*params`  _If data is KaldiArk, or KaldiDict object, params should be filename and chunks, If KaldiLattice, fileName and copyFile shou be given_
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### concat(datas,axis)
 
@@ -359,7 +359,7 @@ It is the same as .save method of KaldiArk or KaldiDict.
 return a KaldiDict object. It is the same as .concat method of KaldiDict. 
 < datas > is expected as KaldiArk or KaldiDict object(s).
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### cut(data,maxFrames)
 
@@ -368,7 +368,7 @@ return a KaldiDict object. It is the same as .concat method of KaldiDict.
 return KaldiDict object. It is he same as .cut method of KaldiDict. 
 < data > is expected as KaldiArk or KaldiDict object.
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### normalize(data,std=True,alpha=1.0,beta=0.0,epsilon=1e-6,axis=0)
 
@@ -377,7 +377,7 @@ return KaldiDict object. It is he same as .cut method of KaldiDict.
 return KaldiDict object. It is he same as .normalize method of KaldiDict. 
 < data > is expected as KaldiArk or KaldiDict object.
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### merge(data,keepDim=False,sort=False)
 
@@ -386,7 +386,7 @@ return KaldiDict object. It is he same as .normalize method of KaldiDict.
 It is the same as .merge method of KaldiDict. 
 < data > is expected as KaldiArk or KaldiDict object(s).
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### remerge(matrix,uttLens)
 
@@ -394,7 +394,7 @@ It is the same as .merge method of KaldiDict.
 
 return a kaldiDict object.It is the same as .remerge method of KaldiDict. 
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### sort(data,by='frame',reverse=False)
 
@@ -403,7 +403,7 @@ return a kaldiDict object.It is the same as .remerge method of KaldiDict.
 return a KaldiDict object. It is the same as .sort method of KaldiDict. 
 < data > is expected as KaldiArk or KaldiDict object(s).
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### splice(data,left=4,right=None)
 
@@ -412,7 +412,7 @@ return a KaldiDict object. It is the same as .sort method of KaldiDict.
 return KaldiArk or KaldiDict object. It is the same as .splice method of KaldiArk or KaldiDict. 
 < datas > is expected as KaldiArk or KaldiDict object.
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### compute_mfcc(wavFile,_**other parameters_)
 
@@ -436,7 +436,7 @@ Also run shell command "compute-mfcc-feats" to check their meaning.
 `config`   _another configure setting method_  
 `asFile`   _if it is True, save result as file and return file path. Or return KaldiArk, default = False_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### compute_fbank(wavFile,_**other parameters_)
 
@@ -459,7 +459,7 @@ Also run shell command "compute-fbank-feats" to check their meaning.
 `config`   _another configure setting method_  
 `asFile`   _if it is true, save result as file and return file path. Or return KaldiArk, default = False_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### compute_plp(wavFile,_**other parameters_)  
 
@@ -483,7 +483,7 @@ Also run shell command "compute-plp-feats" to check their meaning.
 `config`   _another configure setting method_  
 `asFile`   _if it is True, save result as file and return file path, or return KaldiArk, default = False_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### compute_spectrogram(wavFile,_**other parameters_) 
 
@@ -505,7 +505,7 @@ Also run shell command "compute-spectrogram-feats" to check their meaning.
 `config`   _another configure setting method_  
 `asFile`   _if it is True, save result as file and return file path, or return KaldiArk, default = False_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### use_cmvn(feat,_**other parameters_) 
 
@@ -521,7 +521,7 @@ Apply CMVN to feature. Return KaldiArk object or file path if < outFile > is not
 `utt2spkFile`   _if None and spk2uttFile != None, raise error, default = None_  
 `outFile`   _if it is a file name, save result as file and return file path, or return KaldiArk, default = False_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### compute_cmvn_stats(feat,outFile,_**other parameters_) 
 
@@ -535,7 +535,7 @@ Compute CMVN state and save it as file. Return cmvn file path.
 `spk2uttFile`   _if None, compute cmvn state whin each utterance, default = None_  
 `outFile`   _file path name_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### use_cmvn_sliding(feat,_**other parameters_) 
 
@@ -549,7 +549,7 @@ Apply sliding CMVN to feature. Return KaldiArk object.
 `windowsSize`   _sliding windows width, frames, if None, set it to cover all frames at one time, default = None_   
 `std`   _if False, only apply mean, default = False_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### add_delta(feat,_**other parameters_) 
 
@@ -563,7 +563,7 @@ Add n-orders delta to feature. Return KaldiArk object or file path if < outFile 
 `order`   _the times of delta, default = 2_ 
 `outFile`   _if it is a file name, save result as file and return file path, or return KaldiArk, default = False_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### load_ali(aliFile,hmm,_**other parameters_) 
 
@@ -577,7 +577,7 @@ Get alignment from ali file. Return a KaldiDict object.
 `hmm`   _HMM file path_ 
 `returnPhoneme`   _if True, return phoneme IDs, or return pdf IDs, default = False_
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### load_lat(latFile,hmm,wordSymbol) 
 
@@ -586,7 +586,7 @@ Get alignment from ali file. Return a KaldiDict object.
 Get alignment from ali file. Return a KaldiDict object.
 The same as KaldiLattice().load() method.
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### analyze_counts(aliFile,outFile,_**other parameters_) 
 
@@ -602,7 +602,7 @@ Get statistical information of pdf IDs or phoneme IDs from ali file.
 `hmm` _if None, find HMM file automatically, default = None_
 `dim` _if None, compute dimension automatically, default = None_
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### decompress(data) 
 
@@ -615,7 +615,7 @@ This function is a cover of kaldi-io-for-python tools. For more information abou
 
 `data` _the binary data of kaldi compressed feature_
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### decode_lattice(amp,hmm,hclg,wordSymbol,_**other parameters_) 
 
@@ -642,7 +642,7 @@ Also run shell command "latgen-faster-mapped" to look their meaning.
 `maxThreads`   _the numbers of decode thread, default=1_      
 `outFile`   _if it is a file name, save result as file and return file path, or return KaldiLattice object, default = False_    
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### run_shell_cmd(cmd,_**other parameters_) 
 
@@ -655,7 +655,7 @@ We provided a basic way to run shell command. Return binary string (out,err).
 `cmd` _shell command, string_  
 `inputs`   _inputs data, string, default=None_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### get_kaldi_path() 
 
@@ -664,7 +664,7 @@ We provided a basic way to run shell command. Return binary string (out,err).
 return Kaldi toolkit root path if Kaldi has been found or set up, or return None.
 It is a initialized action implemented automatically when importing ExKaldi toolkit.
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### get_env() 
 
@@ -672,7 +672,7 @@ It is a initialized action implemented automatically when importing ExKaldi tool
 
 return the current environment which exkaldi is running at.
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### set_kaldi_path(path) 
 
@@ -680,7 +680,7 @@ return the current environment which exkaldi is running at.
 
 set kaldi root path manually. If another Kaldi had already been running rightly. replace it. 
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### check_config(name,config=None) 
 
@@ -693,7 +693,7 @@ Get default configure if < config > is None, or check if given < config > has a 
 `name` _object name you want to check. such as "compute_mfcc"_     
 `config` _if none, return defalut configure, or chenk the format of configure and return True if correct_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### split_file(filePath,_**other parameters_) 
 
@@ -706,7 +706,7 @@ Split a large scp file into n smaller files. The splited files will be put at th
 `filePath` _scp file path_       
 `chunks` _expected numbers, must be larger than 1, default=2_    
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### pad_sequence(data,_**other parameters_) 
 
@@ -721,7 +721,7 @@ Not that the first dimension of padded data is sequence.
 `shuffle` _If True, pad each sequence by randomly deciding its start position, Or start position is 0. default=False_
 `pad` _padded value, default=0_   
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### unpack_padded_sequence(data,lengths,_**other parameters_) 
 
@@ -735,7 +735,7 @@ It is a reverse operation of ExKaldi.pad_sequence function.
 `lengths` _It should has the same format of the lengths-output of pad_sequence function_
 `batchSizeDim` _assign the dimension that batch size is. default=1_   
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### wer(ref,hyp,_**other parameters_) 
 
@@ -752,7 +752,7 @@ Both < hyp > and < ref > can be text file or list object.
 `mode` _score mode, default=present_  
 `ignore` _ignore some symbol such as "sil", default=None_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### accuracy(ref,hyp,_**other parameters_) 
 
@@ -768,7 +768,7 @@ Both < ref > and < hyp > will be flattened before scoring.
 `ignore` _ignore some symbol such as padded 0, default=None_  
 `mode` _if mode == all, compute one-one matching score. if present, compute appearing score. default=all_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### edit_distance(ref,hyp,_**other parameters_) 
 
@@ -783,7 +783,7 @@ Both < ref > and < hyp > will be flattened before scoring.
 `hyp` _iterative object like ref_  
 `ignore` _ignore some symbol, default=None_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### log_softmax(data,**other parameters_) 
 
@@ -796,7 +796,7 @@ Compute the log-softmax value of a NumPy array data.
 `data` _NumPy array_       
 `axis` _demension, default=1_ 
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### DataIterator(scpFiles,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,retainData=0.0)
 
@@ -853,7 +853,7 @@ Return a batch of data. it is a list object.
 Return a new DataIterator object if data was retained before. Or raise error.
 If these parameters are None, use the same value with main iterator.
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### Supporter(outDir='Result')
 
@@ -891,7 +891,7 @@ If < byDeltaRate > is True, use 1-order delta to judge. Or use value itself.
 Return training information of each epoch reported. If < fromLogFile > is not None, read these information from file.
 If < keepitems > is True, return information by name of items.
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### LexiconBank(pronLexicon,_**other parameters_)
 
@@ -947,7 +947,7 @@ Replace the word-int table with users' own lexicon.
 `update_prob(targetFile)`   
 Update relative probability of all of lexicons including lexiconp, lexiconp_silprob, lexiconp_disambig, lexiconp_silprob_disambig and silprob. targetFile can be any one of them but must be a file. 
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### train_ngrams(dictionary,n,textFile,outFile,_**other parameters_) 
 
@@ -963,7 +963,7 @@ Generate ARPA n-grams language model. Return absolute path of generated LM.
 `outFile` _output ARPA-LM file name_
 `discount` _discount algorithm_
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### make_L(dictionary,outFile,_**other parameters_) 
 
@@ -979,7 +979,7 @@ Generate L.fst(or L_disambig.fst) file. Return the abs-path of generated file.
 `silProb` _a probability-like value. If useSilprob is False, this value will work_
 `useDisambig` _True or False. If True, apply disambiguation_
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### make_G(dictionary,arpaLM,outFile,_**other parameters_) 
 
@@ -994,7 +994,7 @@ Transform ARPA format language model to FST format. Return abspath of generated 
 `outFile` _output G file name_  
 `n` _using order of n-grams LM_
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### compose_LG(Lfile,Gfile,outFile) 
 
@@ -1008,7 +1008,7 @@ Compose L.fst and G.fst to LG.fst file.
 `Gfile` _G file name_    
 `outFile` _output LG file name_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### compose_CLG(dictionary,LGfile,treeFile,outFile) 
 
@@ -1024,7 +1024,7 @@ This function will return the absolute path of not only CLG file but also ilabel
 `treeFile` _tree file name_    
 `outFile` _output CLG file name_  
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### compose_HCLG(CLGfile,hmmFile,treeFile,iLabelInfoFile,outFile,_**other parameters_) 
 
@@ -1043,7 +1043,7 @@ Compose CLG.fst and final.mdl to HCLG.fst.
 `loopScale` _the self-loop probability_ 
 `removeOOVFile` _If it is a file name, remove the OVV provided by this file_ 
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
 
 ### fst_is_stochastic(fstFile) 
 
@@ -1055,4 +1055,4 @@ Check if fst is stochastic. If not return the loss value.
 
 `fstFile` _fst file name_   
 
-- [return top](#concepts-and-usage)
+- [Back to top](#concepts-and-usage)
