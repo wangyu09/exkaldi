@@ -1,7 +1,7 @@
 
 # -*- coding: UTF-8 -*-
 ################# Version Information ################
-# ExKaldi, version 0.1.1
+# ExKaldi, version 0.1 for Kaldi 5.5
 # Yu Wang, Chee Siang Leow, Hiromitsu Nishizaki (University of Yamanashi)
 # Akio Kobayashi (Tsukuba University of Technology)
 # Takehito Utsuro (University of Tsukuba)
@@ -36,39 +36,6 @@ KALDIROOT = None
 kaidiNotFoundError = PathError('Kaldi ASR toolkit has not been found.')
 
 # ------------ Environment Functions -----------
-
-def get_env():
-	'''
-	Usage:  ENV = get_env()
-
-	Return the current environment which ExKaldi is running at.
-	'''
-	global ENV
-
-	if ENV is None:
-		ENV = os.environ.copy()
-
-	return ENV
-
-def get_kaldi_path():
-	'''
-	Usage:  kaldiRoot = get_kaldi_path() 
-
-	Return the root directory of Kaldi toolkit. If the Kaldi has not been found, return None.
-	'''
-	global KALDIROOT
-
-	if KALDIROOT == None:
-		p = subprocess.Popen('which copy-feats',shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-		(out,err) = p.communicate()
-		if out == b'':
-			print("Warning: Kaldi has not been found. You can set it with .set_kaldi_path() function. If not, ERROR will occur when implementing part of core functions.")
-		else:
-			KALDIROOT = out.decode().strip()[0:-23]
-	
-	return KALDIROOT
-
-_ = get_kaldi_path()
 
 def set_kaldi_path(path):
 	'''
@@ -105,6 +72,10 @@ def set_kaldi_path(path):
 			continue
 		elif i.endswith('/src/bin'):
 			continue
+		elif i.endswith('/src/lmbin'):
+			continue
+		elif i.endswith('src/fstbin'):
+			continue
 		else:
 			systemPATH.append(i)
 	systemPATH.append(path+'/src/bin')
@@ -112,7 +83,62 @@ def set_kaldi_path(path):
 	systemPATH.append(path+'/src/featbin')
 	systemPATH.append(path+'/src/Gambian')
 	systemPATH.append(path+'/src/nnetbin')
+	systemPATH.append(path+'/src/lmbin')
+	systemPATH.append(path+'/src/fstbin')
 	ENV['PATH'] = ":".join(systemPATH)
+
+def get_env():
+	'''
+	Usage:  ENV = get_env()
+
+	Return the current environment which ExKaldi is running at.
+	'''
+	global ENV
+
+	if ENV is None:
+		ENV = os.environ.copy()
+
+	return ENV
+
+def get_kaldi_path():
+	'''
+	Usage:  kaldiRoot = get_kaldi_path() 
+
+	Return the root directory of Kaldi toolkit. If the Kaldi has not been found, return None.
+	'''
+	global KALDIROOT
+
+	if KALDIROOT == None:
+		p = subprocess.Popen('which copy-feats',shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+		(out,err) = p.communicate()
+		if out == b'':
+			print("Warning: Kaldi has not been found. You can set it with .set_kaldi_path() function. If not, ERROR will occur when implementing part of core functions.")
+		else:
+			KALDIROOT = out.decode().strip()[0:-23]
+			set_kaldi_path(KALDIROOT) # In order to reset the environment
+	
+	return KALDIROOT
+
+_ = get_kaldi_path()
+
+def make_dirs_for_outFile(path):
+	'''
+	Usage: make_dirs_for_outFile( path )
+
+	It will check whether the directory of outFile is existed. 
+	If not, try to creat it.
+	'''
+
+	dirPath = os.path.dirname(path)
+
+	if not os.path.isdir(dirPath):
+
+		try:
+			os.makedirs(dirPath)
+		
+		except Exception as e:
+			print("Make directory defeated:{}.".format(dirPath))
+			raise e
 
 # ------------ Classes ------------
 
@@ -1649,6 +1675,7 @@ class KaldiLattice(object):
 		result = {}
 		if outFile != None:
 			assert isinstance(outFile,str), "Expected <outFile> is a file name-like string."
+			make_dirs_for_outFile(outFile)
 			for LMWT in range(lmwt,maxLmwt,1):
 				outFileLMWT = '{}.{}'.format(outFile,LMWT)
 				if phoneSymbol != None:
@@ -1782,6 +1809,7 @@ class KaldiLattice(object):
 		cmd = KALDIROOT+'/src/latbin/lattice-to-nbest --acoustic-scale={} --n={} ark:- ark:- |'.format(acwt,n)
 		if outFile != None:
 			assert isinstance(outFile,str), 'Expected <outFile> is file name-like string but got {}.'.format(outFile)
+			make_dirs_for_outFile(outFile)
 			if outAliFile != None:
 				assert isinstance(outAliFile,str), 'Expected <outAliFile> is file name-like string but got {}.'.format(outAliFile)
 				if not outAliFile.endswith('.gz'):
@@ -3022,6 +3050,7 @@ def use_cmvn(feat,cmvnStatFile=None,utt2spkFile=None,spk2uttFile=None,outFile=No
 		if outFile != None:
 			if not outFile.endswith('.ark'):
 				outFile += '.ark'
+			make_dirs_for_outFile(outFile)
 			if utt2spkFile != None:
 				cmd2 = 'apply-cmvn --utt2spk=ark:{} {} ark:- ark:{}'.format(utt2spkFile,cmvnStatFileOption,outFile)
 			else:
@@ -3077,6 +3106,9 @@ def compute_cmvn_stats(feat,outFile,spk2uttFile=None):
 		cmd = 'compute-cmvn-stats --spk2utt=ark:{} ark:-'.format(spk2uttFile)
 	else:
 		cmd = 'compute-cmvn-stats ark:-'
+
+	assert isinstance(outFile,str), '<outFile> should be name-like string.'
+	make_dirs_for_outFile(outFile)
 
 	if outFile.endswith('.scp'):
 		cmd += ' ark,scp:{},{}'.format(outFile[0:-4]+'.ark',outFile)
@@ -3151,6 +3183,7 @@ def add_delta(feat,order=2,outFile=None):
 	
 	if outFile != None:
 		assert isinstance(outFile,str), "Expected <outFile> is a name-like string."
+		make_dirs_for_outFile(outFile)
 		outFile = os.path.abspath(outFile)
 		if not outFile.endswith('.ark'):
 			outFile += '.ark'
@@ -3359,6 +3392,8 @@ def analyze_counts(aliFile,outFile,countPhone=False,hmm=None,dim=None):
 	We defaultly compute pdf IDs counts but if <countPhone> is True, compute phone IDs counts.   
 	For more help information, look at the Kaldi <analyze-counts> command.
 	''' 
+	assert isinstance(outFile,str), '<outFile> should be name-like string.'
+	make_dirs_for_outFile(outFile)
 
 	global KALDIROOT,kaidiNotFoundError,ENV
 	if KALDIROOT is None:
@@ -3538,6 +3573,7 @@ def decode_lattice(amp,hmm,hclg,wordSymbol,minActive=200,maxActive=7000,maxMem=5
 
 	if outFile != None:
 		assert isinstance(outFile,str), "Expected <outFile> is name-like string."
+		make_dirs_for_outFile(outFile)
 		if not outFile.endswith('.gz'):
 			outFile += '.gz'
 		cmd1 = '{} {} {} ark:- ark:| gzip -c > {}'.format(kaldiTool,hmm,hclg,outFile)
@@ -4014,3 +4050,19 @@ def log_softmax(data,axis=1):
 	dataExpSumLog = np.log(dataExpSum) + maxValue.reshape(dataExpSum.shape)
 	
 	return data - dataExpSumLog.reshape(dataShape)
+
+def print_message(*args,**kwargs):
+	'''
+	Usage: print_message( message )
+
+	It plays the same role with Python print function.
+	Besides, you can give it a special parameter whose name is "verbose", which do not print if it is "0"  
+	'''
+
+	if "verbose" in kwargs.keys():
+		verbos = kwargs.pop("verbose")
+	else:
+		verbos = 1
+
+	if verbos != 0:
+		print(*args,**kwargs)

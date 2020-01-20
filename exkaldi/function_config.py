@@ -1,4 +1,5 @@
 def configure(name):
+
 	if name == 'compute_mfcc':
 		return {"--allow-downsample":["false",str],
 				"--allow-upsample":["false",str],
@@ -34,6 +35,7 @@ def configure(name):
 				"--window-type":["povey",str],
 				"--write-utt2dur":["",str]
 			}
+
 	elif name == 'compute_fbank':
 		return {"--allow-downsample":["false",str],
 				"--allow-upsample":["false",str],
@@ -69,6 +71,7 @@ def configure(name):
 				"--window-type":["povey",str],
 				"--write-utt2dur":["",str]
 			}    
+
 	elif name == 'compute_plp':
 		return {"--allow-downsample":["false",str],
 				"--allow-upsample":["false",str],
@@ -107,6 +110,7 @@ def configure(name):
 				"--window-type":["povey",str],
 				"--write-utt2dur":["",str]
 			} 
+
 	elif name == 'compute_spectrogram':
 		return {"--allow-downsample":["false",str],
 				"--allow-upsample":["false",str],
@@ -129,6 +133,7 @@ def configure(name):
 				"--window-type":["povey",str],
 				"--write-utt2dur":["",str]
 			} 
+
 	elif name == 'decode_lattice':
 		return {"--acoustic-scale":[0.1,float],
 				"--allow-partial":["false",str],
@@ -147,6 +152,7 @@ def configure(name):
 				"--word-determinize":["true",str],
 				"--word-symbol-table":["",str]
 			} 
+	
 	else:
 		return None
 

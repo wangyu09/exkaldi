@@ -10,6 +10,14 @@ and improve their performance by, for example, multiple tasks with different lab
 With jointing Kaldi and deep learning frameworks, 
 integrated solutions are presented in ExKaldi from feature extracting to decoding to put up a customized speech recognition system quickly. 
 
+## Version 0.2
+
+1. In version 0.2, a new module named exkaldi.graph is designed to train a n-grams language model and make HCLG graph.
+
+2. Added an example program to show how to use exkaldi.graph module.
+
+3. Other updates in core module.
+
 ## Start with ExKaldi
 
 1. Install Kaldi ASR toolkit. Download the Kaldi ASR toolkit firstly.
@@ -117,6 +125,15 @@ _-----------------------------------------------< ExKaldi API >-----------------
     - [function: log_softmax](#log_softmaxdataother-parameters_)
     - [class: DataIterator](#dataiteratorscpfilesprocessfuncbatchsizechunksautootherargsnoneshufflefalseretaindata00)
     - [class: Supporter](#supporteroutdirresult)
+- [Graph](#kaldiark)
+    - [class: LexiconBank](#kaldiark)
+    - [function: train_ngrams](#loadfilenameother-parameters)
+    - [function: make_L](#loadfilenameother-parameters)
+    - [function: make_G](#loadfilenameother-parameters)
+    - [function: compose_LG](#loadfilenameother-parameters)
+    - [function: compose_CLG](#loadfilenameother-parameters)
+    - [function: compose_HCLG](#loadfilenameother-parameters)
+    - [function: fst_is_stochastic](#loadfilenameother-parameters)
 
 ### KaldiArk()   
 
@@ -804,3 +821,140 @@ If < byDeltaRate > is True, use 1-order delta to judge. Or use value itself.
 Return training information of each epoch reported. If < fromLogFile > is not None, read these information from file.
 If < keepitems > is True, return information by name of items.
 
+### LexiconBank(pronLexicon,_**other parameters_)
+
+< class description >
+
+Lexiconbank class is designed to hold all lexicons which are going to be used when user want to make decoding graph.
+
+< init Parameters >
+
+`pronLexicon` _a lexicon file path. We support to generate lexicon bank from 5 kinds of lexicon which are lexicon, lexiconp(-disambig) and lexiconp-silprob(-disambig)_
+
+`silWords` _a list object whose members are silence words_
+
+`unkSymbol` _a string used to map the unknown words_
+
+`optionalSilPhone` _a string to map the pronunciation of eps_
+
+`extraQuestions` _a list object_
+
+`positionDependent` _True or False_
+
+`shareSilPdf` _True or False_
+
+`extraDisambigPhoneNumbers` _a positive int value_
+
+`extraDisambigWords` _a list object_
+
+< Attributes >
+
+`view`   
+_return the lexicon names of all generated lexicons_  
+
+< Methods >
+
+`get_parameter(name=None)`   
+Return the value of saved parameter. If name is "None", return all parameters.
+
+`__call__(name,returnInt=False)`   
+Get a dictionary. If returnInt is "True", replace phones or words with ID number (but with a type of Python str).
+
+`dump_dict(name,outFile,dumpInt=False)`   
+Save the lexicon to file with Kaldi format. If dumpInt is "True", replace phones or words with int ID.
+
+`dump_all_dicts(outDir="./",requireInt=False)`   
+Save all lexicons with Kaldi format. If requireInt is "True", save int format file meanwhile.
+
+`reset_phones(target)`   
+Replace the phone-int table with users' own lexicon.
+
+`reset_words(target)`   
+Replace the word-int table with users' own lexicon.
+
+`update_prob(targetFile)`   
+Update relative probability of all of lexicons including lexiconp, lexiconp_silprob, lexiconp_disambig, lexiconp_silprob_disambig and silprob. targetFile can be any one of them but must be a file. 
+
+### train_ngrams(dictionary,n,textFile,outFile,_**other parameters_) 
+
+< function description >
+
+Generate ARPA n-grams language model. Return absolute path of generated LM.
+
+< Parameters >  
+
+`dictionary` _a LexiconBank object_       
+`n` _a positive int number_  
+`textFile` _text source. It could be compressed text file_
+`outFile` _output ARPA-LM file name_
+`discount` _discount algorithm_
+
+### make_L(dictionary,outFile,_**other parameters_) 
+
+< function description >
+
+Generate L.fst(or L_disambig.fst) file. Return the abs-path of generated file.
+
+< Parameters >  
+
+`dictionary` _a LexiconBank object_       
+`outFile` _output G file name_  
+`useSilprob` _True or False, If True, use the lexiconp-silprob file_
+`silProb` _a probability-like value. If useSilprob is False, this value will work_
+`useDisambig` _True or False. If True, apply disambiguation_
+
+### make_G(dictionary,arpaLM,outFile,_**other parameters_) 
+
+< function description >
+
+Transform ARPA format language model to FST format. Return abspath of generated fst LM.
+
+< Parameters >  
+
+`dictionary` _a LexiconBank object_  
+`arpaLM` _ARPA-LM file name_    
+`outFile` _output G file name_  
+`n` _using order of n-grams LM_
+
+### compose_LG(Lfile,Gfile,outFile) 
+
+< function description >
+
+Compose L.fst and G.fst to LG.fst file.
+
+< Parameters >  
+
+`Lfile` _L file name_  
+`Gfile` _G file name_    
+`outFile` _output LG file name_  
+
+### compose_CLG(dictionary,LGfile,treeFile,outFile) 
+
+< function description >
+
+Compose LG.fst and tree to CLG.fst file.
+This function will return the absolute path of not only CLG file but also ilabel file.
+
+< Parameters >  
+
+`dictionary` _a LexiconBank object_  
+`LGfile` _LG file name_    
+`treeFile` _tree file name_    
+`outFile` _output CLG file name_  
+
+### compose_HCLG(CLGfile,hmmFile,treeFile,iLabelInfoFile,outFile,_**other parameters_) 
+
+< function description >
+
+Compose CLG.fst and final.mdl to HCLG.fst.
+
+< Parameters >  
+
+`CLGfile` _CLG file name_   
+`hmmFile` _HMM file name_   
+`treeFile` _tree file name_
+`iLabelInfoFile` _ilabel file name_   
+`outFile` _output HCLG file name_  
+`transScale` _the transfer probability_  
+`loopScale` _the self-loop probability_ 
+`removeOOVFile` _If it is a file name, remove the OVV provided by this file_ 
