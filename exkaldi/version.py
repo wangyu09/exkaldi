@@ -15,15 +15,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Define Exkaldi version information."""
-
 from collections import namedtuple
 import subprocess
 import os
 from glob import glob
 
+'''Some Exception Classes'''
+
 class WrongPath(Exception): pass
+class WrongOperation(Exception):pass
+class WrongDataFormat(Exception):pass
+class ShellProcessError(Exception):pass
+class KaldiProcessError(Exception):pass
+class UnsupportedType(Exception):pass
 class UnsupportedKaldiVersion(Exception): pass
+
+'''Version Control'''
 
 _MAJOR_VERSION = '1'
 _MINOR_VERSION = '0'
