@@ -288,7 +288,7 @@ def compress_gz_file(filePath, overWrite=False):
 	
 	if cod != 0:
 		print(err.decode())
-		raise Exception("Failed to compress file.")
+		raise ShellProcessError("Failed to compress file.")
 	else:
 		return os.path.abspath(outFile)
 
@@ -317,7 +317,7 @@ def decompress_gz_file(filePath, overWrite=False):
 
 	if cod != 0:
 		print(err.decode())
-		raise Exception("Failed to decompress file.")
+		raise ShellProcessError("Failed to decompress file.")
 	else:
 		return os.path.abspath(outFile)
 
