@@ -1,9 +1,0 @@
-Version 1.6
-
-#<18:00 Aug 23,2019>: Speak Client Section is still debugging now.
-#<12:00 Aug 23,2019>: (Advice) When the data is extremely large, hope to stop it when load.
-#<12:10 Aug 23,2019>: (Bug) The format of configure options should be detected by <re> grammar. <== Debug Done, 0:30, Aug 24, 2019, wangyu
-#<2:28 Aug 24 2019>: (Advice) When data loading, hope to use thread to compute its running time. 
-#<13:00 Aug 25 2019>: (Bug) the <configFile> of compute feat functions are unable now. <== Debug Done, 13:30, Aug 26, 2019, wangyu
-#<13:00 Aug 25 2019>: (Bug) the <configFile> of compute feat functions are unable now. <== Debug Done, 13:30, Aug 26, 2019, wangyu
-#<13:00 Aug 25 2019>: (Bug) the batch size might be bigger than chunk data length. <== Debug Done, 13:44, Aug 26, 2019, wangyu
