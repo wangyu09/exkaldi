@@ -25,12 +25,7 @@ from collections.abc import Iterable
 import numpy as np
 
 from exkaldi.version import version as ExkaldiInfo
-from exkaldi.version import WrongPath
-
-class WrongOperation(Exception):pass
-class WrongDataFormat(Exception):pass
-class KaldiProcessError(Exception):pass
-class UnsupportedDataType(Exception):pass
+from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, KaldiProcessError, ShellProcessError, UnsupportedType
 
 def type_name(obj):
 	'''
@@ -58,7 +53,7 @@ def run_shell_command(cmd, stdin=None, stdout=None, stderr=None, inputs=None, en
 	elif isinstance(cmd, list):
 		shell = False
 	else:
-		raise WrongOperation("Expected <cmd> is string or list whose menbers are a command and its options.")
+		raise UnsupportedType("<cmd> should be a string,  or a list of command and its options.")
 	
 	if env is None:
 		env = ExkaldiInfo.ENV
@@ -69,7 +64,7 @@ def run_shell_command(cmd, stdin=None, stdout=None, stderr=None, inputs=None, en
 		elif isinstance(inputs, bytes):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected <inputs> is str or bytes but got {type_name(inputs)}.")
+			raise UnsupportedType(f"Expected <inputs> is string or bytes object but got {type_name(inputs)}.")
 
 	p = subprocess.Popen(cmd, shell=shell, stdin=stdin, stdout=stdout, stderr=stderr, env=env)
 	(out, err) = p.communicate(input=inputs)
@@ -88,10 +83,7 @@ def make_dependent_dirs(path, pathIsFile=True):
 	assert isinstance(path, str), "<path> should be a file path."
 	path = os.path.abspath(path.strip())
 
-	if pathIsFile:
-		dirPath = os.path.dirname()
-	else:
-		dirPath = path
+	dirPath = os.path.dirname() if pathIsFile else path
 	
 	if not os.path.isdir(dirPath):
 		try:
@@ -188,7 +180,6 @@ def check_config(name, config=None):
 	'''
 	assert isinstance(name, str), "<name> should be a name-like string."
 
-	ModuleNotFoundError
 	try:
 		module = importlib.import_module(f'exkaldi.config.{name}')
 	except ModuleNotFoundError:
@@ -211,7 +202,7 @@ def check_config(name, config=None):
 			else:
 				proto = c[k][1]
 				if isinstance(config[k], bool):
-					raise WrongOperation(f"configure <{k}> is bool value '{configure[k]}', but we expected str value like 'true' or 'false'.")
+					raise WrongOperation(f"configure <{k}> is bool value '{config[k]}', but we expected str value like 'true' or 'false'.")
 				elif not isinstance(config[k], proto):
 					raise WrongDataFormat(f"configure <{k}> is expected {proto} but got {type_name(config[k])}.")
 			return True
@@ -273,30 +264,35 @@ def split_txt_file(filePath, chunks=2):
 	
 	return files
 
-def compress_gz_file(filePath):
+def compress_gz_file(filePath, overWrite=False):
 	'''
 	Compress a file to gz file.
 
 	Args:
 		<filePath>: file path.
+		<overWrite>: If True, overwrite gz file when it is existed.
 	Return:
 		the absolute path of compressed file.
 	'''
 	assert isinstance(filePath, str), f"<filePath> must be a string but got {type_name(filePath)}."
 	filePath = filePath.strip()
 	if not os.path.isfile(filePath):
-		raise WrongPath(f"Noe such file:{filePath}.")
+		raise WrongPath(f"No such file:{filePath}.")
 
-	cmd = f"gzip {filePath}".format(filePath)
-	out, err, _ = run_shell_command(cmd, stderr=subprocess.PIPE)
-	outFile = filePath+".gz"
-	if not os.path.isfile(outFile):
+	outFile = filePath + ".gz"
+	if overWrite is True and os.path.isfile(outFile):
+		os.remove(outFile) 
+
+	cmd = f"gzip {filePath}"
+	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+	
+	if cod != 0:
 		print(err.decode())
 		raise Exception("Failed to compress file.")
 	else:
 		return os.path.abspath(outFile)
 
-def decompress_gz_file(filePath):
+def decompress_gz_file(filePath, overWrite=False):
 	'''
 	Decompress a gz file.
 
@@ -306,21 +302,24 @@ def decompress_gz_file(filePath):
 		the absolute path of decompressed file.
 	'''
 	assert isinstance(filePath, str), f"<filePath> must be a string but got {type_name(filePath)}."
-	filePath = filePath.strip()
+	filePath = filePath.rstrip()
 	if not os.path.isfile(filePath):
 		raise WrongPath(f"Noe such file:{filePath}.")
 	elif not filePath.endswith(".gz"):
 		raise WrongOperation(f"{filePath}: Unknown suffix.")
 
-	cmd = "gzip -d {}".format(filePath)
-
-	out, err, _ = run_shell_command(cmd, stderr=subprocess.PIPE)
 	outFile = filePath[:-3]
-	if not os.path.isfile(outFile):
+	if overWrite is True and os.path.isfile(outFile):
+		os.remove(outFile) 
+
+	cmd = f"gzip -d {filePath}"
+	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+
+	if cod != 0:
 		print(err.decode())
 		raise Exception("Failed to decompress file.")
 	else:
-		return outFile
+		return os.path.abspath(outFile)
 
 def flatten(item):
 	'''
@@ -335,21 +334,19 @@ def flatten(item):
 
 	new = []
 	for i in item:
-		if isinstance(i, (int, float)):
+		dtype = type_name(i)
+		if dtype.startswith("int") or dtype.startswith("float"):
 			new.append(i)
-		if isinstance(i, str):
+		elif dtype.startswith("str"):
 			if len(i) <= 1:
 				new.append(i)
 			else:
 				new.extend(flatten(i))
-		elif isinstance(i, (list, tuple, set)):
+		elif dtype in ["list", "tuple", "set"]:
 			new.extend(flatten(i))
-		elif isinstance(i, np.ndarray):
-			if i.shape == ():
-				new.append(i)
-			else:
-				new.extend(flatten(i))
+		elif dtype == "ndarray":
+			new.extend(flatten(i))
 		else:
-			raise UnsupportedDataType(f"Expected list, tuple, set, str or Numpy array object but got {type_name}.")
+			raise UnsupportedType(f"Expected list, tuple, set, str or Numpy array object but got {type_name(i)}.")
 
 	return new
