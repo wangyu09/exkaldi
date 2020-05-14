@@ -22,6 +22,7 @@ import struct
 import subprocess
 import os
 import tempfile
+from collections import namedtuple
 
 import sys
 sys.path.append('/mnt/c/Users/sanja/Documents/github/exkaldi')
@@ -31,14 +32,14 @@ from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, Unsuppor
 from exkaldi.version import version as ExkaldiInfo
 
 ''' Kaldi script table '''
-class ScripTable(dict):
+class ScriptTable(dict):
 	'''
 	This is a subclass of Python dict and used to hold all kaldi list tables such as feature scp file, utt2spk file, transcription file and so on. 
 	'''
 	def __init__(self, data={}, name="table"):
 		assert isinstance(name, str) and len(name) >0, "Name is not a string avaliable."
 		self.__name = name
-		super(ScripTable, self).__init__(data)
+		super(ScriptTable, self).__init__(data)
 	
 	@property
 	def is_void(self):
@@ -49,7 +50,7 @@ class ScripTable(dict):
 
 	@property
 	def name(self):
-		return copy.deepcopy(self.__name)
+		return self.__name
 
 	def rename(self, name):
 		'''
@@ -75,7 +76,7 @@ class ScripTable(dict):
 
 		items = sorted(self.items(), key=lambda x:x[0], reverse=reverse)
 		
-		return ScripTable(items, name=self.name)
+		return ScriptTable(items, name=self.name)
 
 	def save(self, fileName=None):
 		'''
@@ -105,12 +106,12 @@ class ScripTable(dict):
 
 	def load(self, fileName):
 		'''
-		Load a transcription from file. If utt is existed, it will be overlaped.
+		Load a script table from file. If utt is existed, it will be overlaped.
 
 		Args:
 			<fileName>: the txt file path.
 		'''
-		assert isinstance(fileName, str) and len(fileName)>0, "file name is unavaliable."
+		assert isinstance(fileName, str) and len(fileName) > 0, "file name is unavaliable."
 		if not os.path.isfile(fileName):
 			raise WrongPath(f"No such file:{fileName}.")
 
@@ -127,14 +128,14 @@ class ScripTable(dict):
 
 	def __add__(self, other):
 		'''
-		Integrate two ScripTable objects. If utt is existed in both two objects, the former will be retained.
+		Integrate two ScriptTable objects. If utt is existed in both two objects, the former will be retained.
 
 		Args:
-			<other>: another ScripTable object.
+			<other>: another ScriptTable object.
 		Return:
-			A new ScripTable object.
+			A new ScriptTable object.
 		'''
-		assert isinstance(other, ScripTable), f"Cannot add {type_name(other)}."
+		assert isinstance(other, ScriptTable), f"Cannot add {type_name(other)}."
 		new = copy.deepcopy(other)
 		new.update(self)
 
@@ -143,7 +144,7 @@ class ScripTable(dict):
 
 		return new
 
-class Transcription(ScripTable):
+class Transcription(ScriptTable):
 	'''
 	This is used to hold transcription text, such as decoding n-best. 
 	'''
@@ -175,7 +176,7 @@ class Transcription(ScripTable):
 		result = super().__add__(other)
 		return Transcription(result, name=result.name)
 
-class Cost(ScripTable):
+class Cost(ScriptTable):
 	'''
 	This is used to hold the AM or LM cost of N-Best. 
 	'''
@@ -207,16 +208,29 @@ class Cost(ScripTable):
 		result = super().__add__(other)
 		return Cost(result, name=result.name)
 
-class BytesDataIndex(ScripTable):
+class BytesDataIndex(ScriptTable):
 	'''
 	For accelerate to find utterance and reduce Memory cost of intermidiate operation.
 	This is used to hold utterance index information of bytes data. It likes the script-file of a feature binary achivements in Kaldi.
 	Every BytesData object will carry with one BytesDataIndex object.
-	{ "utt": (frames, start_index, length) }
+	{ "utt": namedtuple(frames, startIndex, dataSize) }
 	'''	
-	def __init__(self, data, name="index"):
+	def __init__(self, data={}, name="index"):
 		super(BytesDataIndex, self).__init__(data, name=name)
+		
+		for key, value in self.items():
+			try:
+				self[key] = self.spec(*value)
+			except:
+				raise WrongDataFormat(f"Wrong index info format:{value}.")
 	
+	@property
+	def spec(self):
+		'''
+		The index info spec.
+		'''
+		return namedtuple("Index",["frames", "startIndex", "dataSize"])
+
 	def sort(self, by="utt", reverse=False):
 		'''
 		Sort utterances by frames length or uttID
@@ -229,16 +243,16 @@ class BytesDataIndex(ScripTable):
 		''' 
 		if self.is_void:
 			raise WrongOperation('No data to sort.')
-		assert by in ["utt","frame"], "We only support sorting by 'name' or 'frame'."
+		assert by in ["utt","frames", "startIndex"], "We only support sorting by 'name' or 'frame' or 'startIndex'."
 
 		if by == "utt":
-			items = sorted(self.items(), lambda x:x[0], reverse=reverse)
-		elif by == "frame":
-			items = sorted(self.items(), lambda x:x[1][0], reverse=reverse)
+			items = sorted(self.items(), key=lambda x:x[0], reverse=reverse)
+		elif by == "frames":
+			items = sorted(self.items(), key=lambda x:x[1].frames, reverse=reverse)
 		else:
-			items = sorted(self.items(), lambda x:x[1][1], reverse=reverse)
+			items = sorted(self.items(), key=lambda x:x[1].startIndex, reverse=reverse)
 		
-		return BytesDataIndex(items)
+		return BytesDataIndex(items, name=self.name)
 
 	def __add__(self, other):
 		'''
@@ -305,9 +319,10 @@ class BytesData(BytesAchievement):
 		elif isinstance(data, bytes):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected exkaldi BytesData, NumpyData or Python bytes object but got {type_name(data)}.")
+			raise UnsupportedType(f"Expected exkaldi BytesData, NumpyData or Python bytes object but got {type_name(data)}.")
 		super().__init__(data, name)
 
+		# <indexTable> is used to map the index of every utterance if bytes data.
 		if indexTable is None:
 			self.__generate_index_table()
 		else:
@@ -321,7 +336,8 @@ class BytesData(BytesAchievement):
 		if self.is_void:
 			self.__dataIndex = None
 		else:
-			self.__dataIndex = BytesDataIndex(name=self.name + "_index")
+			# Index table will have the same name with BytesData object.
+			self.__dataIndex = BytesDataIndex(name=self.name)
 			start_index = 0
 			with BytesIO(self.data) as sp:
 				while True:
@@ -334,8 +350,8 @@ class BytesData(BytesAchievement):
 						sampleSize = 4
 					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
 
-					self.__dataIndex[utt] = (rows, start_index, oneRecordLen)
-					start_index += oneRecordLen            
+					self.__dataIndex[utt] = self.__dataIndex.spec(rows, start_index, oneRecordLen)
+					start_index += oneRecordLen
 
 	def __read_one_record(self, fp):
 		'''
@@ -349,7 +365,7 @@ class BytesData(BytesAchievement):
 		utt = utt.strip()
 		if utt == '':
 			if fp.read() == b'':
-				return (None,None,None,None,None)
+				return (None, None, None, None, None)
 			else:
 				fp.close()
 				raise WrongDataFormat("Miss utterance ID before utterance.")
@@ -358,7 +374,7 @@ class BytesData(BytesAchievement):
 			dataType = fp.read(3).decode() 
 			if dataType == 'CM ':
 				fp.close()
-				raise UnsupportedDataType("This is compressed ark data. Use load() function to load ark file again or use decompress() function to decompress it firstly.")                    
+				raise UnsupportedType("This is compressed ark data. Use load() function to load ark file again or use decompress() function to decompress it firstly.")                    
 			elif dataType == 'FM ':
 				sampleSize = 4
 			elif dataType == 'DM ':
@@ -417,20 +433,27 @@ class BytesData(BytesAchievement):
 		'''
 		assert isinstance(dtype, str) and (dtype in ["float", "float32", "float64"]), f"Expected <dtype> is string from 'float', 'float32' or 'float64' but got '{dtype}'."
 
-		if self.is_void or self.dtype == dtype:
-			result = copy.deepcopy(self.data)
+		if self.is_void:
+			return copy.deepcopy(self)
+		elif self.dtype == "float32" and dtype in ["float", "float32"]:
+			return copy.deepcopy(self)
+		elif self.dtype == "float64" and dtype == "float64":
+			return copy.deepcopy(self)
 		else:
+
 			if dtype == 'float32' or dtype == 'float':
 				newDataType = 'FM '
 			else:
 				newDataType = 'DM '
 			
 			result = []
+			newDataIndex = BytesDataIndex(name=self.name)
+			# Data size will be changed so generate a new index table.
 			with BytesIO(self.data) as sp:
 				start_index = 0
 				while True:
 					(utt, dataType, rows, cols, buf) = self.__read_one_record(sp)
-					if utt == None:
+					if utt is None:
 						break
 					if dataType == 'FM ': 
 						matrix = np.frombuffer(buf, dtype=np.float32)
@@ -446,12 +469,12 @@ class BytesData(BytesAchievement):
 					result.append(data)
 
 					oneRecordLength = len(data)
-					self.__dataIndex[utt] = (cols, start_index, oneRecordLength)
+					newDataIndex[utt] = newDataIndex.spec(rows, start_index, oneRecordLength)
 					start_index += oneRecordLength
 					
 			result = b''.join(result)
 
-		return BytesData(result, name=self.name)
+			return BytesData(result, name=self.name, indexTable=newDataIndex)
 
 	@property
 	def dim(self):
@@ -523,8 +546,8 @@ class BytesData(BytesAchievement):
 						sampleSize = 4
 					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
 
-					self.__dataIndex[utt] = (rows, start_index, oneRecordLen)
-					start_index += oneRecordLen					
+					self.__dataIndex[utt] = self.__dataIndex.spec(rows, start_index, oneRecordLen)
+					start_index += oneRecordLen				
 					
 			return True
 		else:
@@ -541,7 +564,7 @@ class BytesData(BytesAchievement):
 		'''
 		lengths = (0, None)
 		if not self.is_void:
-			_lens = dict( (key, value[0] ) for key, value in self.__dataIndex.items() )
+			_lens = dict( (utt, indexInfo.frames ) for utt, indexInfo in self.__dataIndex.items() )
 			lengths = (len(_lens), _lens)
 		
 		return lengths
@@ -557,7 +580,7 @@ class BytesData(BytesAchievement):
 		
 		Return:
 			the path of saved files.
-		'''        
+		'''
 		assert isinstance(fileName, str), "file name must be a string."
 		if self.is_void:
 			raise WrongOperation('No data to save.')
@@ -588,11 +611,12 @@ class BytesData(BytesAchievement):
 			if not fileName.strip().endswith('.ark'):
 				fileName += '.ark'
 			savedFilesName = save_chunk_data(self.data, fileName, outScpFile)	
+		
 		else:
 			if fileName.strip().endswith('.ark'):
 				fileName = fileName[0:-4]
 			
-			uttLens = [ value[2] for vlaue in self.__dataIndex.values() ]
+			uttLens = [ value.dataSize for value in self.utt_index.values() ]
 			allLens = len(uttLens)
 			chunkUtts = allLens//chunks
 			if chunkUtts == 0:
@@ -608,9 +632,9 @@ class BytesData(BytesAchievement):
 			with BytesIO(self.data) as sp:
 				for i in range(chunks):
 					if i < t:
-						chunkLen = sum(uttLens[i*(chunkUtts+1):(i+1)*(chunkUtts+1)])
+						chunkLen = sum( uttLens[i*(chunkUtts+1) : (i+1)*(chunkUtts+1)] )
 					else:
-						chunkLen = sum(uttLens[i*chunkUtts:(i+1)*chunkUtts])
+						chunkLen = sum( uttLens[i*chunkUtts : (i+1)*chunkUtts] )
 					chunkData = sp.read(chunkLen)
 					savedFilesName.append(save_chunk_data(chunkData, fileName + f'_ck{i}.ark', outScpFile))
 
@@ -621,15 +645,15 @@ class BytesData(BytesAchievement):
 		Transform bytes data to numpy data.
 		
 		Return:
-			a NumpyData object.
+			a NumpyData object sorted by utterance ID.
 		'''
+		sortedIndex = self.utt_index.sort(by="utt", reverse=False)
 		newDict = {}
 		if not self.is_void:
 			with BytesIO(self.data) as sp:
-				while True:
+				for utt, indexInfo in sortedIndex.items():
+					sp.seek(indexInfo.startIndex)
 					(utt, dataType, rows, cols, buf) = self.__read_one_record(sp)
-					if utt == None:
-						break
 					try:
 						if dataType == 'FM ': 
 							newMatrix = np.frombuffer(buf, dtype=np.float32)
@@ -639,7 +663,8 @@ class BytesData(BytesAchievement):
 						print(f"Wrong matrix data format at utterance {utt}.")
 						raise e	
 					else:
-						newDict[utt] = np.reshape(newMatrix,(rows,cols))
+						newDict[utt] = np.reshape(newMatrix, (rows,cols))
+
 		return NumpyData(newDict, name=self.name)
 
 	def __add__(self, other):
@@ -656,7 +681,7 @@ class BytesData(BytesAchievement):
 		elif type_name(other) == "NumpyData":
 			other = other.to_bytes()
 		else:
-			raise UnsupportedDataType(f"Expected exkaldi BytesData or NumpyData object but got {type_name(other)}.")
+			raise UnsupportedType(f"Expected exkaldi BytesData or NumpyData object but got {type_name(other)}.")
 		
 		if self.is_void:
 			return copy.deepcopy(other)
@@ -670,16 +695,17 @@ class BytesData(BytesAchievement):
 
 		newDataIndex = self.utt_index
 		lastIndexInfo = list(newDataIndex.sort(by="startIndex", reverse=True).values())[0]
-		start_index = lastIndexInfo[1] + lastIndexInfo[2]
+		start_index = lastIndexInfo.startIndex + lastIndexInfo.dataSize
 
 		newData = []
 		with BytesIO(other.data) as op:
 			for utt, indexInfo in other.utt_index.items():
 				if not utt in selfUtts:
-					ocols, si, dataSize = indexInfo
+					op.seek( indexInfo.startIndex )
 					if selfDtype == otherDtype:
-						op.seek(si)
-						data = op.read(dataSize)
+						data = op.read( indexInfo.dataSize )
+						data_size = indexInfo.dataSize
+
 					else:
 						(outt, odataType, orows, ocols, obuf) = self.__read_one_record(op)
 						obuf = np.array(np.frombuffer(obuf, dtype=otherDtype), dtype=selfDtype).tobytes()
@@ -691,11 +717,12 @@ class BytesData(BytesAchievement):
 						data += '\04'.encode()
 						data += struct.pack(np.dtype('uint32').char, ocols)
 						data += obuf
-						dataSize = len(data)
+						data_size = len(data)
+
+					newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, start_index, data_size)
+					start_index += data_size
 
 					newData.append(data)
-					newDataIndex[utt] = (ocols, start_index, dataSize)
-					start_index +=	dataSize
 
 		newName = f"plus({self.name},{other.name})"
 		return BytesData(b''.join([self.data, *newData]), name=newName, indexTable=newDataIndex)
@@ -719,26 +746,25 @@ class BytesData(BytesAchievement):
 			newName = f"subset({self.name},head {nHead})"
 
 			newDataIndex = BytesDataIndex(name=newName)
-			start_index = 0
+			totalSize = 0
 			
 			for utt, indexInfo in self.utt_index.items():
-				fs, si, ds = indexInfo
-				newDataIndex[utt] = (fs, start_index, ds)
-				start_index += ds
+				newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, totalSize, indexInfo.dataSize)
+				totalSize += indexInfo.dataSize
 				nHead -= 1
 				if nHead <= 0:
 					break
 			
 			with BytesIO(self.data) as sp:
 				sp.seek(0)
-				data = sp.read(start_index)
+				data = sp.read(totalSize)
 	
 			return BytesData(data, name=newName, indexTable=newDataIndex)
 		
 		elif chunks > 1:
 			assert isinstance(chunks, int), f"Expected <chunks> is an int number but got {chunks}."
 
-			uttLens = list(self.__dataIndex.items())
+			uttLens = list(self.utt_index.items())
 			allLens = len(uttLens)
 			chunkUtts = allLens//chunks
 			if chunkUtts == 0:
@@ -761,9 +787,8 @@ class BytesData(BytesAchievement):
 						chunkItems = uttLens[i*chunkUtts : (i+1)*chunkUtts]
 					chunkLen = 0
 					for utt, indexInfo in chunkItems:
-						fs, si, ds = indexInfo
-						newDataIndex[utt] = (fs, chunkLen, ds)
-						chunkLen += ds
+						newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, chunkLen, indexInfo.dataSize)
+						chunkLen += indexInfo.dataSize
 					chunkData = sp.read(chunkLen)
 					
 					datas.append(BytesData(chunkData, name=newName, indexTable=newDataIndex))
@@ -777,7 +802,7 @@ class BytesData(BytesAchievement):
 				newName = f"subset({self.name},uttList {len(uttList)})"
 				pass
 			else:
-				raise UnsupportedDataType(f"Expected <uttList> is string, list or tuple but got {type_name(uttList)}.")
+				raise UnsupportedType(f"Expected <uttList> is string, list or tuple but got {type_name(uttList)}.")
 
 			newData = []
 			dataIndex = self.utt_index
@@ -786,14 +811,14 @@ class BytesData(BytesAchievement):
 			with BytesIO(self.data) as sp:
 				for utt in uttList:
 					if utt in self.utts:
-						fr, si, ds = dataIndex[utt]
-						newDataIndex[utt] = (fr, start_index, ds)
-						start_index += ds
-						sp.seek(si)
-						newData.append( sp.read(ds) )
+						indexInfo = dataIndex[utt]
+						sp.seek(indexInfo.startIndex)
+						newData.append(sp.read(indexInfo.dataSize))
+
+						newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, start_index, indexInfo.dataSize)
+						start_index += indexInfo.dataSize
 
 			return BytesData(b''.join(newData), name=newName, indexTable=newDataIndex)
-
 		else:
 			raise WrongOperation('Expected <nHead> is larger than "0", or <chunks> is larger than "1", or <uttList> is not None.')
 
@@ -816,12 +841,14 @@ class BytesData(BytesAchievement):
 			if utt not in self.utts:
 				raise WrongOperation(f"No such utterance:{utt}.")
 			else:
-				fr, si, ds = self.utt_index[utt]
-				newName = f"pick({self.name},{uttID})"
+				indexInfo = self.utt_index[utt]
+				newName = f"pick({self.name},{utt})"
 				newDataIndex = BytesDataIndex(name=newName)
 				with BytesIO(self.data) as sp:
-					sp.seek(si)
-					data = sp.read(ds)
+					sp.seek( indexInfo.startIndex )
+					data = sp.read( indexInfo.dataSize )
+
+					newDataIndex[utt] =	indexInfo._replace(startIndex=0)
 					result = BytesData(data, name=newName, indexTable=newDataIndex)
 				
 				return result
@@ -839,6 +866,12 @@ class BytesData(BytesAchievement):
 		assert by in ["utt", "frames"], f"<by> should be 'utt' or 'frame'."
 
 		newDataIndex = self.utt_index.sort(by=by, reverse=reverse)
+		ordered = True
+		for i, j in zip(self.utt_index.items(), newDataIndex.items()):
+			if i != j:
+				ordered = False
+		if ordered:
+			return copy.deepcopy(self)
 
 		with BytesIO(self.data) as sp:
 			if sys.getsizeof(self.data) > 1e-8:
@@ -848,10 +881,13 @@ class BytesData(BytesAchievement):
 					chunkdata = []
 					chunkSize = 50
 					count = 0
+					start_index = 0
 					for utt, indexInfo in newDataIndex.items():
-						fs, si, ds = indexInfo
-						sp.seek(si)
-						chunkdata.append( sp.read(ds) )
+						newDataIndex[utt] = indexInfo._replace(startIndex=start_index)
+						start_index += indexInfo.dataSize
+
+						sp.seek( indexInfo.startIndex )
+						chunkdata.append( sp.read(indexInfo.dataSize) )
 						count += 1
 						if count >= chunkSize:
 							temp.write( b"".join(chunkdata) )
@@ -865,15 +901,16 @@ class BytesData(BytesAchievement):
 					newData = temp.read()
 				finally:
 					temp.close()
+		
 			else:
 				chunkdata = []
 				start_index = 0
 				for utt, indexInfo in newDataIndex.items():
-					fs, si, ds = indexInfo
-					sp.seek(si)
-					chunkdata.append( sp.read(ds) )
-					newDataIndex[utt] = (fs, start_index, ds)
-					start_index += ds
+					sp.seek( indexInfo.startIndex )
+					chunkdata.append( sp.read(indexInfo.dataSize) )
+
+					newDataIndex[utt] = indexInfo._replace(startIndex=start_index)
+					start_index += indexInfo.dataSize
 
 				newData = b"".join(chunkdata)
 				del chunkdata
@@ -892,7 +929,7 @@ class BytesFeature(BytesData):
 		elif isinstance(data, bytes):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected BytesFeature, NumpyFeature or Python bytes object but got {type_name(data)}.")
+			raise UnsupportedType(f"Expected BytesFeature, NumpyFeature or Python bytes object but got {type_name(data)}.")
 		
 		super().__init__(data, name, indexTable)
 	
@@ -920,10 +957,10 @@ class BytesFeature(BytesData):
 		elif isinstance(other, NumpyFeature):
 			other = other.to_bytes()
 		else:
-			raise UnsupportedDataType(f"Excepted a BytesFeature or NumpyFeature object but got {type_name(other)}.")
+			raise UnsupportedType(f"Excepted a BytesFeature or NumpyFeature object but got {type_name(other)}.")
 
 		result = super().__add__(other)
-		return NumpyFeature(result.data, name=result.name, indexTable=result.utt_index)
+		return BytesFeature(result.data, name=result.name, indexTable=result.utt_index)
 
 	def splice(self, left=1, right=None):
 		'''
@@ -953,7 +990,7 @@ class BytesFeature(BytesData):
 			raise KaldiProcessError("Failed to splice left-right frames.")
 		else:
 			newName = f"splice({self.name},{left},{right})"
-			return BytesFeature(out, name=newName)
+			return BytesFeature(out, name=newName, indexTable=None)
 
 	def select(self, dims, retain=False):
 		'''
@@ -1034,12 +1071,12 @@ class BytesFeature(BytesData):
 			raise KaldiProcessError("Failed to select data.")
 		else:
 			newName = f"select({self.name},{dims})"
-			selectedResult = BytesFeature(outS, name=newName)
+			selectedResult = BytesFeature(outS, name=newName, indexTable=None)
 
 		if retain:
 			if retainFlag == "":
 				newName = f"select({self.name}, void)"
-				retainedResult = BytesFeature(name=newName)
+				retainedResult = BytesFeature(name=newName, indexTable=None)
 			else: 
 				cmdR = f"select-feats {retainFlag} ark:- ark:-"
 				outR, errR, _ = run_shell_command(cmdR, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
@@ -1048,7 +1085,7 @@ class BytesFeature(BytesData):
 					raise KaldiProcessError("Failed to select retained data.")
 				else:
 					newName = f"select({self.name},not {dims})"
-					retainedResult = BytesFeature(outR, name=newName)
+					retainedResult = BytesFeature(outR, name=newName, indexTable=None)
 		
 			return selectedResult, retainedResult
 		
@@ -1071,9 +1108,9 @@ class BytesFeature(BytesData):
 		if isinstance(result, list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = BytesFeature(temp.data, temp.name)
+				result[index] = BytesFeature(temp.data, temp.name, temp.utt_index)
 		else:
-			result = BytesFeature(result.data, result.name)
+			result = BytesFeature(result.data, result.name, result.utt_index)
 
 		return result
 	
@@ -1091,7 +1128,7 @@ class BytesFeature(BytesData):
 		if result is None:
 			return None
 		else:
-			return BytesFeature(result.data, result.name)
+			return BytesFeature(result.data, result.name, result.utt_index)
 
 	def add_delta(self, order=2):
 		'''
@@ -1115,9 +1152,9 @@ class BytesFeature(BytesData):
 			raise KaldiProcessError('Failed to add delta feature.')
 		else:
 			newName = f"delta({self.name},{order})"
-			return BytesFeature(data=out, name=newName)
+			return BytesFeature(data=out, name=newName, indexTable=None)
 
-	def paste(self, others, ordered=False):
+	def paste(self, others):
 		'''
 		Paste feature in feature dimension.
 
@@ -1137,45 +1174,32 @@ class BytesFeature(BytesData):
 		try:
 			if isinstance(others, BytesFeature):
 				temp = tempfile.NamedTemporaryFile("wb+")
-				if ordered:
-					temp.write(others.data)
-				else:
-					temp.write(others.sort(by="utt").data)
+				temp.write(others.sort(by="utt").data)
 				otherData.append(temp)
 				otherName.append(others.name)
+
 			elif isinstance(others, NumpyFeature):
 				temp = tempfile.NamedTemporaryFile("wb+")
-				if ordered:
-					temp.write(others.to_bytes().data)
-				else:
-					temp.write(others.sort(by="utt").to_bytes().data)
+				temp.write(others.sort(by="utt").to_bytes().data)
 				otherData.append(temp)
 				otherName.append(others.name)
-			elif isinstance(others, (list,tuple)):
+
+			elif isinstance(others,(list,tuple)):
 				for ot in others:
 					if isinstance(ot, BytesFeature):
-						if ordered:
-							da = ot.data
-						else:
-							da = ot.sort(by="utt").data
+						da = ot.sort(by="utt").data
 					elif isinstance(ot, NumpyFeature):
-						if ordered:
-							da = ot.to_bytes().data
-						else:
-							da = ot.sort(by="utt").to_bytes().data
+						da = ot.sort(by="utt").to_bytes().data
 					else:
-						raise UnsupportedDataType(f"Expected exkaldi feature object but got {type_name(ot)}.")
+						raise UnsupportedType(f"Expected exkaldi feature object but got {type_name(ot)}.")
 					temp = tempfile.NamedTemporaryFile("wb+")
 					temp.write(da)
 					otherData.append(temp)
 					otherName.append(ot.name)		
 			else:
-				raise UnsupportedDataType(f"Expected exkaldi feature object but got {type_name(others)}.")
+				raise UnsupportedType(f"Expected exkaldi feature object but got {type_name(others)}.")
 			
-			if ordered:
-				selfData.write(self.data)
-			else:
-				selfData.write(self.sort(by="utt").data)
+			selfData.write(self.sort(by="utt").data)
 			cmd = f"paste-feats ark:{selfData.name} "
 			for ot in otherData:
 				cmd += f"ark:{ot.name} "
@@ -1189,10 +1213,10 @@ class BytesFeature(BytesData):
 			else:
 				newName = f"paste({self.name}"
 				for on in otherName:
-					newName += ",{on}"
+					newName += f",{on}"
 				newName += ")"
-			
-				return BytesFeature(out, name=newName)
+
+				return BytesFeature(out, name=newName, indexTable=None)
 		finally:
 			selfData.close()
 			for ot in otherData:
@@ -1209,13 +1233,13 @@ class BytesFeature(BytesData):
 			A new BytesFeature object.
 		''' 
 		result = super().sort(by, reverse)
-		return BytesFeature(result.data, name=result.name)
+		return BytesFeature(result.data, name=result.name, indexTable=result.utt_index)
 
 class BytesCMVNStatistics(BytesData):
 	'''
 	Hold the CMVN statistics with kaldi binary format.
 	'''
-	def __init__(self, data=b"", name="cmvn"):
+	def __init__(self, data=b"", name="cmvn", indexTable=None):
 		if isinstance(data, BytesCMVNStatistics):
 			data = data.data
 		elif isinstance(data, NumpyCMVNStatistics):
@@ -1223,9 +1247,9 @@ class BytesCMVNStatistics(BytesData):
 		elif isinstance(data, bytes):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected BytesCMVNStatistics, NumpyCMVNStatistics or Python bytes object but got {type_name(data)}.")
+			raise UnsupportedType(f"Expected BytesCMVNStatistics, NumpyCMVNStatistics or Python bytes object but got {type_name(data)}.")
 
-		super().__init__(data, name)
+		super().__init__(data, name, indexTable)
 	
 	def to_numpy(self):
 		'''
@@ -1251,11 +1275,11 @@ class BytesCMVNStatistics(BytesData):
 		elif isinstance(other, NumpyCMVNStatistics):
 			other = other.to_bytes()
 		else:
-			raise UnsupportedDataType(f"Excepted a BytesCMVNStatistics or NumpyCMVNStatistics object but got {type_name(other)}.")
+			raise UnsupportedType(f"Excepted a BytesCMVNStatistics or NumpyCMVNStatistics object but got {type_name(other)}.")
 
 		result = super().__add__(other)
 
-		return BytesCMVNStatistics(result.data, name=result.name)
+		return BytesCMVNStatistics(result.data, name=result.name, indexTable=result.utt_index)
 
 	def subset(self, nHead=0, chunks=1, uttList=None):
 		'''
@@ -1273,9 +1297,9 @@ class BytesCMVNStatistics(BytesData):
 		if isinstance(result, list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = BytesCMVNStatistics(temp.data, temp.name)
+				result[index] = BytesCMVNStatistics(temp.data, temp.name, temp.utt_index)
 		else:
-			result = BytesCMVNStatistics(result.data, result.name)
+			result = BytesCMVNStatistics(result.data, result.name, result.utt_index)
 
 		return result
 
@@ -1293,7 +1317,7 @@ class BytesCMVNStatistics(BytesData):
 		if result is None:
 			return None
 		else:
-			return BytesCMVNStatistics(result.data, result.name)
+			return BytesCMVNStatistics(result.data, result.name, result.utt_index)
 
 	def sort(self, by="utt", reverse=False):
 		'''
@@ -1306,13 +1330,13 @@ class BytesCMVNStatistics(BytesData):
 			A new BytesCMVNStatistics object.
 		''' 
 		result = super().sort(by, reverse)
-		return BytesCMVNStatistics(result.data, name=result.name)
+		return BytesCMVNStatistics(result.data, name=result.name, indexTable=result.utt_index)
 
 class BytesProbability(BytesData):
 	'''
 	Hold the probalility with kaldi binary format.
 	'''
-	def __init__(self, data=b"", name="postprob"):
+	def __init__(self, data=b"", name="postprob", indexTable=None):
 		if isinstance(data, BytesProbability):
 			data = data.data
 		elif isinstance(data, NumpyProbability):
@@ -1320,9 +1344,9 @@ class BytesProbability(BytesData):
 		elif isinstance(data, bytes):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected BytesProbability, NumpyProbability or Python bytes object but got {type_name(data)}.")
+			raise UnsupportedType(f"Expected BytesProbability, NumpyProbability or Python bytes object but got {type_name(data)}.")
 
-		super().__init__(data, name)
+		super().__init__(data, name, indexTable)
 	
 	def to_numpy(self):
 		'''
@@ -1348,13 +1372,13 @@ class BytesProbability(BytesData):
 		elif isinstance(other, NumpyProbability):
 			other = (other.to_bytes()).data
 		else:
-			raise UnsupportedDataType(f"Expected BytesProbability or NumpyProbability object but got {type_name(other)}.")
+			raise UnsupportedType(f"Expected BytesProbability or NumpyProbability object but got {type_name(other)}.")
 
 		result = super().__add__(other)
 
-		return BytesProbability(result.data, result.name)
+		return BytesProbability(result.data, result.name, result.utt_index)
 
-	def subset(self,nHead=0,chunks=1,uttList=None):
+	def subset(self, nHead=0, chunks=1, uttList=None):
 		'''
 		Subset post probability.
 		
@@ -1370,9 +1394,9 @@ class BytesProbability(BytesData):
 		if isinstance(result, list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = BytesProbability(temp.data, temp.name)
+				result[index] = BytesProbability(temp.data, temp.name, temp.utt_index)
 		else:
-			result = BytesProbability(result.data, result.name)
+			result = BytesProbability(result.data, result.name, result.utt_index)
 
 		return result
 
@@ -1390,7 +1414,7 @@ class BytesProbability(BytesData):
 		if result is None:
 			return None
 		else:
-			return BytesProbability(result.data, result.name)
+			return BytesProbability(result.data, result.name, result.utt_index)
 
 	def sort(self, by="utt", reverse=False):
 		'''
@@ -1403,7 +1427,7 @@ class BytesProbability(BytesData):
 			A new BytesProbability object.
 		''' 
 		result = super().sort(by, reverse)
-		return BytesProbability(result.data, name=result.name)
+		return BytesProbability(result.data, name=result.name, indexTable=result.utt_index)
 
 class BytesAlignmentTrans(BytesAchievement):
 	'''
@@ -1417,7 +1441,7 @@ class BytesAlignmentTrans(BytesAchievement):
 		elif isinstance(data, bytes):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected BytesAlignment, NumpyAlignment or Python bytes object but got {type_name(data)}.")		
+			raise UnsupportedType(f"Expected BytesAlignment, NumpyAlignment or Python bytes object but got {type_name(data)}.")		
 		super().__init__(data, name)
 	
 	def to_numpy(self, aliType="transitionID", hmm=None):
@@ -1450,7 +1474,7 @@ class BytesAlignmentTrans(BytesAchievement):
 					utt = line[0]
 					matrix = np.array(line[1:], dtype=np.int32)
 					result[utt] = matrix
-				return results
+				return result
 
 		if aliType == "transitionID":
 			cmd = "copy-int-vector ark:- ark,t:-"
@@ -1468,19 +1492,19 @@ class BytesAlignmentTrans(BytesAchievement):
 						raise WrongPath(f"No such file:{hmm}.")
 					hmmFileName = hmm
 				else:
-					raise UnsupportedDataType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
+					raise UnsupportedType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
 
 				if aliType == "phoneID":
 					cmd = f"ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-"
 					result = transform(self.data, cmd)
 					return NumpyAlignmentPhone(result, self.name)
 
-				elif target == "pdfID":
+				elif aliType == "pdfID":
 					cmd = f"ali-to-pdf {hmmFileName} ark:- ark,t:-"
 					result = transform(self.data, cmd)
 					return NumpyAlignmentPdf(result, self.name)
 				else:
-					raise WrongOperation(f"<target> should be 'trainsitionID', 'phoneID' or 'pdfID' but got {target}.")
+					raise WrongOperation(f"<target> should be 'trainsitionID', 'phoneID' or 'pdfID' but got {aliType}.")
 			finally:
 				temp.close()
 
@@ -1596,7 +1620,7 @@ class NumpyData(NumpyAchievement):
 		elif isinstance(data, dict):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected NumpyData, BytesData or Python dict object but got {type_name(data)}.")
+			raise UnsupportedType(f"Expected NumpyData, BytesData or Python dict object but got {type_name(data)}.")
 		super().__init__(data, name)
 
 	@property
@@ -1641,7 +1665,7 @@ class NumpyData(NumpyAchievement):
 		_dim = None
 		if not self.is_void:
 			utts = self.utts
-			if self.data[utts[0]].shape <= 1:
+			if len(self.data[utts[0]].shape) <= 1:
 				_dim = 0
 			else:
 				_dim = self.data[utts[0]].shape[1]
@@ -1732,7 +1756,9 @@ class NumpyData(NumpyAchievement):
 		
 		self.check_format()
 
+		newDataIndex = BytesDataIndex(name=self.name)
 		newData = []
+		start_index = 0
 		for utt in self.utts:
 			matrix = self.data[utt]
 			data = (utt+' ').encode()
@@ -1742,16 +1768,21 @@ class NumpyData(NumpyAchievement):
 			elif matrix.dtype == 'float64':
 				data += 'DM '.encode()
 			else:
-				raise UnsupportedDataType(f'Expected "float32" or "float64" data, but got {matrix.dtype}.')
+				raise UnsupportedType(f'Expected "float32" or "float64" data, but got {matrix.dtype}.')
 			
 			data += '\04'.encode()
 			data += struct.pack(np.dtype('uint32').char, matrix.shape[0])
 			data += '\04'.encode()
 			data += struct.pack(np.dtype('uint32').char, matrix.shape[1])
 			data += matrix.tobytes()
+
+			oneRecordLen = len(data)
+			newDataIndex[utt] = newDataIndex.spec(matrix.shape[0], start_index, oneRecordLen)
+			start_index += oneRecordLen
+
 			newData.append(data)
 
-		return BytesData(b''.join(newData), self.name)
+		return BytesData(b''.join(newData), self.name, newDataIndex)
 
 	def save(self, fileName, chunks=1):
 		'''
@@ -1815,7 +1846,7 @@ class NumpyData(NumpyAchievement):
 		elif isinstance(other, BytesData):
 			other = other.to_numpy()
 		else:
-			raise UnsupportedDataType(f"Expected exkaldi BytesData or NumpyData object but got {type_name(other)}.")
+			raise UnsupportedType(f"Expected exkaldi BytesData or NumpyData object but got {type_name(other)}.")
 
 		if self.is_void:
 			return copy.deepcopy(other)
@@ -1929,7 +1960,7 @@ class NumpyData(NumpyAchievement):
 				newName = f"subset({self.name},uttList {len(uttList)})"
 				pass
 			else:
-				raise UnsupportedDataType(f'Expected <uttList> is a string,list or tuple but got {type_name(uttList)}.')
+				raise UnsupportedType(f'Expected <uttList> is a string,list or tuple but got {type_name(uttList)}.')
 
 			newDict = {}
 			selfKeys = self.utts
@@ -1982,8 +2013,10 @@ class NumpyData(NumpyAchievement):
 		Return:
 			A new NumpyData object.
 		'''
+		assert callable(func), "<func> is not callable."
+
 		new = {}
-		for utt, matrx in self.data.items():
+		for utt, matrix in self.data.items():
 			new[utt] = func(matrix)
 		return NumpyData(new, name=f"mapped({self.name})")
 
@@ -1999,7 +2032,7 @@ class NumpyFeature(NumpyData):
 		elif isinstance(data, dict):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected BytesFeature, NumpyFeature or Python dict object but got {type_name(data)}.")	
+			raise UnsupportedType(f"Expected BytesFeature, NumpyFeature or Python dict object but got {type_name(data)}.")	
 		super().__init__(data,name)
 
 	def to_dtype(self, dtype):
@@ -2025,7 +2058,7 @@ class NumpyFeature(NumpyData):
 			a BytesFeature object.
 		'''		
 		result = super().to_bytes()
-		return BinaryFeature(result, self.name)
+		return BytesFeature(result.data, self.name)
 	
 	def __add__(self, other):
 		'''
@@ -2041,7 +2074,7 @@ class NumpyFeature(NumpyData):
 		elif isinstance(other, BytesFeature):
 			other = other.to_numpy()
 		else:
-			raise UnsupportedDataType(f'Excepted a BytesFeature or NumpyFeature object but got {type_name(other)}.')
+			raise UnsupportedType(f'Excepted a BytesFeature or NumpyFeature object but got {type_name(other)}.')
 		
 		result = super().__add__(other)
 
@@ -2175,7 +2208,7 @@ class NumpyFeature(NumpyData):
 				if len(retainFlag) == _dim:
 					continue
 				else:
-					matrix = selfdata.data[utt].copy()
+					matrix = self.data[utt].copy()
 					reseDict[utt] = np.delete(matrix,retainFlag,1)
 		newNameSele = f"select({self.name},{dims})"
 		if retain:
@@ -2323,7 +2356,7 @@ class NumpyFeature(NumpyData):
 			elif isinstance(other, BytesFeature):
 				others[index] = other.to_numpy()    
 			else:
-				raise UnsupportedDataType(f'Excepted a NumpyFeature or BytesFeature object but got {type_name(other)}.')
+				raise UnsupportedType(f'Excepted a NumpyFeature or BytesFeature object but got {type_name(other)}.')
 
 		newDict = {}
 		for utt in self.utts:
@@ -2379,7 +2412,7 @@ class NumpyCMVNStatistics(NumpyData):
 		elif isinstance(data, dict):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected BytesCMVNStatistics, NumpyCMVNStatistics or Python dict object but got {type_name(data)}.")		
+			raise UnsupportedType(f"Expected BytesCMVNStatistics, NumpyCMVNStatistics or Python dict object but got {type_name(data)}.")		
 		super().__init__(data,name)
 
 	def to_bytes(self):
@@ -2421,7 +2454,7 @@ class NumpyCMVNStatistics(NumpyData):
 		elif isinstance(other, BytesCMVNStatistics):
 			other = other.to_numpy()
 		else:
-			raise UnsupportedDataType(f'Excepted a BytesCMVNStatistics or NumpyCMVNStatistics object but got {type_name(other)}.')
+			raise UnsupportedType(f'Excepted a BytesCMVNStatistics or NumpyCMVNStatistics object but got {type_name(other)}.')
 		
 		result = super().__add__(other)
 
@@ -2504,7 +2537,7 @@ class NumpyProbability(NumpyData):
 		elif isinstance(data, dict):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected BytesProbability, NumpyProbability or Python dict object but got {type_name(data)}.")		
+			raise UnsupportedType(f"Expected BytesProbability, NumpyProbability or Python dict object but got {type_name(data)}.")		
 		super().__init__(data,name)
 
 	def to_bytes(self):
@@ -2546,7 +2579,7 @@ class NumpyProbability(NumpyData):
 		elif isinstance(other, BytesProbability):
 			other = other.to_numpy()
 		else:
-			raise UnsupportedDataType(f'Excepted a BytesProbability or NumpyProbability object but got {type_name(other)}.')
+			raise UnsupportedType(f'Excepted a BytesProbability or NumpyProbability object but got {type_name(other)}.')
 		
 		result = super().__add__(other)
 
@@ -2627,7 +2660,7 @@ class NumpyAlignment(NumpyData):
 		elif isinstance(data, dict):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected NumpyAlignment or Python dict object but got {type_name(data)}.")		
+			raise UnsupportedType(f"Expected NumpyAlignment or Python dict object but got {type_name(data)}.")		
 		super().__init__(data, name)
 	
 	def to_dtype(self, dtype):
@@ -2647,7 +2680,7 @@ class NumpyAlignment(NumpyData):
 
 	def to_bytes(self):
 		
-		raise WrongOperation("Transforming to bytes is unavaliable").
+		raise WrongOperation("Transforming to bytes is unavaliable")
 	
 	def __add__(self, other):
 		'''
@@ -2661,7 +2694,7 @@ class NumpyAlignment(NumpyData):
 		if isinstance(other, NumpyAlignment):
 			pass
 		else:
-			raise UnsupportedDataType(f'Excepted a NumpyAlignment object but got {type_name(other)}.')
+			raise UnsupportedType(f'Excepted a NumpyAlignment object but got {type_name(other)}.')
 		
 		result = super().__add__(other)
 
@@ -2744,7 +2777,7 @@ class NumpyAlignmentTrans(NumpyAlignment):
 		elif isinstance(data, dict):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected NumpyAlignmentTrans, BytesAlignmentTrans or Python dict object but got {type_name(data)}.")		
+			raise UnsupportedType(f"Expected NumpyAlignmentTrans, BytesAlignmentTrans or Python dict object but got {type_name(data)}.")		
 		super().__init__(data, name)
 
 	def to_bytes(self):
@@ -2755,7 +2788,7 @@ class NumpyAlignmentTrans(NumpyAlignment):
 			A BytesAlignmentTrans object.
 		'''
 		if self.is_void:
-			return BytesAlignment(b"", self.name)
+			return BytesAlignmentTrans(b"", self.name)
 
 		ExkaldiInfo.vertify_kaldi_existed()
 		
@@ -2773,7 +2806,7 @@ class NumpyAlignmentTrans(NumpyAlignment):
 		else:
 			return BytesAlignmentTrans(out, self.name)		
 
-	def to_dtype(self):
+	def to_dtype(self, dtype):
 		'''
 		Transform data type.
 
@@ -2802,7 +2835,7 @@ class NumpyAlignmentTrans(NumpyAlignment):
 		elif isinstance(other, BytesAlignmentTrans):
 			other = other.to_numpy()
 		else:
-			raise UnsupportedDataType(f"Expected exkaldi NumpyAlignmentTrans or BytesAlignmentTrans object but got {type_name(other)}.")
+			raise UnsupportedType(f"Expected exkaldi NumpyAlignmentTrans or BytesAlignmentTrans object but got {type_name(other)}.")
 
 		results = super().__add__(other)
 		return NumpyAlignmentTrans(results.data, results.name)
@@ -2853,7 +2886,7 @@ class NumpyAlignmentTrans(NumpyAlignment):
 			a NumpyAlignmentPhone object.
 		'''		
 		if self.is_void:
-			return BytesAlignment(b"", self.name)		
+			return NumpyAlignmentPhone(self.name)		
 		
 		ExkaldiInfo.vertify_kaldi_existed()
 		temp = []
@@ -2872,7 +2905,7 @@ class NumpyAlignmentTrans(NumpyAlignment):
 					raise WrongPath(f"No such file:{hmm}.")
 				hmmFileName = model
 			else:
-				raise UnsupportedDataType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
+				raise UnsupportedType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
 
 			cmd = f'copy-int-vector ark:- ark:- | ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-'
 			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=temp)
@@ -2903,7 +2936,7 @@ class NumpyAlignmentTrans(NumpyAlignment):
 			a NumpyAlignmentPhone object.
 		'''		
 		if self.is_void:
-			return BytesAlignment(b"", self.name)		
+			return NumpyAlignmentPdf(self.name)		
 		
 		ExkaldiInfo.vertify_kaldi_existed()
 		temp = []
@@ -2922,7 +2955,7 @@ class NumpyAlignmentTrans(NumpyAlignment):
 					raise WrongPath(f"No such file:{hmm}.")
 				hmmFileName = model
 			else:
-				raise UnsupportedDataType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
+				raise UnsupportedType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
 
 			cmd = f'copy-int-vector ark:- ark:- | ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-'
 			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=temp)
@@ -2982,7 +3015,7 @@ class NumpyAlignmentPhone(NumpyAchievement):
 		elif isinstance(data, dict):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected NumpyAlignmentPhone or Python dict object but got {type_name(data)}.")		
+			raise UnsupportedType(f"Expected NumpyAlignmentPhone or Python dict object but got {type_name(data)}.")		
 		super().__init__(data, name)
 
 	def __add__(self, other):
@@ -2997,7 +3030,7 @@ class NumpyAlignmentPhone(NumpyAchievement):
 		if isinstance(other, NumpyAlignmentPhone):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected exkaldi NumpyAlignmentPhone object but got {type_name(other)}.")
+			raise UnsupportedType(f"Expected exkaldi NumpyAlignmentPhone object but got {type_name(other)}.")
 
 		results = super().__add__(other)
 		return NumpyAlignmentPhone(results.data, results.name)
@@ -3056,9 +3089,9 @@ class NumpyAlignmentPhone(NumpyAchievement):
 
 	def to_bytes(self):
 		
-		raise WrongOperation("Transforming to bytes is unavaliable").
+		raise WrongOperation("Transforming to bytes is unavaliable")
 
-	def to_dtype(self):
+	def to_dtype(self, dtype):
 		'''
 		Transform data type.
 
@@ -3096,8 +3129,8 @@ class NumpyAlignmentPdf(NumpyAchievement):
 		elif isinstance(data, dict):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected NumpyAlignmentPdf or Python dict object but got {type_name(data)}.")		
-		super().__init__(data, name)
+			raise UnsupportedType(f"Expected NumpyAlignmentPdf or Python dict object but got {type_name(data)}.")		
+		super(NumpyAlignmentPdf, self).__init__(data, name)
 
 	def __add__(self, other):
 		'''
@@ -3111,7 +3144,7 @@ class NumpyAlignmentPdf(NumpyAchievement):
 		if isinstance(other, NumpyAlignmentPdf):
 			pass
 		else:
-			raise UnsupportedDataType(f"Expected exkaldi NumpyAlignmentPdf object but got {type_name(other)}.")
+			raise UnsupportedType(f"Expected exkaldi NumpyAlignmentPdf object but got {type_name(other)}.")
 
 		results = super().__add__(other)
 		return NumpyAlignmentPdf(results.data, results.name)
@@ -3170,9 +3203,9 @@ class NumpyAlignmentPdf(NumpyAchievement):
 
 	def to_bytes(self):
 		
-		raise WrongOperation("Transforming to bytes is unavaliable").
+		raise WrongOperation("Transforming to bytes is unavaliable")
 
-	def to_dtype(self):
+	def to_dtype(self, dtype):
 		'''
 		Transform data type.
 
@@ -3199,5 +3232,3 @@ class NumpyAlignmentPdf(NumpyAchievement):
 		'''
 		result = super().map(func)
 		return NumpyAlignmentPdf(data=result.data, name=result.name)
-
-"""

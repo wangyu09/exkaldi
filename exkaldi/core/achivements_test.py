@@ -2,27 +2,42 @@ import achivements
 
 import os
 
-def ListTable_test():
+def ScriptTable_test():
 
-    t1 =  achivements.ListTable({1:"a", 3:"c", 2:"b"}, name="myTable")
+    data = { "utt-1": "test one",
+            "utt-2": "test two",
+            "utt-3": "test third"
+            }
+    t1 =  achivements.ScriptTable(data, name="myTable")
     assert t1.is_void is False
 
+    dataRe = { "utt-3": "test third",
+            "utt-2": "test two",
+            "utt-1": "test one"
+            }
     t2 = t1.sort(reverse=True)
-    assert t2 == {3:"c", 2:"b", 1:"a"}
-
-def Transcription_test():
-
-    t = achivements.Transcription( {"utt-2":"b", "utt-1":"a" }, am_cost={"utt-2":-2, "utt-1":-1 })
-
-    t1 = t.sort(reverse=False)
-    for i, j in zip(t.sort(reverse=False).items(), {'utt-1': 'a', 'utt-2': 'b'}.items()):
+    for i,j in zip(t2.items(), dataRe.items()):
         assert i == j
+    
+def BytesDataIndex_test():
 
-    assert t.am_cost("utt-1") == -1
-    assert t.lm_cost("utt-1") is None
+    table = achivements.BytesDataIndex()
 
-    if os.path.isfile("test.txt"):
-        os.remove("test.txt")
-    t.save("test.txt")
-    assert os.path.isfile("test.txt")
-    os.remove("test.txt")
+    data = { "utt-1": table.spec(10,0,100),
+            "utt-2": table.spec(20,100,200),
+            "utt-3": table.spec(30,300,300)
+            }
+    table.update(data)
+
+    dataRe = { "utt-3": table.spec(30,300,300), 
+            "utt-2": table.spec(20,100,200),
+            "utt-1": table.spec(10,0,100),
+            }
+
+    for i,j in zip( table.sort("utt", reverse=True).items(), dataRe.items() ):
+        assert i == j
+    
+
+    
+
+
