@@ -24,9 +24,6 @@ import os
 import tempfile
 from collections import namedtuple
 
-import sys
-sys.path.append('/mnt/c/Users/sanja/Documents/github/exkaldi')
-
 from exkaldi.utils.utils import type_name, run_shell_command, make_dependent_dirs
 from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, UnsupportedType, ShellProcessError, KaldiProcessError
 from exkaldi.version import version as ExkaldiInfo

@@ -17,35 +17,20 @@
 
 """Exkaldi core functions to interact with kaldi"""
 
-"""
-import os
-import sys
-import tempfile
-import math
-import random
-import glob
 import numpy as np
-from io import BytesIO
-import struct,copy,re,time
-import subprocess,threading
-from collections import Iterable, namedtuple
-
-from exkaldi.version import version as ExkaldiInfo
-from exkaldi.version import WrongPath
-from exkaldi.utils import WrongOperation, WrongDataFormat, KaldiProcessError, UnsupportedDataType
-from exkaldi.utils import run_shell_command, make_dependent_dirs, type_name
-"""
 import copy
 import os
 import subprocess
+import tempfile
+from io import BytesIO
 
-from exkaldi.utils.utils import run_shell_command, type_name
-from exkaldi.utils.utils import UnsupportedDataType, WrongOperation, KaldiProcessError
-from exkaldi.core.achivements import NumpyFeature, BytesFeature, NumpyData, BytesData
-from exkaldi.core.achivements import NumpyCMVNStatistics, BytesCMVNStatistics, NumpyPostProbability, BytesPostProbability
-from exkaldi.core.achivements import BytesAlignmentTrans, NumpyAlignment, NumpyAlignmentTrans, NumpyAlignmentPhone, NumpyAlignmentPdf
 from exkaldi.version import version as ExkaldiInfo
-from exkaldi.version import WrongPath
+from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, UnsupportedType, ShellProcessError, KaldiProcessError
+from exkaldi.utils.utils import run_shell_command, type_name
+from exkaldi.core.achivements import NumpyFeature, BytesFeature, NumpyData, BytesData, NumpyCMVNStatistics, BytesCMVNStatistics
+from exkaldi.core.achivements import NumpyCMVNStatistics, BytesCMVNStatistics, NumpyProbability, BytesProbability
+from exkaldi.core.achivements import BytesAlignmentTrans, NumpyAlignment, NumpyAlignmentTrans, NumpyAlignmentPhone, NumpyAlignmentPdf
+from exkaldi.core.achivements import Transcription
 
 def __read_data_from_file(fileName, useSuffix=None):
 	'''
@@ -69,7 +54,7 @@ def __read_data_from_file(fileName, useSuffix=None):
 			else:
 				allFiles = out.decode().strip().split('\n')
 	else:
-		raise UnsupportedDataType(f'Expected <fileName> is file name-like string but got a {type_name(fileName)}.')
+		raise UnsupportedType(f'Expected <fileName> is file name-like string but got a {type_name(fileName)}.')
 
 	allData_bytes = BytesData()
 	allData_numpy = NumpyData()
@@ -85,7 +70,7 @@ def __read_data_from_file(fileName, useSuffix=None):
 			#if totalSize > 10000000000:
 			#    print('Warning: Data is extramely large. It could not be used correctly sometimes.')                
 		except:
-			raise UnsupportedDataType(f'Expected "npy" data with exkaldi format but got {fileName}.')
+			raise UnsupportedType(f'Expected "npy" data with exkaldi format but got {fileName}.')
 		else:
 			return NumpyData(data)
 	
@@ -118,7 +103,7 @@ def __read_data_from_file(fileName, useSuffix=None):
 		elif useSuffix in ["ark", "scp"]:
 			allData_bytes += loadArkScpFile(fileName, useSuffix)
 		else:
-			raise UnsupportedDataType('Unknown file suffix. You can assign the <useSuffix> with "scp", "ark" or "npy".')
+			raise UnsupportedType('Unknown file suffix. You can assign the <useSuffix> with "scp", "ark" or "npy".')
 	
 	if useSuffix is None:
 		if allFiles[0][-3:].lower() == "npy":
@@ -169,7 +154,7 @@ def load_feat(target, name="feat", useSuffix=None):
 			return NumpyFeature(result.data, name)	
 			
 	else:
-		raise UnsupportedDataType(f"Expected Python dict, bytes object, exkaldi feature object or file path but got{type_name(target)}.")
+		raise UnsupportedType(f"Expected Python dict, bytes object, exkaldi feature object or file path but got{type_name(target)}.")
 
 def load_cmvn(target, name="cmvn", useSuffix=None):
 	'''
@@ -185,16 +170,16 @@ def load_cmvn(target, name="cmvn", useSuffix=None):
 	assert isinstance(name, str) and len(name) > 0, "Name shoud be a string avaliable."
 
 	if isinstance(target, dict):
-		result = NumpyCMVNStochastic(target, name)
+		result = NumpyCMVNStatistics(target, name)
 		result.check_format()
 		return result
 
 	elif isinstance(target, bytes):
-		result = BytesCMVNStochastic(target, name)
+		result = BytesCMVNStatistics(target, name)
 		result.check_format()
 		return result
 
-	elif isinstance(target, (NumpyCMVNStochastic, BytesCMVNStochastic)):
+	elif isinstance(target, (NumpyCMVNStatistics, BytesCMVNStatistics)):
 		result = copy.deepcopy(target)
 		result.rename(name)
 		return result
@@ -202,12 +187,12 @@ def load_cmvn(target, name="cmvn", useSuffix=None):
 	elif isinstance(target, str):
 		result = __read_data_from_file(target, useSuffix)
 		if isinstance(result, BytesData):
-			return BytesCMVNStochastic(result.data, name)
+			return BytesCMVNStatistics(result.data, name)
 		else:
-			return NumpyCMVNStochastic(result.data, name)	
+			return NumpyCMVNStatistics(result.data, name)	
 
 	else:
-		raise UnsupportedDataType(f"Expected Python dict, bytes object, exkaldi feature object or file path but got{type_name(target)}.")
+		raise UnsupportedType(f"Expected Python dict, bytes object, exkaldi feature object or file path but got{type_name(target)}.")
 
 def load_prob(target, name="postprob", useSuffix=None):
 	'''
@@ -218,21 +203,21 @@ def load_prob(target, name="postprob", useSuffix=None):
 		<name>: a string.
 		<useSuffix>: a string. When target is file path, use this to specify file.
 	Return:
-		A BytesPostProbability or NumpyPostProbability object.
+		A BytesProbability or NumpyProbability object.
 	'''
 	assert isinstance(name, str) and len(name) > 0, "Name shoud be a string avaliable."
 
 	if isinstance(target, dict):
-		result = NumpyPostProbability(target, name)
+		result = NumpyProbability(target, name)
 		result.check_format()
 		return result
 
 	elif isinstance(target, bytes):
-		result = BytesPostProbability(target, name)
+		result = BytesProbability(target, name)
 		result.check_format()
 		return result
 
-	elif isinstance(target, (NumpyPostProbability, BytesPostProbability)):
+	elif isinstance(target, (NumpyProbability, BytesProbability)):
 		result = copy.deepcopy(target)
 		result.rename(name)
 		return result
@@ -240,12 +225,12 @@ def load_prob(target, name="postprob", useSuffix=None):
 	elif isinstance(target, str):
 		result = __read_data_from_file(target, useSuffix)
 		if isinstance(result, BytesData):
-			return BytesPostProbability(result.data, name)
+			return BytesProbability(result.data, name)
 		else:
-			return NumpyPostProbability(result.data, name)	
+			return NumpyProbability(result.data, name)	
 			
 	else:
-		raise UnsupportedDataType(f"Expected Python dict, bytes object, exkaldi feature object or file path but got{type_name(target)}.")
+		raise UnsupportedType(f"Expected Python dict, bytes object, exkaldi feature object or file path but got{type_name(target)}.")
 
 def load_ali(target, aliType=None, name="ali", hmm=None):
 	'''
@@ -293,15 +278,15 @@ def load_ali(target, aliType=None, name="ali", hmm=None):
 		result.check_format()
 		return result
 
-	elif isinstance(data, (NumpyAlignment, BytesAlignmentTrans)):
-		result = copy.deepcopy(data)
+	elif isinstance(target, (NumpyAlignment, BytesAlignmentTrans)):
+		result = copy.deepcopy(target)
 		result.rename(name)
 		return result
 
 	elif isinstance(target, str):
 		out, err, _ = run_shell_command(f'ls {target}', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 		if out == b'':
-			raise WrongPath(f"No such file or dir:{aliFile}.")
+			raise WrongPath(f"No such file or dir:{target}.")
 		else:
 			allFiles = out.decode().strip().split('\n')
 
@@ -349,32 +334,33 @@ def load_ali(target, aliType=None, name="ali", hmm=None):
 				
 				else:
 					temp = tempfile.NamedTemporaryFile("wb+")
-					if type_name(hmm) in ("HMM", "MonophoneHMM", "TriphoneHMM"):
-						hmm.save(temp)
-						hmmFileName = temp.name
-					elif isinstance(hmm, str):
-						if not os.path.isfile(hmm):
-							raise WrongPath(f"No such file:{hmm}.")
-						hmmFileName = hmm
-					else:
-						raise UnsupportedDataType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
+					try:
+						if type_name(hmm) in ("HMM", "MonophoneHMM", "TriphoneHMM"):
+							hmm.save(temp)
+							hmmFileName = temp.name
+						elif isinstance(hmm, str):
+							if not os.path.isfile(hmm):
+								raise WrongPath(f"No such file:{hmm}.")
+							hmmFileName = hmm
+						else:
+							raise UnsupportedType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
 
-					if aliType == "phoneID":
-						cmd += f" | ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-"
-						temp = transform(None, cmd)
-						temp = NumpyAlignmentPhone(temp)
-						results["NumpyAlignmentPhone"] += temp
+						if aliType == "phoneID":
+							cmd += f" | ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-"
+							temp = transform(None, cmd)
+							temp = NumpyAlignmentPhone(temp)
+							results["NumpyAlignmentPhone"] += temp
 
-					elif target == "pdfID":
-						cmd = f" | ali-to-pdf {hmmFileName} ark:- ark,t:-"
-						temp = transform(None, cmd)
-						temp =NumpyAlignmentPdf(temp)
-						results["NumpyAlignmentPdf"] += temp
-					else:
-						raise WrongOperation(f"<target> should be 'trainsitionID', 'phoneID' or 'pdfID' but got {target}.")
-				
-				finally:
-					temp.close()
+						elif target == "pdfID":
+							cmd = f" | ali-to-pdf {hmmFileName} ark:- ark,t:-"
+							temp = transform(None, cmd)
+							temp =NumpyAlignmentPdf(temp)
+							results["NumpyAlignmentPdf"] += temp
+						else:
+							raise WrongOperation(f"<target> should be 'trainsitionID', 'phoneID' or 'pdfID' but got {target}.")
+					
+					finally:
+						temp.close()
 
 		finalResult = []
 		for obj in results.values():
@@ -388,3 +374,33 @@ def load_ali(target, aliType=None, name="ali", hmm=None):
 			finalResult = finalResult[0]
 		
 		return finalResult
+
+def load_trans(target, name="transcription"):
+	'''
+	Load transcription from file.
+
+	Args:
+		<target>: transcription file path.
+		<name>: a string.
+
+	Return:
+		An exkaldi Transcription object.
+	'''
+	if type_name(target) in ["dict", "Transcription", "ScriptTable"]:
+		for utt, utterance in target.items():
+			assert isinstance(utt, str) and len(utt) > 0, "Utterance ID should be a string."
+			assert isinstance(utt, str), "Utterance text should a string."
+		
+		return Transcription(target, name)
+	
+	elif isinstance(target, str):
+		assert os.path.isfile(target), f"No such file:{target}."
+
+		result = Transcription(name=name)
+		result.load(target)
+
+		return result
+	
+	else:
+		raise UnsupportedType("<target> should be file path, dict object or ScriptTable object.")
+

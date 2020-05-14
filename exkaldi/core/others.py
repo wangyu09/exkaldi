@@ -21,9 +21,9 @@ import struct
 from io import BytesIO
 from collections import namedtuple
 
-from exkaldi.utils.utils import run_shell_command, type_name
 from exkaldi.version import version as ExkaldiInfo
-from exkaldi.utils.utils import UnsupportedDataType, WrongOperation, KaldiProcessError, WrongDataFormat
+from exkaldi.version import UnsupportedDataType, WrongOperation, KaldiProcessError, WrongDataFormat
+from exkaldi.utils.utils import run_shell_command, type_name
 from exkaldi.core.achivements import BytesFeature
 
 def tuple_data(achivements, frameLevel=False):

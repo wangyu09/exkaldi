@@ -21,6 +21,9 @@ import tempfile
 import math
 import os
 
+import sys
+sys.path.append('/mnt/c/Users/sanja/Documents/github/exkaldi')
+
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath
 from exkaldi.utils.utils import run_shell_command, type_name
@@ -28,7 +31,7 @@ from exkaldi.utils.utils import run_shell_command, type_name
 from exkaldi.core.achivements import UnsupportedDataType, KaldiProcessError
 from exkaldi.core.achivements import BytesFeature, BytesCMVNStatistics
 
-def use_cmvn(feat, cmvn, utt2spkFile=None, std=False, ordered=False):
+def use_cmvn(feat, cmvn, utt2spkFile=None, std=False):
 	'''
 	Apply CMVN statistics to feature.
 
@@ -36,6 +39,7 @@ def use_cmvn(feat, cmvn, utt2spkFile=None, std=False, ordered=False):
 		<feat>: exkaldi feature object.
 		<cmvn>: exkaldi CMVN statistics object.
 		<utt2spkFile>: utt2spk file path.
+		<std>: If true, apply std normalization.
 
 	Return:
 		A new feature object.
@@ -43,24 +47,16 @@ def use_cmvn(feat, cmvn, utt2spkFile=None, std=False, ordered=False):
 	ExkaldiInfo.vertify_kaldi_existed()
 
 	if type_name(feat) == "BytesFeature":
-		if not ordered:
-			feat = feat.sort(by="utt")
+		feat = feat.sort(by="utt")
 	elif type_name(feat) == "NumpyFeature":
-		if ordered:
-			feat = feat.to_bytes()
-		else:
-			feat = feat.sort(by="utt").to_bytes()
+		feat = feat.sort(by="utt").to_bytes()
 	else:
 		raise UnsupportedDataType(f"Expected exkaldi feature but got {type_name(feat)}.")
 
 	if type_name(cmvn) == "BytesCMVNStatistics":
-		if not ordered:
-			cmvn = cmvn.sort(by="utt")
+		cmvn = cmvn.sort(by="utt")
 	elif type_name(cmvn) == "NumpyCMVNStatistics":
-		if ordered:
-			cmvn = cmvn.to_bytes()
-		else:
-			cmvn = cmvn.sort(by="utt").to_bytes()
+		cmvn = cmvn.sort(by="utt").to_bytes()
 	else:
 		raise UnsupportedDataType(f"Expected exkaldi CMVN statistics but got {type_name(cmvn)}.")
 
