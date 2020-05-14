@@ -23,10 +23,243 @@ import subprocess
 import os
 import tempfile
 
-from exkaldi.utils.utils import type_name, run_shell_command
-from exkaldi.utils.utils import WrongOperation, WrongDataFormat, UnsupportedDataType, KaldiProcessError
+import sys
+sys.path.append('/mnt/c/Users/sanja/Documents/github/exkaldi')
+
+from exkaldi.utils.utils import type_name, run_shell_command, make_dependent_dirs
+from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, UnsupportedType, ShellProcessError, KaldiProcessError
 from exkaldi.version import version as ExkaldiInfo
-from exkaldi.version import WrongPath
+
+''' Kaldi script table '''
+class ScripTable(dict):
+	'''
+	This is a subclass of Python dict and used to hold all kaldi list tables such as feature scp file, utt2spk file, transcription file and so on. 
+	'''
+	def __init__(self, data={}, name="table"):
+		assert isinstance(name, str) and len(name) >0, "Name is not a string avaliable."
+		self.__name = name
+		super(ScripTable, self).__init__(data)
+	
+	@property
+	def is_void(self):
+		if len(self.keys()) == 0:
+			return True
+		else:
+			return False
+
+	@property
+	def name(self):
+		return copy.deepcopy(self.__name)
+
+	def rename(self, name):
+		'''
+		Rename.
+
+		Args:
+			<name>: a string.
+		'''
+		assert isinstance(name, str) and len(name) >0, "Name is not a string avaliable."
+		self.__name = name
+
+	def sort(self, reverse=False):
+		'''
+		Sort by utterance ID.
+
+		Args:
+			<reverse>: If reverse, sort in descending order.
+		Return:
+			A new ListTable object.
+		''' 
+		if self.is_void:
+			raise WrongOperation("No data to sort.")
+
+		items = sorted(self.items(), key=lambda x:x[0], reverse=reverse)
+		
+		return ScripTable(items, name=self.name)
+
+	def save(self, fileName=None):
+		'''
+		Save as text formation.
+
+		Args:
+			<fileName>: If None, return a string of text formation.
+		'''
+		def concat(utterance):
+			try:
+				return f"{utterance[0]} {utterance[1]}"
+			except Exception:
+				print(f"Utterance ID: {utterance[0]}")
+				raise WrongDataFormat(f"Wrong key and value format: {type_name(utterance[0])} and {type_name(utterance[1])}. ")
+
+		results = "\n".join( map(concat, self.items()) )
+
+		if fileName is None:
+			return results
+		elif isinstance(fileName, tempfile._TemporaryFileWrapper):
+			fileName.write(results)
+		else:
+			assert isinstance(fileName, str) and len(fileName) > 0, "file name is unavaliable."
+			make_dependent_dirs(fileName, pathIsFile=True)
+			with open(fileName, "w", encoding="utf-8") as fw:
+				fw.write(results)
+
+	def load(self, fileName):
+		'''
+		Load a transcription from file. If utt is existed, it will be overlaped.
+
+		Args:
+			<fileName>: the txt file path.
+		'''
+		assert isinstance(fileName, str) and len(fileName)>0, "file name is unavaliable."
+		if not os.path.isfile(fileName):
+			raise WrongPath(f"No such file:{fileName}.")
+
+		with open(fileName, "r", encoding="utf-8") as fr:
+			lines = fr.readlines()
+		for index, line in enumerate(lines, start=1):
+			le = line.strip().split(maxsplit=1)
+			if len(le) < 2:
+				print(f"Line Number:{index}")
+				print(f"Line Content:{line}")
+				raise WrongDataFormat("Missing entire uttID and utterance information.")
+			else:
+				self[le[0]] = le[1]
+
+	def __add__(self, other):
+		'''
+		Integrate two ScripTable objects. If utt is existed in both two objects, the former will be retained.
+
+		Args:
+			<other>: another ScripTable object.
+		Return:
+			A new ScripTable object.
+		'''
+		assert isinstance(other, ScripTable), f"Cannot add {type_name(other)}."
+		new = copy.deepcopy(other)
+		new.update(self)
+
+		newName = f"add({self.name},{other.name})"
+		new.rename(newName)
+
+		return new
+
+class Transcription(ScripTable):
+	'''
+	This is used to hold transcription text, such as decoding n-best. 
+	'''
+	def __init__(self, data={}, name="transcription"):
+		super(Transcription, self).__init__(data, name=name)
+
+	def sort(self, reverse=False):
+		'''
+		Sort by utterance ID.
+
+		Args:
+			<reverse>: If reverse, sort in descending order.
+		Return:
+			A new Transcription object.
+		''' 
+		items = sorted(self.items(), key=lambda x:x[0], reverse=reverse)		
+		return Transcription(items, name=self.name)
+
+	def __add__(self, other):
+		'''
+		Integrate two transcription objects. If utt is existed in both two objects, the former will be retained.
+
+		Args:
+			<other>: another Transcription object.
+		Return:
+			A new Transcription object.
+		'''
+		assert isinstance(other, Transcription), f"Cannot add {type_name(other)}."
+		result = super().__add__(other)
+		return Transcription(result, name=result.name)
+
+class Cost(ScripTable):
+	'''
+	This is used to hold the AM or LM cost of N-Best. 
+	'''
+	def __init__(self, data={}, name="cost"):
+		super(Cost, self).__init__(data, name=name)
+
+	def sort(self, reverse=False):
+		'''
+		Sort by utterance ID.
+
+		Args:
+			<reverse>: If reverse, sort in descending order.
+		Return:
+			A new Cost object.
+		''' 
+		results = super().sort(reverse=False)	
+		return Cost(results, name=self.name)
+	
+	def __add__(self, other):
+		'''
+		Integrate two Cost objects. If utt is existed in both two objects, the former will be retained.
+
+		Args:
+			<other>: another Cost object.
+		Return:
+			A new Cost object.
+		'''
+		assert isinstance(other, Cost), f"Cannot add {type_name(other)}."
+		result = super().__add__(other)
+		return Cost(result, name=result.name)
+
+class BytesDataIndex(ScripTable):
+	'''
+	For accelerate to find utterance and reduce Memory cost of intermidiate operation.
+	This is used to hold utterance index information of bytes data. It likes the script-file of a feature binary achivements in Kaldi.
+	Every BytesData object will carry with one BytesDataIndex object.
+	{ "utt": (frames, start_index, length) }
+	'''	
+	def __init__(self, data, name="index"):
+		super(BytesDataIndex, self).__init__(data, name=name)
+	
+	def sort(self, by="utt", reverse=False):
+		'''
+		Sort utterances by frames length or uttID
+
+		Args:
+			<by>: "frame" or "utt" or "startIndex"
+			<reverse>: If reverse, sort in descending order.
+		Return:
+			A new NumpyData object.
+		''' 
+		if self.is_void:
+			raise WrongOperation('No data to sort.')
+		assert by in ["utt","frame"], "We only support sorting by 'name' or 'frame'."
+
+		if by == "utt":
+			items = sorted(self.items(), lambda x:x[0], reverse=reverse)
+		elif by == "frame":
+			items = sorted(self.items(), lambda x:x[1][0], reverse=reverse)
+		else:
+			items = sorted(self.items(), lambda x:x[1][1], reverse=reverse)
+		
+		return BytesDataIndex(items)
+
+	def __add__(self, other):
+		'''
+		Integrate two BytesDataIndex objects. If utt is existed in both two objects, the former will be retained.
+
+		Args:
+			<other>: another BytesDataIndex object.
+		Return:
+			A new BytesDataIndex object.
+		'''
+		assert isinstance(other, BytesDataIndex), f"Cannot add {type_name(other)}."
+		result = super().__add__(other)
+		return BytesDataIndex(result, name=result.name)
+
+	def save(self):
+		raise WrongOperation("BytesDataIndex is unsupported to be saved as file.")
+
+	def load(self):
+		raise WrongOperation("BytesDataIndex is unsupported to be loaded from file.")
+
+''' Kaldi archive table '''
 
 class BytesAchievement:
 
@@ -64,7 +297,7 @@ class BytesData(BytesAchievement):
 	'''
 	A base class of bytes feature, cmvn statistics, post probability data.  
 	'''
-	def __init__(self, data=b'', name="data"):
+	def __init__(self, data=b'', name="data", indexTable=None):
 		if isinstance(data, BytesData):
 			data = data.data
 		elif isinstance(data, NumpyData):
@@ -74,6 +307,35 @@ class BytesData(BytesAchievement):
 		else:
 			raise UnsupportedDataType(f"Expected exkaldi BytesData, NumpyData or Python bytes object but got {type_name(data)}.")
 		super().__init__(data, name)
+
+		if indexTable is None:
+			self.__generate_index_table()
+		else:
+			assert isinstance(indexTable, BytesDataIndex), f"<indexTable> should be a BytesDataIndex object bur got {type_name(indexTable)}."
+			self.__dataIndex = indexTable
+
+	def __generate_index_table(self):
+		'''
+		Genrate the index table.
+		'''
+		if self.is_void:
+			self.__dataIndex = None
+		else:
+			self.__dataIndex = BytesDataIndex(name=self.name + "_index")
+			start_index = 0
+			with BytesIO(self.data) as sp:
+				while True:
+					(utt, dataType, rows, cols, buf) = self.__read_one_record(sp)
+					if utt == None:
+						break
+					if dataType == 'DM ':
+						sampleSize = 8
+					else:
+						sampleSize = 4
+					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
+
+					self.__dataIndex[utt] = (rows, start_index, oneRecordLen)
+					start_index += oneRecordLen            
 
 	def __read_one_record(self, fp):
 		'''
@@ -112,6 +374,16 @@ class BytesData(BytesAchievement):
 			fp.close()
 			raise WrongDataFormat("Miss binary symbol before utterance.")
 		return (utt, dataType, rows, cols, buf)
+
+	@property
+	def utt_index(self):
+		'''
+		Get the index information of utterances.
+		
+		Return:
+			A BytesDataIndex object.
+		'''
+		return copy.deepcopy(self.__dataIndex)
 
 	@property
 	def dtype(self):
@@ -155,15 +427,16 @@ class BytesData(BytesAchievement):
 			
 			result = []
 			with BytesIO(self.data) as sp:
+				start_index = 0
 				while True:
-					(utt,dataType,rows,cols,buf) = self.__read_one_record(sp)
+					(utt, dataType, rows, cols, buf) = self.__read_one_record(sp)
 					if utt == None:
 						break
 					if dataType == 'FM ': 
 						matrix = np.frombuffer(buf, dtype=np.float32)
 					else:
 						matrix = np.frombuffer(buf, dtype=np.float64)
-					newMatrix = np.array(matrix,dtype=dtype).tobytes()
+					newMatrix = np.array(matrix, dtype=dtype).tobytes()
 					data = (utt+' '+'\0B'+newDataType).encode()
 					data += '\04'.encode()
 					data += struct.pack(np.dtype('uint32').char, rows)
@@ -171,6 +444,11 @@ class BytesData(BytesAchievement):
 					data += struct.pack(np.dtype('uint32').char, cols)
 					data += newMatrix
 					result.append(data)
+
+					oneRecordLength = len(data)
+					self.__dataIndex[utt] = (cols, start_index, oneRecordLength)
+					start_index += oneRecordLength
+					
 			result = b''.join(result)
 
 		return BytesData(result, name=self.name)
@@ -200,17 +478,11 @@ class BytesData(BytesAchievement):
 		Return:
 			a list of all utterance IDs.
 		'''
-		allUtts = []
-		if not self.is_void:		
-			with BytesIO(self.data) as sp:
-				while True:
-					(utt, dataType, rows, cols, buf) = self.__read_one_record(sp)
-					if utt is None:
-						break
-					else:
-						allUtts.append(utt)
-		return allUtts
-
+		if self.is_void:
+			return []
+		else:
+			return list(self.__dataIndex.keys())
+			
 	def check_format(self):
 		'''
 		Check if data has right kaldi formation.
@@ -223,6 +495,7 @@ class BytesData(BytesAchievement):
 			_dim = "unknown"
 			_dataType = "unknown"
 			with BytesIO(self.data) as sp:
+				start_index = 0
 				while True: 
 					(utt,dataType,rows,cols,buf) = self.__read_one_record(sp)
 					if utt == None:
@@ -243,6 +516,16 @@ class BytesData(BytesAchievement):
 						except Exception as e:
 							print(f"Wrong matrix data format at utterance {utt}.")
 							raise e
+					
+					if dataType == 'DM ':
+						sampleSize = 8
+					else:
+						sampleSize = 4
+					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
+
+					self.__dataIndex[utt] = (rows, start_index, oneRecordLen)
+					start_index += oneRecordLen					
+					
 			return True
 		else:
 			return False
@@ -258,14 +541,7 @@ class BytesData(BytesAchievement):
 		'''
 		lengths = (0, None)
 		if not self.is_void:
-			with BytesIO(self.data) as sp:
-				_lens = {}
-				while True:
-					(utt, dataType, rows, cols, buf) = self.__read_one_record(sp)
-					if utt == None:
-						break
-					else:
-						_lens[utt] = rows
+			_lens = dict( (key, value[0] ) for key, value in self.__dataIndex.items() )
 			lengths = (len(_lens), _lens)
 		
 		return lengths
@@ -286,8 +562,6 @@ class BytesData(BytesAchievement):
 		if self.is_void:
 			raise WrongOperation('No data to save.')
 
-		#if sys.getsizeof(self)/chunks > 10000000000:
-		#   print("Warning: Data size is extremely large. Try to save it with a long time.")
 		ExkaldiInfo.vertify_kaldi_existed()
 
 		def save_chunk_data(chunkData, arkFileName, outScpFile):
@@ -297,9 +571,9 @@ class BytesData(BytesAchievement):
 			else:
 				cmd = f"copy-feats ark:- ark:{arkFileName}"
 
-			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=chunkData)
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=chunkData)
 
-			if not os.path.isfile(arkFileName) or os.path.getsize(arkFileName) == 0:
+			if (isinstance(cod, int) and cod != 0) or (not os.path.isfile(arkFileName)) or (os.path.getsize(arkFileName) == 0):
 				print(err.decode())
 				if os.path.isfile(arkFileName):
 					os.remove(arkFileName)
@@ -317,37 +591,28 @@ class BytesData(BytesAchievement):
 		else:
 			if fileName.strip().endswith('.ark'):
 				fileName = fileName[0:-4]
-			with BytesIO(self.data) as sp:
-				uttLens = []
-				while True:
-					(utt,dataType,rows,cols,buf) = self.__read_one_record(sp)
-					if utt == None:
-						break
-					if dataType == 'DM ':
-						sampleSize = 8
-					else:
-						sampleSize = 4
-					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
-					uttLens.append(oneRecordLen)
-				sp.seek(0)
-				allLens = len(uttLens)
-				chunkUtts = allLens//chunks
-				if chunkUtts == 0:
-					chunks = allLens
-					chunkUtts = 1
-					t = 0
-					print(f"Warning: utterances is fewer than <chunks> so only {chunks} files will be saved.")
-				else:
-					t = allLens - chunkUtts * chunks
+			
+			uttLens = [ value[2] for vlaue in self.__dataIndex.values() ]
+			allLens = len(uttLens)
+			chunkUtts = allLens//chunks
+			if chunkUtts == 0:
+				chunks = allLens
+				chunkUtts = 1
+				t = 0
+				print(f"Warning: utterances is fewer than <chunks> so only {chunks} files will be saved.")
+			else:
+				t = allLens - chunkUtts * chunks
 
-				savedFilesName = []
+			savedFilesName = []
+
+			with BytesIO(self.data) as sp:
 				for i in range(chunks):
 					if i < t:
 						chunkLen = sum(uttLens[i*(chunkUtts+1):(i+1)*(chunkUtts+1)])
 					else:
 						chunkLen = sum(uttLens[i*chunkUtts:(i+1)*chunkUtts])
 					chunkData = sp.read(chunkLen)
-					savedFilesName.append(save_chunk_data(chunkData, fileName+'_ck{}.ark'.format(i), outScpFile))
+					savedFilesName.append(save_chunk_data(chunkData, fileName + f'_ck{i}.ark', outScpFile))
 
 		return savedFilesName
 
@@ -388,7 +653,7 @@ class BytesData(BytesAchievement):
 		''' 
 		if isinstance(other, BytesData):
 			pass
-		elif type_name(NumpyData) == "NumpyData":
+		elif type_name(other) == "NumpyData":
 			other = other.to_bytes()
 		else:
 			raise UnsupportedDataType(f"Expected exkaldi BytesData or NumpyData object but got {type_name(other)}.")
@@ -398,34 +663,42 @@ class BytesData(BytesAchievement):
 		elif other.is_void:
 			return copy.deepcopy(self)
 		elif self.dim != other.dim:
-			raise WrongOperation(f"Data dimensonality does not match: {self.dim}!={other.dim}.")    
+			raise WrongOperation(f"Data dimensonality does not match: {self.dim}!={other.dim}.")
 
-		selfUtts = self.utts
-		selfDtype = self.dtype
+		selfUtts, selfDtype = self.utts, self.dtype
+		otherDtype = other.dtype
+
+		newDataIndex = self.utt_index
+		lastIndexInfo = list(newDataIndex.sort(by="startIndex", reverse=True).values())[0]
+		start_index = lastIndexInfo[1] + lastIndexInfo[2]
+
 		newData = []
 		with BytesIO(other.data) as op:
-			while True:
-				(outt, odataType, orows, ocols, obuf) = self.__read_one_record(op)
-				if outt == None:
-					break
-				elif not outt in selfUtts:
-					if odataType == 'FM ': 
-						temp = 'float32'
+			for utt, indexInfo in other.utt_index.items():
+				if not utt in selfUtts:
+					ocols, si, dataSize = indexInfo
+					if selfDtype == otherDtype:
+						op.seek(si)
+						data = op.read(dataSize)
 					else:
-						temp = 'float64'
-					if selfDtype != None and odataType != None and selfDtype != temp:
-						obuf = np.array(np.frombuffer(obuf, dtype=temp), dtype=selfDtype).tobytes()
-					data = (outt+' ').encode()
-					data += '\0B'.encode()        
-					data += odataType.encode()
-					data += '\04'.encode()
-					data += struct.pack(np.dtype('uint32').char, orows)
-					data += '\04'.encode()
-					data += struct.pack(np.dtype('uint32').char, ocols)
-					data += obuf
+						(outt, odataType, orows, ocols, obuf) = self.__read_one_record(op)
+						obuf = np.array(np.frombuffer(obuf, dtype=otherDtype), dtype=selfDtype).tobytes()
+						data = (outt+' ').encode()
+						data += '\0B'.encode()
+						data += odataType.encode()
+						data += '\04'.encode()
+						data += struct.pack(np.dtype('uint32').char, orows)
+						data += '\04'.encode()
+						data += struct.pack(np.dtype('uint32').char, ocols)
+						data += obuf
+						dataSize = len(data)
+
 					newData.append(data)
+					newDataIndex[utt] = (ocols, start_index, dataSize)
+					start_index +=	dataSize
+
 		newName = f"plus({self.name},{other.name})"
-		return BytesData(b''.join([self.data, *newData]), name=newName)
+		return BytesData(b''.join([self.data, *newData]), name=newName, indexTable=newDataIndex)
 
 	def subset(self, nHead=0, chunks=1, uttList=None):
 		'''
@@ -445,57 +718,55 @@ class BytesData(BytesAchievement):
 			assert isinstance(nHead, int), f"Expected <nHead> is an int number but got {nHead}."			
 			newName = f"subset({self.name},head {nHead})"
 
+			newDataIndex = BytesDataIndex(name=newName)
+			start_index = 0
+			
+			for utt, indexInfo in self.utt_index.items():
+				fs, si, ds = indexInfo
+				newDataIndex[utt] = (fs, start_index, ds)
+				start_index += ds
+				nHead -= 1
+				if nHead <= 0:
+					break
+			
 			with BytesIO(self.data) as sp:
-				uttLens = []
-				while nHead > 0:
-					(utt, dataType, rows, cols, buf) = self.__read_one_record(sp)
-					if utt == None:
-						break
-					if dataType == 'DM ':
-						sampleSize = 8
-					else:
-						sampleSize = 4
-					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
-					uttLens.append(oneRecordLen) 
-					nHead -= 1       
 				sp.seek(0)
-				data = sp.read(sum(uttLens))
+				data = sp.read(start_index)
 	
-			return BytesData(data, name=newName)
+			return BytesData(data, name=newName, indexTable=newDataIndex)
 		
 		elif chunks > 1:
 			assert isinstance(chunks, int), f"Expected <chunks> is an int number but got {chunks}."
 
+			uttLens = list(self.__dataIndex.items())
+			allLens = len(uttLens)
+			chunkUtts = allLens//chunks
+			if chunkUtts == 0:
+				chunks = allLens
+				chunkUtts = 1
+				t = 0
+				print(f"Warning: utterances is fewer than <chunks> so only {chunks} files will be saved.")
+			else:
+				t = allLens - chunkUtts * chunks
+			
 			datas = []
-			with BytesIO(self.data) as sp:
-				uttLens = []
-				while True:
-					(utt, dataType, rows, cols, buf) = self.__read_one_record(sp)
-					if utt == None:
-						break
-					if dataType == 'DM ':
-						sampleSize = 8
-					else:
-						sampleSize = 4
-					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
-					uttLens.append(oneRecordLen)                                
+			with BytesIO(self.data) as sp:                          
 				sp.seek(0)
-				allLens = len(uttLens)
-				chunkUtts = allLens//chunks
-				if chunkUtts == 0:
-					chunks = allLens
-					chunkUtts = 1
-					t = 0
-				else:
-					t = allLens - chunkUtts * chunks
 				for i in range(chunks):
-					if i < t:
-						chunkLen = sum(uttLens[i*(chunkUtts+1):(i+1)*(chunkUtts+1)])
-					else:
-						chunkLen = sum(uttLens[i*chunkUtts:(i+1)*chunkUtts])
-					chunkData = sp.read(chunkLen)
 					newName = f"subset({self.name},chunk {chunks}-{i})"
-					datas.append(BytesData(chunkData, name=newName))
+					newDataIndex = BytesDataIndex(name=newName)
+					if i < t:
+						chunkItems = uttLens[i*(chunkUtts+1) : (i+1)*(chunkUtts+1)]
+					else:
+						chunkItems = uttLens[i*chunkUtts : (i+1)*chunkUtts]
+					chunkLen = 0
+					for utt, indexInfo in chunkItems:
+						fs, si, ds = indexInfo
+						newDataIndex[utt] = (fs, chunkLen, ds)
+						chunkLen += ds
+					chunkData = sp.read(chunkLen)
+					
+					datas.append(BytesData(chunkData, name=newName, indexTable=newDataIndex))
 			return datas
 
 		elif uttList != None:
@@ -509,59 +780,51 @@ class BytesData(BytesAchievement):
 				raise UnsupportedDataType(f"Expected <uttList> is string, list or tuple but got {type_name(uttList)}.")
 
 			newData = []
+			dataIndex = self.utt_index
+			newDataIndex = BytesDataIndex(name=newName)
+			start_index = 0
 			with BytesIO(self.data) as sp:
-				while True:
-					(utt,dataType,rows,cols,buf) = self.__read_one_record(sp)
-					if utt == None:
-						break
-					elif utt in uttList:
-						data = b''
-						data = (utt+' \0B'+dataType).encode()
-						data += '\04'.encode()
-						data += struct.pack(np.dtype('uint32').char, rows)
-						data += '\04'.encode()
-						data += struct.pack(np.dtype('uint32').char, cols)
-						data += buf
-						newData.append(data)
+				for utt in uttList:
+					if utt in self.utts:
+						fr, si, ds = dataIndex[utt]
+						newDataIndex[utt] = (fr, start_index, ds)
+						start_index += ds
+						sp.seek(si)
+						newData.append( sp.read(ds) )
 
-			return BytesData(b''.join(newData), name=newName)
+			return BytesData(b''.join(newData), name=newName, indexTable=newDataIndex)
 
 		else:
 			raise WrongOperation('Expected <nHead> is larger than "0", or <chunks> is larger than "1", or <uttList> is not None.')
 
-	def __call__(self, uttID):
+	def __call__(self, utt):
 		'''
 		Pick out the specified utterance.
 		
 		Args:
-			<uttID>: a string.
+			<utt>: a string.
 		Return:
 			If existed, return a new BytesData object.
 			Or return None.
 		''' 
-		assert isinstance(uttID, str), "utterance ID should be a name-like string."
-		uttID = uttID.strip()
+		assert isinstance(utt, str), "utterance ID should be a name-like string."
+		utt = utt.strip()
 
 		if self.is_void:
 			raise WrongOperation("Cannot get any data from a void object.")
 		else:
-			result = None
-			with BytesIO(self.data) as sp:
-				while True:
-					(utt,dataType,rows,cols,buf) = self.__read_one_record(sp)
-					if utt is None:
-						break
-					elif utt == uttID:
-						data = (utt+' '+'\0B'+dataType).encode()
-						data += '\04'.encode()
-						data += struct.pack(np.dtype('uint32').char, rows)
-						data += '\04'.encode()
-						data += struct.pack(np.dtype('uint32').char, cols)
-						data += buf
-						newName = f"pick({self.name},{uttID})"
-						result = BytesData(data, name=newName)
-						break
-			return result
+			if utt not in self.utts:
+				raise WrongOperation(f"No such utterance:{utt}.")
+			else:
+				fr, si, ds = self.utt_index[utt]
+				newName = f"pick({self.name},{uttID})"
+				newDataIndex = BytesDataIndex(name=newName)
+				with BytesIO(self.data) as sp:
+					sp.seek(si)
+					data = sp.read(ds)
+					result = BytesData(data, name=newName, indexTable=newDataIndex)
+				
+				return result
 
 	def sort(self, by="utt", reverse=False):
 		'''
@@ -573,30 +836,11 @@ class BytesData(BytesAchievement):
 		Return:
 			A new BytesData object.
 		''' 
-		assert by in ["utt", "frames"], f"<by>"
+		assert by in ["utt", "frames"], f"<by> should be 'utt' or 'frame'."
 
-		ULSS = []
-		start_index = 0
+		newDataIndex = self.utt_index.sort(by=by, reverse=reverse)
+
 		with BytesIO(self.data) as sp:
-			uttLens = []
-			while True:
-				(utt, dataType, rows, cols, buf) = self.__read_one_record(sp)
-				if utt == None:
-					break
-				if dataType == 'DM ':
-					sampleSize = 8
-				else:
-					sampleSize = 4
-				oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
-				ULSS.append( (utt, rows, start_index, oneRecordLen) )
-				start_index += oneRecordLen                              
-			sp.seek(0)
-
-			if by == "utt":
-				ULSS = sorted(ULSS, lambda x:x[0], reverse=reverse)
-			else:
-				ULSS = sorted(ULSS, lambda x:x[1], reverse=reverse)
-			
 			if sys.getsizeof(self.data) > 1e-8:
 				## If the data size is extremely large, divide it into N chunks and save it to intermidiate file.
 				temp = tempfile.NamedTemporaryFile("wb+")
@@ -604,9 +848,10 @@ class BytesData(BytesAchievement):
 					chunkdata = []
 					chunkSize = 50
 					count = 0
-					for u, c, start_index, length in ULSS:
-						sp.seek(start_index)
-						chunkdata.append( sp.read(length) )
+					for utt, indexInfo in newDataIndex.items():
+						fs, si, ds = indexInfo
+						sp.seek(si)
+						chunkdata.append( sp.read(ds) )
 						count += 1
 						if count >= chunkSize:
 							temp.write( b"".join(chunkdata) )
@@ -622,19 +867,24 @@ class BytesData(BytesAchievement):
 					temp.close()
 			else:
 				chunkdata = []
-				for u, c, start_index, length in ULSS:
-					sp.seek(start_index)
-					chunkdata.append( sp.read(length) )
+				start_index = 0
+				for utt, indexInfo in newDataIndex.items():
+					fs, si, ds = indexInfo
+					sp.seek(si)
+					chunkdata.append( sp.read(ds) )
+					newDataIndex[utt] = (fs, start_index, ds)
+					start_index += ds
+
 				newData = b"".join(chunkdata)
 				del chunkdata
 
-		return BytesData(newData, name=self.name)			
+		return BytesData(newData, name=self.name, indexTable=newDataIndex)			
 						
 class BytesFeature(BytesData):
 	'''
 	Hold the feature with kaldi binary format.
 	'''
-	def __init__(self, data=b"", name="feat"):
+	def __init__(self, data=b"", name="feat", indexTable=None):
 		if isinstance(data, BytesFeature):
 			data = data.data
 		elif isinstance(data, NumpyFeature):
@@ -643,8 +893,8 @@ class BytesFeature(BytesData):
 			pass
 		else:
 			raise UnsupportedDataType(f"Expected BytesFeature, NumpyFeature or Python bytes object but got {type_name(data)}.")
-
-		super().__init__(data, name)
+		
+		super().__init__(data, name, indexTable)
 	
 	def to_numpy(self):
 		'''
@@ -673,7 +923,7 @@ class BytesFeature(BytesData):
 			raise UnsupportedDataType(f"Excepted a BytesFeature or NumpyFeature object but got {type_name(other)}.")
 
 		result = super().__add__(other)
-		return NumpyFeature(result.data, name=result.name)
+		return NumpyFeature(result.data, name=result.name, indexTable=result.utt_index)
 
 	def splice(self, left=1, right=None):
 		'''
@@ -2949,3 +3199,5 @@ class NumpyAlignmentPdf(NumpyAchievement):
 		'''
 		result = super().map(func)
 		return NumpyAlignmentPdf(data=result.data, name=result.name)
+
+"""

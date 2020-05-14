@@ -18,6 +18,7 @@
 from collections import namedtuple
 import subprocess
 import os
+import copy
 from glob import glob
 
 '''Some Exception Classes'''
@@ -110,6 +111,7 @@ class ExKaldi(
 			else:
 				self.__KALDI_ROOT = out.decode().strip()[0:-23]
 				self.assign_kaldi_root(self.__KALDI_ROOT) # In order to reset the environment
+
 		return self.__KALDI_ROOT
 	
 	@property
@@ -122,7 +124,8 @@ class ExKaldi(
 		'''
 		if self.__ENV is None:
 			self.__ENV = os.environ.copy()
-		return self.__ENV
+
+		return copy.deepcopy(self.__ENV)
 
 	@property
 	def LOG_DIR(self):
@@ -172,8 +175,9 @@ class ExKaldi(
 		else:
 			self.__KALDI_ROOT = path
 
+		newENV = self.ENV['PATH']
 		systemPATH = []
-		for i in self.ENV['PATH'].split(':'):
+		for i in newENV.split(':'):
 			if i.endswith( os.path.join("", "tools", "openfst") ):
 				continue
 			elif i.endswith( os.path.join("", "tools", "openfst", "bin") ):
@@ -205,7 +209,8 @@ class ExKaldi(
 		systemPATH.append( os.path.join(path, "src", "fstbin") )
 		systemPATH.append( os.path.join(path, "src", "latbin") )
 		
-		self.ENV['PATH'] = ":".join(systemPATH)
+		newENV = ":".join(systemPATH)
+		self.__ENV = newENV
 		self.assign_log_dir()
 	
 	def assign_log_dir(self, path=None):
@@ -254,7 +259,8 @@ class ExKaldi(
 				raise WrongPath("SRILM language model tool was not found. Please install it with KALDI_ROOT/tools/.install_srilm.sh .")
 
 			systemPATH = []
-			for i in self.ENV['PATH'].split(':'):
+			newENV = self.ENV['PATH']
+			for i in newENV.split(':'):
 				if i.endswith('srilm'):
 					continue
 				elif i.endswith( os.path.join('srilm','bin') ):
@@ -268,7 +274,8 @@ class ExKaldi(
 			systemPATH.append( os.path.join(SRILMROOT,'bin') )
 			systemPATH.append( os.path.join(SRILMROOT,'bin','i686-m64') )
 
-			self.ENV['PATH'] = ":".join(systemPATH)
+			newENV= ":".join(systemPATH)
+			self.__ENV = newENV
 
 version = ExKaldi(
             '.'.join([_MAJOR_VERSION,_MINOR_VERSION]),

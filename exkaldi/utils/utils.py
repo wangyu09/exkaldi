@@ -83,7 +83,7 @@ def make_dependent_dirs(path, pathIsFile=True):
 	assert isinstance(path, str), "<path> should be a file path."
 	path = os.path.abspath(path.strip())
 
-	dirPath = os.path.dirname() if pathIsFile else path
+	dirPath = os.path.dirname(path) if pathIsFile else path
 	
 	if not os.path.isdir(dirPath):
 		try:
