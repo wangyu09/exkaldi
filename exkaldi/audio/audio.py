@@ -15,8 +15,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import wave, pyaudio
-import threading, queue
+import wave
+import pyaudio
+import threading
+import queue
 import time
 import socket
 import math
@@ -24,13 +26,12 @@ import tempfile
 import os
 import gc
 
-from exkaldi.utils.utils import WrongOperation, UnsupportedDataType
 from exkaldi.utils.utils import type_name
-from exkaldi.version import PathError
+from exkaldi.version import PathError, WrongOperation, UnsupportedType
 
 class NetworkError(Exception):pass
 
-class Client(object):
+class Client:
     '''
     Usage: 
         with Client() as client:
@@ -575,7 +576,7 @@ class Client(object):
     def timer(self):
         return round(self._counter,2)
 
-class Server(object):
+class Server:
     '''
     Usage: 
         with Serve() as serve:
@@ -1052,7 +1053,7 @@ def record_voice(outFile, seconds=None, dtype="int8", channels=1, rate=16000, ch
         <outFile>: wav file name.
         <seconds>: If None, use ctrl+C to stop recording.
         <dtype>: 'int8','int16' or 'int32'.
-        <channels>: voice channels.
+        <channels>: channels, 1 or 2.
         <rate>: sample rate.
         <chunkFrames>: the frames every time to read from microphone stream.
     
@@ -1062,6 +1063,9 @@ def record_voice(outFile, seconds=None, dtype="int8", channels=1, rate=16000, ch
 
     if seconds != None:
         assert isinstance(seconds, (int,float)) and seconds > 0, f'Expected <seconds> is positive int or float value but got {type_name(seconds)}.'
+    assert isinstance(rate, int) and rate > 0, f"<rate> shoule be positive int value."
+    assert isinstance(chunkFrames, int) and chunkFrames > 0, f"<chunkFrames> should be positive int value."
+    assert channels in [1,2], f"Expected <Channels> is 1 or 2 but got {channels}."
 
     if dtype == "int8":
         width = 1
@@ -1073,9 +1077,7 @@ def record_voice(outFile, seconds=None, dtype="int8", channels=1, rate=16000, ch
         width = 4
         ft = pyaudio.paInt32
     else:
-        raise UnsupportedDataType(f"<dtype> should be int8, int16 or int32 but got {dtype}.")
-    
-    assert channels in [1,2], f"Expected <Channels> is 1 or 2 but got {channels}."
+        raise UnsupportedType(f"<dtype> should be int8, int16 or int32 but got {dtype}.")
     
     counter = 0
     secPerRecord = chunkFrames/rate
@@ -1085,7 +1087,7 @@ def record_voice(outFile, seconds=None, dtype="int8", channels=1, rate=16000, ch
 
     try:
         wavData = []
-        if seconds != None:
+        if seconds is not None:
             while counter <= (seconds-secPerRecord):
                 data = stream.read(chunkFrames)
                 wavData.append(data)

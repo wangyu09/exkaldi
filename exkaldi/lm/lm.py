@@ -17,18 +17,16 @@
 
 """Exkaldi LM training & HCLG generating associates."""
 
-from exkaldi.utils.utils import KaldiProcessError, UnsupportedDataType, WrongOperation, WrongDataFormat
-from exkaldi.utils.utils import check_config, make_dependent_dirs,type_name, run_shell_command
-from exkaldi.core.achivements import BytesAchievement
-from exkaldi.version import version as ExkaldiInfo
-from exkaldi.version import WrongPath
-
 import os
 import subprocess
 import tempfile
-import shutil
 import kenlm
 import math
+
+from exkaldi.utils.utils import check_config, make_dependent_dirs,type_name, run_shell_command
+from exkaldi.core.achivements import BytesAchievement
+from exkaldi.version import version as ExkaldiInfo
+from exkaldi.version import WrongPath, KaldiProcessError, UnsupportedType, WrongOperation, WrongDataFormat
 
 def train_ngrams_srilm(lexicons, order, textFile, outFile, discount="kndiscount", config=None):
 	'''
@@ -149,7 +147,7 @@ def train_ngrams_kenlm(lexicons, order, textFile, outFile):
 			words_count = math.ceil(len(ws)/10) * 10
 			ws = "\n".join(ws)
 		else:
-			raise UnsupportedDataType("<lexicons> should be LexiconBank object or file path.")
+			raise UnsupportedType("<lexicons> should be LexiconBank object or file path.")
 
 		words.write(ws)
 		words.seek(0)
@@ -205,7 +203,7 @@ class KenNGrams(BytesAchievement):
 			with open(filePath, "rb") as fr:
 				t = fr.read(50).decode().strip()
 			if t != "mmap lm http://kheafield.com/code format version 5":
-				raise UnsupportedDataType("This is not a KenLM binary model formation.")
+				raise UnsupportedType("This is not a KenLM binary model formation.")
 		
 		super(KenNGrams, self).__init__(data=b"kenlm", name=name)
 		self.__model = kenlm.Model(filePath)

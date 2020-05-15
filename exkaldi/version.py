@@ -38,9 +38,7 @@ _MINOR_VERSION = '0'
 
 _EXPECTED_KALDI_VERSION = "5.5"
 
-class ExKaldi(
-    namedtuple("ExKaldi",["version","major","minor"])
-    ):
+class ExKaldi( namedtuple("ExKaldi",["version","major","minor"]) ):
 
 	def initialize(self):
 		'''
@@ -49,9 +47,10 @@ class ExKaldi(
 		self.__KALDI_ROOT = None
 		self.__ENV = None
 		self.__LOG_DIR = None
-		# Try to initialize all these info     
+		 
 		_ = self.KALDI_ROOT
 		_ = self.KALDI
+		
 		return self
 	
 	@property
@@ -70,10 +69,7 @@ class ExKaldi(
 		The kaldi version information. It will search the .version file in kaldi root path.
 
 		Return:
-			None, "unknown" or a string of version No.
-		
-		Raise:
-			If kaldi version is not expected, raise error.
+			None, "unknown", or a string of version Number.
 		'''
 		if self.__KALDI_ROOT is None:
 			print("Warning: Kaldi toolkit was not found.")
@@ -95,7 +91,7 @@ class ExKaldi(
 	@property
 	def KALDI_ROOT(self):
 		'''
-		The kaldi root path. We allow kaldi not existed but we expect it will be assigned. 
+		The kaldi root path. We allow Kaldi does not exist but we expect it will be assigned later. 
 
 		Return:
 			None if kaldi is not existed, or a path.
@@ -107,7 +103,7 @@ class ExKaldi(
 			if out == b'':
 				print("Warning: Kaldi root directory was not found in system PATH. You can assign it:")
 				print("exkaldi.version.assign_kaldi_root( yourPath )")
-				print("If not, ERROR will occur when implementing part of core functions.")
+				print("If not, ERROR will occur when implementing parts of core functions.")
 			else:
 				self.__KALDI_ROOT = out.decode().strip()[0:-23]
 				self.assign_kaldi_root(self.__KALDI_ROOT) # In order to reset the environment
@@ -125,6 +121,7 @@ class ExKaldi(
 		if self.__ENV is None:
 			self.__ENV = os.environ.copy()
 
+		# ENV is a dict object, so deepcopy it.
 		return copy.deepcopy(self.__ENV)
 
 	@property
@@ -171,12 +168,14 @@ class ExKaldi(
 		p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=os.environ.copy())
 		out, err = p.communicate()
 		if out == b'':
-			raise WrongPath(f"{path} seems to be a Kaldi root directory unavaliable.")
+			raise WrongPath(f"{path} seems unavaliable.")
 		else:
 			self.__KALDI_ROOT = path
 
-		newENV = self.ENV['PATH']
+		newENV = self.ENV['PATH'] #deepcopied dict object
 		systemPATH = []
+
+		# Abandon old kaldi path of environment
 		for i in newENV.split(':'):
 			if i.endswith( os.path.join("", "tools", "openfst") ):
 				continue
@@ -199,6 +198,7 @@ class ExKaldi(
 			else:
 				systemPATH.append(i)
 
+		# Add new kaldi path of environment
 		systemPATH.append( os.path.join(path, "src", "bin") )
 		systemPATH.append( os.path.join(path, "tools", "openfst") )
 		systemPATH.append( os.path.join(path, "tools", "openfst", "bin") )
@@ -209,25 +209,24 @@ class ExKaldi(
 		systemPATH.append( os.path.join(path, "src", "fstbin") )
 		systemPATH.append( os.path.join(path, "src", "latbin") )
 		
+		# Assign new environment
 		newENV = ":".join(systemPATH)
 		self.__ENV = newENV
-		self.assign_log_dir()
+
+		# Make a default log dir
+		self.assign_log_dir( path = os.path.join(self.__KALDI_ROOT, ".exkaldilog") )
 	
-	def assign_log_dir(self, path=None):
+	def assign_log_dir(self, path):
 		'''
 		Assign a log directory in order to place some log or temporary files.
 		Every time when exkaldi is imported, check if this folder is existed. If existed, cleanup the log files.
 
 		Args:
-			<path>: a directory path. If None, make the default log dir, KALDI_ROOT/.exkaldilog
+			<path>: a directory path.
 		'''
-		if path is None:
-			if self.KALDI_ROOT is None:
-				raise WrongPath("No Kaldi root directory so cannot make a default log dir.")
-			else:
-				path = os.path.join(self.KALDI_ROOT, ".exkaldilog")
+		assert isinstance(path, str), f"<path> should be  string."
 		
-		dirPath = path.strip()
+		dirPath = os.path.abspath(path.strip())
 
 		if not os.path.isdir(dirPath):
 			try:
@@ -236,14 +235,14 @@ class ExKaldi(
 				print(f"Cannot make log directory:{dirPath}.")
 				raise e
 		
-		self.__LOG_DIR = os.path.abspath(path)
+		self.__LOG_DIR = dirPath
 
-		logFiles = glob(os.path.join(self.__LOG_DIR, "*.log" ))
+		logFiles = glob(os.path.join(dirPath, "*.log" ))
 		if len(logFiles) > 500:
 			logFiles = sorted(logFiles)
-			for i in range( len(logFiles)//2 ):
+			for i in logFiles[0:-200]: # Only keep the last 200 files.
 				try:
-					os.remove( logFiles[i] )
+					os.remove( i )
 				except:
 					continue
 
@@ -260,6 +259,7 @@ class ExKaldi(
 
 			systemPATH = []
 			newENV = self.ENV['PATH']
+			# Abandon old srilm path of environment
 			for i in newENV.split(':'):
 				if i.endswith('srilm'):
 					continue
@@ -270,6 +270,7 @@ class ExKaldi(
 				else:
 					systemPATH.append(i)
 
+			# Add new srilm path to environment
 			systemPATH.append( SRILMROOT )
 			systemPATH.append( os.path.join(SRILMROOT,'bin') )
 			systemPATH.append( os.path.join(SRILMROOT,'bin','i686-m64') )
