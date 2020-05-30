@@ -53,7 +53,7 @@ def run_shell_command(cmd, stdin=None, stdout=None, stderr=None, inputs=None, en
 	elif isinstance(cmd, list):
 		shell = False
 	else:
-		raise UnsupportedType("<cmd> should be a string,  or a list of command and its options.")
+		raise UnsupportedType("<cmd> should be a string,  or a list of commands and its' options.")
 	
 	if env is None:
 		env = ExkaldiInfo.ENV
@@ -80,7 +80,7 @@ def make_dependent_dirs(path, pathIsFile=True):
 		<path>: a file path or folder path.
 		<pathIsFile>: declare <path> if is a file path or folder path.
 	'''
-	assert isinstance(path, str), "<path> should be a file path."
+	assert isinstance(path, str), "<path> should be a string."
 	path = os.path.abspath(path.strip())
 
 	dirPath = os.path.dirname(path) if pathIsFile else path
@@ -147,14 +147,15 @@ def show_log(logFile=None, tail=0):
 			for line in lines[-tail:]:
 				print(line.strip())
 	else:
-		print("No log information to display.")
+		print("No any log information.")
 
-def print_message(*args,**kwargs):
+def print_message(*args, **kwargs):
 	'''
 	Almost the same as Python print function.
 
 	Args:
 		<verbose>: If 0, print nothing, or print to standerd output.
+		<wtiteFile>: If it is None or a file name, write the message to file simultaneously.
 	'''
 
 	if "verbose" in kwargs.keys():
@@ -162,8 +163,17 @@ def print_message(*args,**kwargs):
 	else:
 		verbos = 1
 
+	if "writeFile" in kwargs.keys():
+		fileName = kwargs.pop("writeFile")
+		if "end" in kwargs.keys():
+			endSymbol = kwargs["end"]
+		else:
+			endSymbol = "\n"
+		message = " ".join([*args]) + endSymbol
+		write_log(message=message, mode="a", logFile=fileName)
+
 	if verbos != 0:
-		print(*args,**kwargs)
+		print(*args, **kwargs)
 
 def check_config(name, config=None):
 	'''
@@ -189,22 +199,19 @@ def check_config(name, config=None):
 		c = module.config
 
 	if config is None:
-		new = {}
-		for key,value in c.items():
-			new[key] = value[0]
-		return new
+		return dict( (key, value[0]) for key, value in c.items() )
 	else:
 		if not isinstance(config, dict):
 			raise WrongOperation(f"<config> has a wrong format. You can use check_config('{name}') to look expected configure format.")
 		for k in config.keys():
 			if not k in c.keys():
-				raise WrongOperation(f"No such key: <{k}> in {name}.")
+				raise WrongOperation(f"No such configure name: <{k}> in {name}.")
 			else:
 				proto = c[k][1]
 				if isinstance(config[k], bool):
 					raise WrongOperation(f"configure <{k}> is bool value '{config[k]}', but we expected str value like 'true' or 'false'.")
 				elif not isinstance(config[k], proto):
-					raise WrongDataFormat(f"configure <{k}> is expected {proto} but got {type_name(config[k])}.")
+					raise WrongDataFormat(f"configure <{k}> should be {proto} but got {type_name(config[k])}.")
 			return True
 
 def split_txt_file(filePath, chunks=2):
@@ -304,7 +311,7 @@ def decompress_gz_file(filePath, overWrite=False):
 	assert isinstance(filePath, str), f"<filePath> must be a string but got {type_name(filePath)}."
 	filePath = filePath.rstrip()
 	if not os.path.isfile(filePath):
-		raise WrongPath(f"Noe such file:{filePath}.")
+		raise WrongPath(f"No such file:{filePath}.")
 	elif not filePath.endswith(".gz"):
 		raise WrongOperation(f"{filePath}: Unknown suffix.")
 
@@ -335,17 +342,25 @@ def flatten(item):
 	new = []
 	for i in item:
 		dtype = type_name(i)
+		# python int or float value or Numpy float or int value.
 		if dtype.startswith("int") or dtype.startswith("float"):
 			new.append(i)
+		# python str value.
 		elif dtype.startswith("str"):
 			if len(i) <= 1:
 				new.append(i)
 			else:
 				new.extend(flatten(i))
+		# python list, tuple, set object.
 		elif dtype in ["list", "tuple", "set"]:
 			new.extend(flatten(i))
+		# Numpy ndarray object.
 		elif dtype == "ndarray":
-			new.extend(flatten(i))
+			if i.shape == ():
+				new.append(i)
+			else:
+				new.extend(flatten(i))
+		# Others objects is unsupported.
 		else:
 			raise UnsupportedType(f"Expected list, tuple, set, str or Numpy array object but got {type_name(i)}.")
 

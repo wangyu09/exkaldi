@@ -22,11 +22,12 @@ import subprocess
 import tempfile
 import kenlm
 import math
+import sys
 
-from exkaldi.utils.utils import check_config, make_dependent_dirs,type_name, run_shell_command
+from exkaldi.utils.utils import check_config, make_dependent_dirs, type_name, run_shell_command
 from exkaldi.core.achivements import BytesAchievement
 from exkaldi.version import version as ExkaldiInfo
-from exkaldi.version import WrongPath, KaldiProcessError, UnsupportedType, WrongOperation, WrongDataFormat
+from exkaldi.version import WrongPath, KaldiProcessError, ShellProcessError, KenlmProcessError, UnsupportedType, WrongOperation, WrongDataFormat
 
 def train_ngrams_srilm(lexicons, order, textFile, outFile, discount="kndiscount", config=None):
 	'''
@@ -48,13 +49,23 @@ def train_ngrams_srilm(lexicons, order, textFile, outFile, discount="kndiscount"
 		raise WrongPath(f"No such file:{textFile}")
 	else:
 		## Should check the numbers of lines
-		cmd1 = f'shuf {textFile} -n 100 | sed "s/ /\\n<space>\\n/g" | sort | uniq -c | sort -n | tail -n 1'
-		if int(subprocess.check_output(cmd1,shell=True).decode().strip().split()[0]) < 50:
-			raise WrongDataFormat("Text file sames that it were not splited by spaces.")
-	
+		cmd = f"shuf {textFile} -n 100"
+		out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		if (isinstance(cod,int) and cod != 0):
+			print(err.decode())
+			raise ShellProcessError("Failed to sample from text file.")
+		elif out == b'':
+			raise WrongDataFormat("Void text file.")
+		else:
+			out = out.decode().strip().split("\n")
+			spaceCount = 0
+			for line in out:
+				spaceCount += line.count(" ")
+			if spaceCount < len(out)//2:
+				raise WrongDataFormat("The text file doesn't seem to be separated by spaces or extremely short.")
+
 	wordlist = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix=".txt")
 	unkSymbol = lexicons("oov")
-
 	try:
 		lexiconp = lexicons("lexiconp")
 		words = [ x[0] for x in lexiconp.keys() ]
@@ -73,7 +84,7 @@ def train_ngrams_srilm(lexicons, order, textFile, outFile, discount="kndiscount"
 		else:
 			raise WrongOperation("<config> of train_ngrams function is unavaliable now.")
 
-		if check_config(name='ngrams', config=config):
+		if check_config(name='train_ngrams_srilm', config=config):
 			for key in config.keys():
 				if config[key] is True:
 					cmd2 += " {}".format(key)
@@ -83,15 +94,15 @@ def train_ngrams_srilm(lexicons, order, textFile, outFile, discount="kndiscount"
 					else:
 						cmd2 += f' {key} {config[key]}'
 
-		if not outFile.endswith(".gz"):
-			outFile += ".gz"
+		if not outFile.rstrip().endswith(".arpa"):
+			outFile += ".arpa"
 		make_dependent_dirs(outFile, pathIsFile=True)
 
 		cmd2 += f" -lm {outFile}"
 		
 		out, err, cod = run_shell_command(cmd2, stderr=subprocess.PIPE)
 
-		if (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
+		if (isinstance(cod, int) and cod != 0) or (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
 			print(err.decode())
 			if os.path.isfile(outFile):
 				os.remove(outFile)
@@ -117,12 +128,24 @@ def train_ngrams_kenlm(lexicons, order, textFile, outFile):
 	if not os.path.isfile(textFile):
 		raise WrongPath("No such file:{}".format(textFile))
 	else:
-		cmd1 = f'shuf {textFile} -n 100 | sed "s/ /\\n<space>\\n/g" | sort | uniq -c | sort -n | tail -n 1'
-		if int(subprocess.check_output(cmd1,shell=True).decode().strip().split()[0]) < 50: ## bug should check the lines
-			raise WrongDataFormat("Text file sames that it were not splited by spaces.")
+		## Should check the numbers of lines
+		cmd = f"shuf {textFile} -n 100"
+		out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		if (isinstance(cod,int) and cod != 0):
+			print(err.decode())
+			raise ShellProcessError("Failed to sample from text file.")
+		elif out == b'':
+			raise WrongDataFormat("Void text file.")
+		else:
+			out = out.decode().strip().split("\n")
+			spaceCount = 0
+			for line in out:
+				spaceCount += line.count(" ")
+			if spaceCount < len(out)//2:
+				raise WrongDataFormat("The text file doesn't seem to be separated by spaces or extremely short.")
 	
 	assert isinstance(outFile, str), f"<outFile> should be a string."
-	if outFile.rstrip().endswith(".arpa"):
+	if not outFile.rstrip().endswith(".arpa"):
 		outFile += ".arpa"
 	make_dependent_dirs(outFile, pathIsFile=True)
 	
@@ -152,12 +175,13 @@ def train_ngrams_kenlm(lexicons, order, textFile, outFile):
 		words.write(ws)
 		words.seek(0)
 
-		cmd = f"lmplz -o {order} --vocab_estimate {words_count} --verbose_header --text {textFile} --arpa {outFile} --prune --limit_vocab_file {words.name}"
+		cmd = os.path.join(sys.prefix,"exkaldisrc","tools","lmplz")
+		cmd += f" -o {order} --vocab_estimate {words_count} --text {textFile} --arpa {outFile} --limit_vocab_file {words.name}"
 		out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
 
-		if (cod != 0) or (not os.path.isfile(outFile)) or (os.path.getsize(outFile)==0):
+		if (isinstance(cod, int) and cod != 0) or (not os.path.isfile(outFile)) or (os.path.getsize(outFile)==0):
 			print(err.decode())
-			raise Exception("Failed to generate arpa file.")
+			raise KenlmProcessError("Failed to generate arpa file.")
 		else:
 			return os.path.abspath(outFile)
 
@@ -181,12 +205,13 @@ def arpa_to_binary(arpaFile, outFile):
 	assert isinstance(outFile, str), f"<outFile> should be a string."
 	make_dependent_dirs(outFile)
 
-	cmd= f"build_binary -s {arpaFile} {outFile}"
+	cmd = os.path.join(sys.prefix,"exkaldisrc","tools","build_binary")
+	cmd += f" -s {arpaFile} {outFile}"
 	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
 
 	if (cod != 0) or (not os.path.isfile(outFile)) or (os.path.getsize(outFile)==0):
 		print(err.decode())
-		raise Exception("Failed to tansform ARPA to binary format.")
+		raise KenlmProcessError("Failed to tansform ARPA to binary format.")
 	
 	else:
 		return os.path.abspath(outFile)

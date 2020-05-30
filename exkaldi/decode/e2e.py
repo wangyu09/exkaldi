@@ -17,22 +17,89 @@
 
 import numpy as np
 import os
+import sys
 from itertools import groupby
 import subprocess
 
-from exkadli.version import WrongPath
-from exkaldi.utils.utils import UnsupportedDataType, WrongDataFormat
-from exkaldi.decode.wfst import Transcription
-from exkaldi.nn.nn import softmax
+from exkaldi.version import WrongPath, UnsupportedType, WrongDataFormat, WrongOperation
 from exkaldi.utils.utils import run_shell_command, type_name
-from exkaldi.core.achivements import NumpyPostProbability
+from exkaldi.core.achivements import Transcription, NumpyProbability
+from exkaldi.nn.nn import softmax
 
-def ctc_greedy_decode(prob, vocabs, blankID=None):
+def convert_field(prob, originVocabs, targetVocabs, retainOOV=False):
+    '''
+    Tranform the dimensions of probability to target field.
+
+    Args:
+        <prob>: An exkaldi probability object. This probalility should be an output of Neural Network.
+        <originVocabs>: list of original field vocabulary.
+        <originVocabs>: list of target field vocabulary.
+        <retainOOV>: If True, target words which are not in original vocabulary will be retained in minimum probability of each frame. 
+    Return:
+        An new exkaldi probability object and a list of new target vocabulary.  
+    '''	
+    assert isinstance(originVocabs, list), f"<originVocabs> must be a list of vocabulary but got {originVocabs}."
+    assert isinstance(targetVocabs, list), f"<targetVocabs> must be a list of vocabulary but got {targetVocabs}."
+
+    if type_name(prob) == "BytesProbability":
+        prob = prob.to_numpy()
+    elif type_name(prob) == "NumpyProbability":
+        pass
+    else:
+        raise UnsupportedType(f"<prob> should be an exkaldi probability object but got {type_name(prob)}.")
+    
+    probDim = prob.dim
+    if len(originVocabs) != probDim:
+        raise WrongDataFormat(f"The dimensibality of probability {probDim} does not match the numbers of words {len(originVocabs)}.")
+    assert len(targetVocabs) > 0, f"Target vocabulary is void."
+
+    origin_w2i = dict( (w,i) for i,w in enumerate(originVocabs) )
+    
+    retainIDs = []
+    newTargetVocabs = []
+    for w in targetVocabs:
+        try:
+            ID = origin_w2i[w]
+        except KeyError:
+            if retainOOV is True:
+                newTargetVocabs.append(w)
+                retainIDs.append(None)
+            else:
+                pass
+        else:
+            newTargetVocabs.append(w)
+            retainIDs.append(ID) 
+
+    results = {}
+    for utt, pb in prob.items:
+        assert isinstance(pb, np.ndarray) and len(pb.shape)==2, "Unsupported probability matrix shape."
+        if retainOOV is True:
+            padding = np.min(pb, axis=1)
+        new = np.zeros(shape=(pb.shape[0], len(retainIDs)), dtype=np.float32)
+        for index, i in enumerate(retainIDs):
+            if i is None:
+                new[:, index] = padding
+            else:
+                new[:, index] = pb[:, i]
+            results[utt] = new
+
+        results[utt] = new
+    
+    newName = f"convert({prob.name})"
+    return NumpyProbability(data=results, name=newName), newTargetVocabs
+
+def beam_search(prob, vocab, beam=5):
+    '''
+    Pure beam search.
+    '''
+    raise WrongOperation("exkaldi.decode.e2e.beam_search is unavaliable now.")
+    
+def ctc_greedy_search(prob, vocabs, blankID=None):
     '''
     The best path decoding algorithm.
 
     Args:
-        <prob>: An exkaldi postprobability object. This probalility should be an output of Neural Network with CTC loss fucntion.
+        <prob>: An exkaldi probability object. This probalility should be an output of Neural Network with CTC loss fucntion.
         <vocabs>: a list of vocabulary.
         <blankID>: specify the ID of blank symbol. If None, use the last dimentionality of <prob>.
     Return:
@@ -40,14 +107,14 @@ def ctc_greedy_decode(prob, vocabs, blankID=None):
     '''
     assert isinstance(vocabs, list), f"<vocabs> must be a list of vocabulary but got {vocabs}."
 
-    if type_name(prob) == "BytesPostProbability":
+    if type_name(prob) == "BytesProbability":
         prob = prob.to_numpy()
-    elif type_name(prob) == "NumpyPostProbability":
+    elif type_name(prob) == "NumpyProbability":
         pass
     else:
-        raise UnsupportedDataType(f"<prob> should be an exkaldi probability object but got {type_name(prob)}.")
+        raise UnsupportedType(f"<prob> should be an exkaldi probability object but got {type_name(prob)}.")
     
-    probDim = prob.dims
+    probDim = prob.dim
     if len(vocabs) == probDim:
         if blankID is None:
             blankID = probDim - 1
@@ -73,7 +140,7 @@ def ctc_greedy_decode(prob, vocabs, blankID=None):
             raise e
     return results
 
-def ctc_beam_search_decode(prob, vocabs, blankID=None, beam=5, cutoff=0.999, strick=1.0, lmFile=None, alpha=1.0, beta=0):
+def ctc_prefix_beam_search(prob, vocabs, blankID=None, beam=5, cutoff=0.999, strick=1.0, lmFile=None, alpha=1.0, beta=0):
     '''
     Prefix beam search decoding algorithm. Lm score is supported.
 
@@ -98,7 +165,7 @@ def ctc_beam_search_decode(prob, vocabs, blankID=None, beam=5, cutoff=0.999, str
     elif type_name(prob) == "NumpyPostProbability":
         pass
     else:
-        raise UnsupportedDataType(f"<prob> should be an exkaldi probability object but got {type_name(prob)}.")	
+        raise UnsupportedType(f"<prob> should be an exkaldi probability object but got {type_name(prob)}.")	
 
     if lmFile is not None:
         assert isinstance(lmFile, str) and len(lmFile) > 0, "Language model file path is unavaliable."
@@ -137,7 +204,7 @@ def ctc_beam_search_decode(prob, vocabs, blankID=None, beam=5, cutoff=0.999, str
 
     sources = b"".join(sources)
 
-    cmd = os.path.join(".","tools","ctc_beam_search_decode")
+    cmd = os.path.join(sys.prefix,"exkaldisrc","tools","prefix_beam_search_decode")
     cmd += " --num_files {}".format(prob.lens[0])
     cmd += " --num_classes {}".format(num_classes)
     cmd += " --blank_id {}".format(blankID)
@@ -165,68 +232,6 @@ def ctc_beam_search_decode(prob, vocabs, blankID=None, beam=5, cutoff=0.999, str
 
         return results
 
-def convert_field(prob, originVocabs, targetVocabs, retainOOV=False):
-    '''
-    Tranform the dimensions of probability to target field.
-
-    Args:
-        <prob>: An exkaldi postprobability object. This probalility should be an output of Neural Network.
-        <originVocabs>: list of original field vocabulary.
-        <originVocabs>: list of target field vocabulary.
-        <retainOOV>: If True, target words which are not in original vocabulary will be retained in minimum probability of each frame. 
-    Return:
-        An new exkaldi probability object and a list of new target vocabulary.  
-    '''	
-    assert isinstance(originVocabs, list), f"<originVocabs> must be a list of vocabulary but got {originVocabs}."
-    assert isinstance(targetVocabs, list), f"<targetVocabs> must be a list of vocabulary but got {targetVocabs}."
-
-    if type_name(prob) == "BytesPostProbability":
-        prob = prob.to_numpy()
-    elif type_name(prob) == "NumpyPostProbability":
-        pass
-    else:
-        raise UnsupportedDataType(f"<prob> should be an exkaldi probability object but got {type_name(prob)}.")
-    
-    probDim = prob.dims
-    if len(originVocabs) != probDim:
-        raise WrongDataFormat(f"The dimensibality of probability {probDim} does not match the numbers of words {len(originVocabs)}.")
-    assert len(targetVocabs) > 0, f"Target vocabulary is void."
-
-    origin_w2i = dict( (w,i) for i,w in range(originVocabs) )
-    
-    retainIDs = []
-    newTargetVocabs = []
-    for w in enumerate(targetVocabs):
-        try:
-            ID = origin_w2i[w]
-        except KeyError:
-            if retainOOV is True:
-                newTargetVocabs.append(w)
-                retainIDs.append(None)
-            else:
-                pass
-        else:
-            newTargetVocabs.append(w)
-            retainIDs.append(ID)     
-
-    results = {}
-    for utt, pb in prob.items:
-        assert isinstance(pb, np.ndarray) and len(pb.shape)==2, "Unsupported probability matrix shape."
-        if retainOOV is True:
-            padding = np.min(pb, axis=1)
-        new = np.zeros(shape=(pb.shape[0], len(retainIDs)), dtype=np.float32)
-        for index, i in enumerate(retainIDs):
-            if i is None:
-                new[:, index] = padding
-            else:
-                new[:, index] = pb[:, i]
-            results[utt] = new
-
-        results[utt] = new
-    
-    newName = f"convert({prob.name})"
-    return NumpyPostProbability(data=results, name=newName), newTargetVocabs
-              
 
             
             

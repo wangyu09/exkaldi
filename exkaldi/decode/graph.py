@@ -22,7 +22,7 @@ import subprocess
 
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath
-from exkaldi.utils.utils import WrongOperation, WrongDataFormat, KaldiProcessError, UnsupportedDataType
+from exkaldi.utils.utils import WrongOperation, WrongDataFormat, KaldiProcessError, ShellProcessError, UnsupportedType
 from exkaldi.utils.utils import make_dependent_dirs, run_shell_command, type_name
 
 class LexiconBank:
@@ -48,13 +48,32 @@ class LexiconBank:
 	#------------------------------------- initialization Methods ------------------------------
 	# Bug, when use lexiconp_silprob(_disambig) to initialize, need to generate lexiconp_disambig too.
 
-	def __init__(self, pronLexicon, silWords=["<sil>"], unkSymbol="unk", optionalSilPhone="<sil>", extraQuestions=[],
+	def __init__(self, pronLexicon, silWords={"<sil>":"<sil>"}, unkSymbol={"unk":"unk"}, optionalSilPhone="<sil>", extraQuestions=[],
 					positionDependent=False, shareSilPdf=False, extraDisambigPhoneNumbers=1, extraDisambigWords=[]
 				):
 
 		assert isinstance(pronLexicon,str), "Expected <pronLexicon> is name like string."
-		assert isinstance(silWords, list) and len(silWords) > 0, "Expected at least one silence word in <silWords> but got nothing."
-		assert isinstance(unkSymbol, str) and len(unkSymbol) > 0, "Unknown symbol is necessary."
+
+		if isinstance(silWords, list):
+			assert len(silWords) > 0, "Expected at least one silence word in <silWords> but got nothing."
+			silWords = dict( (s,s) for s in silWords )
+			self.__retain_original_sil_pron = True
+		elif isinstance(silWords, dict):
+			assert len(silWords) > 0, "Expected at least one silence word in <silWords> but got nothing."
+			self.__retain_original_sil_pron = False
+		else:
+			raise UnsupportedType(f"<silWords> should be list or dict object but got {type_name(silWords)}.")
+
+		if isinstance(unkSymbol, list):
+			assert len(unkSymbol) == 1, "Please spicify one unk word."
+			unkSymbol = dict( (s,s) for s in unkSymbol )
+			self.__retain_original_unk_pron = True
+		elif isinstance(unkSymbol, dict):
+			assert len(unkSymbol) == 1, "Please spicify one unk word and its' pronunciation."
+			self.__retain_original_unk_pron = False
+		else:
+			raise UnsupportedType(f"<unkSymbol> should be list or dict object but got {type_name(unkSymbol)}.")
+
 		assert isinstance(optionalSilPhone,str) and len(optionalSilPhone) > 0, "Expected one optional silence phone in <optionalSilPhone>."
 		assert isinstance(extraQuestions,list), "Expected <extraQuestions> is list object."
 		assert isinstance(positionDependent,bool), "Expected <positionDependent> is True or False."
@@ -90,7 +109,7 @@ class LexiconBank:
 		'''
 		
 		if len(self.__parameters["extraDisambigWords"]) > 0:
-			extraDisambigWords = tempfile.NamedTemporaryFile("w+",encoding='utf-8')
+			extraDisambigWords = tempfile.NamedTemporaryFile("w+", encoding='utf-8')
 			try:
 				extraDisambigWords.write("\n".join(self.__parameters["extraDisambigWords"]))
 				extraDisambigWords.seek(0)
@@ -130,10 +149,9 @@ class LexiconBank:
 
 		## Make lexicon: [silence_phones]
 		temp = []
-		if self.__parameters["positionDependent"]:
-			for symbol in silWords + [unkSymbol]:
-				phone = self.__dictionaries["lexiconp"][(symbol,0)][1].split("_")[0]
-				temp.append(phone)
+		for symbol in list(silWords.keys()) + list(unkSymbol.keys()):
+			phone = self.__dictionaries["lexiconp"][(symbol,0)][1].split("_")[0]
+			temp.append(phone)
 		self.__dictionaries["silence_phones"] = list( set(temp) )
 
 		## Make lexicon: [optional_silence]
@@ -142,12 +160,11 @@ class LexiconBank:
 		## Make lexicon: [nonsilence_phones]
 		temp = []
 		for word, pron in self.__dictionaries["lexiconp"].items():
-			temp.extend( map(lambda x:x.split("_")[0],pron[1:]) )
+			temp.extend( map(lambda x:x.split("_")[0], pron[1:]) )
 		temp = sorted(list(set(temp)))
 		self.__dictionaries["nonsilence_phones"] = []
 		for phone in temp:
-			phone = phone.split("_")[0]
-			if not ( phone in self.__dictionaries["silence_phones"] or phone == optionalSilPhone ):
+			if (phone not in self.__dictionaries["silence_phones"]) and phone != optionalSilPhone :
 				self.__dictionaries["nonsilence_phones"].append(phone)
 
 		## Make lexicons: [phone_map], [silence_phone_map], [nonsilence_phone_map]
@@ -229,7 +246,7 @@ class LexiconBank:
 			self.__dictionaries["align_lexicon"][word] = (word[0],) + pron[1:]
 
 		## Make lexicon: [oov]
-		self.__dictionaries["oov"] = unkSymbol
+		self.__dictionaries["oov"] = list(unkSymbol.keys())[0]
 
 		## Make lexicon: [sets]
 		self.__dictionaries["sets"] = []
@@ -258,19 +275,19 @@ class LexiconBank:
 		## Make lexicon: [words]
 		self.__make_word_int_table()
 
-	def __check_lexicon_type(self,lexiconFile):
+	def __check_lexicon_type(self, lexiconFile):
 		'''
-		When given a lexicon file name, this method will discrimate its type.
+		When given a lexicon file name, firstly discrimate its type.
 		If it does not belong to "lexicon", "lexiconp(_disambig)", "lexiconp_silprob(_disambig)" and "silprob", raise error.
 		'''
 
-		with open(lexiconFile,"r",encoding="utf-8") as fr:
+		with open(lexiconFile, "r", encoding="utf-8") as fr:
 			lines =  fr.readlines()
 		
 		dataList = []
 		## Check if it is "silprob"
-		if len(lines) >=4:
-			estimateSilprob = True
+		if len(lines) >= 4:
+			MayBeSilprob = True
 			def check_if_float(s):
 				try:
 					float(s)
@@ -282,11 +299,11 @@ class LexiconBank:
 			for line,prefix in zip(lines[0:4],["<s>","</s>_s","</s>_n","overall"]):
 				line = line.strip().split()
 				if len(line) != 2 or line[0] != prefix or check_if_float(line[1]):
-					estimateSilprob = False
+					MayBeSilprob = False
 					break
 				else:
 					dataList.append( tuple(line) )
-			if estimateSilprob:
+			if MayBeSilprob:
 				return "silprob", dataList
 
 		## Check if it is "lexicon" or "lexiconp" or "lexiconp_silprob" 
@@ -296,8 +313,8 @@ class LexiconBank:
 			if len(line) == 0:
 				continue
 			if len(line) == 1:
-				raise WrongDataFormat("Missing integrated word-(probability)-pronunciation information:{}.".format(line[0]))
-			if dictType == None:
+				raise WrongDataFormat(f"Missing integrated word-(probability)-pronunciation information: {line[0]}.")
+			if dictType is None:
 				try:
 					float(line[1])
 				except ValueError:
@@ -313,38 +330,44 @@ class LexiconBank:
 							raise WrongDataFormat('Expected "lexicon", "lexiconp(_disambig)", "lexiconp_silprob(_disambig)", "silprob" file but got a unknown format.')
 					except IndexError:
 						if i == 2:
-							raise WrongDataFormat("Missing integrated word-(probability)-pronunciation information:{}.".format(" ".join(line)))
+							line = " ".join(line)
+							raise WrongDataFormat(f"Missing integrated word-(probability)-pronunciation information: {line}.")
 						else:
 							raise WrongDataFormat('Expected "lexicon", "lexiconp(_disambig)", "lexiconp_silprob(_disambig)", "silprob" file but got a unknown format.')
 					else:
 						try:
 							float(line[5])
 						except IndexError:
-							raise WrongDataFormat("Missing integrated word-(probability)-pronunciation information:{}.".format(" ".join(line)))					
+							line = " ".join(line)
+							raise WrongDataFormat(f"Missing integrated word-(probability)-pronunciation information: {line}.")					
 						except ValueError:
 							dictType = "lexiconp_silprob"
 						else:
 							raise WrongDataFormat('Expected "lexicon", "lexiconp(_disambig)", "lexiconp_silprob(_disambig)", "silprob" file but got a unknown format.')
 
-			dataList.append((line[0],tuple(line[1:])))
+			dataList.append( (line[0],tuple(line[1:])) )
 
 		if len(dataList) == 0:
-			raise WrongOperation("Nothing found in provided lexicon file.")
+			raise WrongOperation(f"Void file: {lexiconFile}.")
 		
 		## Check if it is a disambiguated lexicon
 		if dictType != "lexicon":
 			cmd = f'grep "#1" -m 1 < {lexiconFile}'
-			out, err, _ = run_shell_command(cmd, stdout=subprocess.PIPE)
-			if len(out) > 0:
+			out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE)
+			if (isinstance(cod,int) and cod != 0):
+				print(err.decode())
+				raise ShellProcessError("Failed to vertify disambig symbol.")
+			elif len(out) > 0:
 				dictType += "_disambig"
 
 		dataList = sorted(dataList, key=lambda x:x[0])
 
 		return dictType, dataList
 
-	def __creat_lexiconp_from_lexicon(self,dataList):
+	def __creat_lexiconp_from_lexicon(self, dataList):
 		'''
-		This method accepts "lexicon" format data and depending on it, generate three lexicons: [lexiconp], [lexiconp_disambig] and [disambig]
+		This method accepts "lexicon" format data, then generate three lexicons: [lexiconp], [lexiconp_disambig] and [disambig]
+		"lexicon" will be deprecated.
 		'''
 		
 		silWords = self.__parameters["silWords"]
@@ -353,24 +376,41 @@ class LexiconBank:
 		self.__dictionaries["lexiconp"] = {}
 
 		## Add silence words and their pronunciation
-		## We will give every record a unique ID (but all of silence and unk words use 0) in order to protect disambiguating words
-		for symbol in silWords:
-			self.__dictionaries["lexiconp"][(symbol,0)] = ("1.0",symbol,)		
+		## We will give every record a unique ID (but all of silence and unk words use 0) in order to protect disambiguating words.
+		for w,p in silWords.items():
+			self.__dictionaries["lexiconp"][(w,0)] = ("1.0",p,)		
 		## Add unknown symbol and its pronunciation
-		self.__dictionaries["lexiconp"][(unkSymbol,0)] = ("1.0",unkSymbol,)
-		## Add others and its pronunciation
+		for w,p in unkSymbol.items():
+			self.__dictionaries["lexiconp"][(w,0)] = ("1.0",p,)	
+		## Add other words and their pronunciation
 		disambigFlg = 1
 		for word, pron in dataList:
-			if word in silWords:
-				if len(pron) > 1:
-					raise WrongDataFormat('Silence word "{}" already existed in <pronLexicon>. Expected only one phone but got {}.'.format(word,len(pron)))
-				self.__dictionaries["lexiconp"][(word,0)] = ("1.0",) + pron
-			elif word == unkSymbol:
-				if len(pron) > 1:
-					raise WrongDataFormat('Unk symbol "{}" already existed in <pronLexicon>. Expected only one phone but got {}.'.format(word,len(pron)))
-				self.__dictionaries["lexiconp"][(word,0)] = ("1.0",) + pron
+			if word in silWords.keys():
+				if self.__retain_original_sil_pron:
+					print(f'Warning: silence word "{word}" already existed in provided lexicon. Use it.')
+					print(f'If you want specify new pronunciation, give <silWords> a dict object.')
+					if len(pron) > 1:
+						raise WrongDataFormat(f'Expected only one phone but got {len(pron)}.')
+					self.__dictionaries["lexiconp"][(word, 0)] = ("1.0",) + pron
+				else:
+					print(f'Warning: silence word "{word}" already existed in provided lexicon. Replace it with new pronunciation.')
+					print(f'If you want retain orignal pronunciation, give <silWords> a list object.')
+					pass
+
+			elif word in unkSymbol.keys():
+				if self.__retain_original_unk_pron:
+					print(f'Warning: unk symbol "{word}" already existed in provided lexicon. Use it.')
+					print(f'If you want specify new pronunciation, give <unkSymbol> a dict object.')
+					if len(pron) > 1:
+						raise WrongDataFormat(f'Expected only one phone but got {len(pron)}.')
+					self.__dictionaries["lexiconp"][(word, 0)] = ("1.0",) + pron
+				else:
+					print(f'Warning: unk symbol "{word}" already existed in provided lexicon. Replace it with new pronunciation.')
+					print(f'If you want retain orignal pronunciation, give <unkSymbol> a list object.')
+					pass
+
 			elif word == "<eps>":
-				## If "<eps>" existed, remove it by force
+				print('Warning: <eps> symbol has already existed in provided lexicon. Remove it.')
 				continue
 			else:
 				self.__dictionaries["lexiconp"][(word,disambigFlg)] = ("1.0",) + pron
@@ -385,8 +425,8 @@ class LexiconBank:
 
 	def __creat_lexiconp_from_lexiconp(self,dataList,dictType="lexiconp"):
 		'''
-		If this method accepted "lexiconp(_disambig)" format data, generate three lexicons: [lexiconp], [lexiconp_disambig] and [disambig]
-		If this method accepted "lexiconp_silprob(_disambig)" format data, generate four lexicons: [lexiconp], [lexiconp_silprob], [lexiconp_silprob_disambig] and [disambig]
+		If accepted "lexiconp(_disambig)" format data, generate three lexicons: [lexiconp], [lexiconp_disambig] and [disambig]
+		If accepted "lexiconp_silprob(_disambig)" format data, generate four lexicons: [lexiconp], [lexiconp_silprob], [lexiconp_silprob_disambig] and [disambig]
 		'''
 		## <dataList> has a format: [( word, ( probability, *pronunciation ) ), ...]
 		## <dictType> should be one of "lexiconp","lexiconp_disambig","lexiconp_silprob" and "lexicon_silprob_disambig" 
@@ -398,56 +438,85 @@ class LexiconBank:
 		testPron = dataList[0][1][-1]
 		if "#" in testPron:
 			testPron = dataList[0][1][-2]
-		extimatePositionDependent = False
+		MayBePositionDependent = False
 		if len(testPron) > 2 and (testPron[-2:] in ["_S","_B","_I","_E"]):
-			extimatePositionDependent = True
-		if extimatePositionDependent and ( not self.__parameters["positionDependent"]):
-			raise WrongOperation(" Position-dependent is unavaliable but appeared in provided lexicon file.")
+			MayBePositionDependent = True
+		if MayBePositionDependent and ( not self.__parameters["positionDependent"]):
+			raise WrongOperation("Position-dependent is unavaliable but appeared in provided lexicon file.")
 
 		## Transform data to Python dict object as well as giving it the unique ID (but all of silence words and unk word use 0)
 		## Add check whether silence words and unk word are existed already. If not, raise error.
 		temp = {}
+		existedSilAndUnk = []
 		disambigID = 1
 		for word, pron in dataList:
-			if word in silWords:
-				if ("silprob" in dictType and len(pron) > 5) or ( (not "silprob" in dictType) and len(pron) > 2):
-					raise WrongDataFormat('Silence word "{}" existed. Expected only one phone but got {}.'.format(word,len(pron)))
-				temp[ (word, 0) ] = pron
-			elif word == unkSymbol:
-				if ("silprob" in dictType and len(pron) > 5) or ( (not "silprob" in dictType) and len(pron) > 2):
-					raise WrongDataFormat('Unknown word "{}" existed. Expected only one phone but got {}.'.format(word,len(pron)))
-				temp[ (word, 0) ] = pron
+			if word in silWords.keys():
+
+				if "silprob" in dictType:
+					assert len(pron) > 5, f'Silence word "{word}" existed but only one phone is allowed in provided lexicon file.'
+					if self.__retain_original_sil_pron:
+						temp[ (word, 0) ] = pron
+					else:
+						temp[ (word, 0) ] = pron[0:3] + [silWords[word],]
+				else:
+					assert len(pron) > 2, f'Silence word "{word}" existed but only one phone is allowed in provided lexicon file.'
+					if self.__retain_original_sil_pron:
+						temp[ (word, 0) ] = pron
+					else:
+						temp[ (word, 0) ] = [pron[0],silWords[word],]
+				
+				existedSilAndUnk.append(word)
+
+			elif word in unkSymbol.keys():
+
+				if "silprob" in dictType:
+					assert len(pron) > 5, f'Unk symbol "{word}" existed but only one phone is allowed in provided lexicon file.'
+					if self.__retain_original_unk_pron:
+						temp[ (word, 0) ] = pron
+					else:
+						temp[ (word, 0) ] = pron[0:3] + [unkSymbol[word],]
+				else:
+					assert len(pron) > 2, f'Unk symbol "{word}" existed but only one phone is allowed in provided lexicon file.'
+					if self.__retain_original_unk_pron:
+						temp[ (word, 0) ] = pron
+					else:
+						temp[ (word, 0) ] = [pron[0],unkSymbol[word],]
+				
+				existedSilAndUnk.append(word)
+
 			else:
 				temp[ (word, disambigID) ] = pron
 				disambigID += 1
-		for symbol in silWords:
-			if not (symbol,0) in temp.keys():
-				raise WrongDataFormat('Sience word "{}" not appeared in lexiconp file.'.format(symbol))
-		if not (unkSymbol,0) in temp.keys():
-			raise WrongDataFormat('Unknown word "{}" not appeared in lexiconp file.'.format(unkSymbol))
+
+		for symbol in silWords.keys():
+			if not symbol in existedSilAndUnk:
+				raise WrongDataFormat(f'Sience word "{word}" not appeared in provided lexiconp file.')
+		for symbol in unkSymbol.keys():
+			if not symbol in existedSilAndUnk:
+				raise WrongDataFormat(f'Unk symbol "{word}" not appeared in provided lexiconp file.')
 		
-		## If <dictType> is "lexiconp", generate [lexiconp], [lexiconp_disambig] and [disambig]
+		## If <dictType> is "lexiconp", generate: [lexiconp] -> [lexiconp_disambig]&[disambig]
 		if dictType == "lexiconp":
 
 			self.__dictionaries["lexiconp"] = temp
 		
-			if self.__parameters["positionDependent"] and (not extimatePositionDependent):
+			if self.__parameters["positionDependent"] and (not MayBePositionDependent):
 				self.__apply_position_dependent_to_lexiconp(dictType="lexiconp")
 		
 			self.__add_disambig_to_lexiconp(dictType="lexiconp")
 		
-		## If <dictType> is "lexiconp_disambig", generate [lexiconp], [lexiconp_disambig] and [disambig]
+		## If <dictType> is "lexiconp_disambig", generate: [lexiconp_disambig] -> [lexiconp]&[disambig]
 		elif dictType == "lexiconp_disambig":
 
 			self.__dictionaries["lexiconp_disambig"] = temp
 			
-			if self.__parameters["positionDependent"] and (not extimatePositionDependent):
+			if self.__parameters["positionDependent"] and (not MayBePositionDependent):
 				self.__apply_position_dependent_to_lexiconp(dictType="lexiconp_disambig")
 			
 			self.__remove_disambig_from_lexiconp_disambig(dictType="lexiconp_disambig")
 
-		## If <dictType> is "lexiconp_silprob", generate [lexiconp], [lexiconp_silprob], [lexiconp_silprob_disambig] and [disambig]
-		elif dictType=="lexiconp_silprob":
+		## If <dictType> is "lexiconp_silprob", generate: [lexiconp_silprob] -> [lexiconp_silprob_disambig]&[disambig] -> [lexiconp]&[lexiconp_disambig]
+		elif dictType == "lexiconp_silprob":
 
 			self.__dictionaries["lexiconp_silprob"] = temp
 
@@ -462,7 +531,7 @@ class LexiconBank:
 				self.__dictionaries["lexiconp"][word] = (pron[0],) + pron[4:]
 				self.__dictionaries["lexiconp_disambig"][word] = (pron[0],) + self.__dictionaries["lexiconp_silprob_disambig"][word][4:]
 
-		## If <dictType> is "lexiconp_silprob_disambig", generate [lexiconp], [lexiconp_silprob], [lexiconp_silprob_disambig] and [disambig]	
+		## If <dictType> is "lexiconp_silprob_disambig", generate: [lexiconp_silprob_disambig] -> [lexiconp_silprob]&[disambig] -> [lexiconp_disambig]&[lexiconp_disambig]	
 		elif dictType=="lexiconp_silprob_disambig":
 
 			self.__dictionaries["lexiconp_silprob_disambig"] = temp
@@ -486,8 +555,7 @@ class LexiconBank:
 		This method is used to transform position-independent lexicon to a postion-dependent one.
 		Position-independent lexicon can be "lexiconp","lexiconp_disambig","lexiconp_silprob", or "lexiconp_silprob_disambig"
 		'''
-
-		if dictType=="lexiconp":
+		if dictType == "lexiconp":
 			for word, pron in self.__dictionaries[dictType].items():
 				pron = list(pron)
 				if len(pron) == 2:
@@ -547,7 +615,7 @@ class LexiconBank:
 		else:
 			raise WrongOperation('Expected lexiconp type is "lexiconp", "lexiconp_disambig","lexiconp_silprob", or "lexiconp_silprob_disambig".')
 
-	def __add_disambig_to_lexiconp(self,dictType="lexiconp"):
+	def __add_disambig_to_lexiconp(self, dictType="lexiconp"):
 		'''
 		This method is used to add phone-level disambiguation to [lexiconp] or [lexiconp_silprob]
 		Lexicon, [disambig], will be gained and parameter, "ndisambig", will be updated selmeanwhile
@@ -580,7 +648,7 @@ class LexiconBank:
 			
 			cmd = os.path.join(ExkaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","add_lex_disambig.pl") + f" --pron-probs {cmdOption}{lexiconp.name} {lexiconpDisambig.name}"
 			out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-			if out == b"":
+			if (isinstance(cod,int) and cod!=0 ) or out == b"":
 				print(err.decode())
 				raise KaldiProcessError("Failed to add disambig phones to lexiconp.")
 			else:
@@ -1282,7 +1350,7 @@ class LexiconBank:
 			self.__dictionaries["silprob"] = temp
 		
 		else:
-			raise UnsupportedDataType("<targetFile> is an unknown lexicon format.")
+			raise UnsupportedType("<targetFile> is an unknown lexicon format.")
 
 def lexicon_bank(pronLexiconFile, silWords=["<sil>"], unkSymbol="unk", optionalSilPhone="<sil>", extraQuestions=[],
 					positionDependent=False, shareSilPdf=False, extraDisambigPhoneNumbers=1, extraDisambigWords=[]):
@@ -1290,80 +1358,92 @@ def lexicon_bank(pronLexiconFile, silWords=["<sil>"], unkSymbol="unk", optionalS
 		return LexiconBank(pronLexiconFile, silWords, unkSymbol, optionalSilPhone, extraQuestions, 
 							positionDependent, shareSilPdf, extraDisambigPhoneNumbers, extraDisambigWords)
 
-def make_L(lexicons, outFile, useSilprob=False, silProb=0.5, useDisambig=False):
+def make_L(lexicons, outFile, useSilprobLexicon=False, useSilprob=0.5, useDisambigLexicon=False):
 	'''
 	Generate L.fst(or L_disambig.fst) file
 
 	Args:
 		<lexicons>: An exkaldi LexiconBank object.
 		<outFile>: Output fst file path such as "L.fst".
-		<useSilprob>: If True, use silence probability lexicon.
-		<silProb>: If useSilprob is False, use this.
-		<useDisambig>: If true, use lexicon with disambig symbol.
+		<useSilprobLexicon>: If True, use silence probability lexicon.
+		<useSilprob>: If useSilprobLexicon is False, use constant silence probability.
+		<useDisambigLexicon>: If true, use lexicon with disambig symbol.
 	Return:
-		fst file path.
+		Absolute path of generated fst file.
 	'''
 	assert isinstance(lexicons, LexiconBank), "Expected <lexicons> is exkaldi LexiconBank object."
 	assert isinstance(outFile, str), "Expected <outFile> is a name-like string."
-	assert isinstance(silProb, float) and silProb >= 0 and silProb <= 1, "Expected <silProb> is a probility-like float value."
-	assert isinstance(useSilprob, bool), "Expected <useSilprob> is True or False."
-	assert isinstance(useDisambig, bool), "Expected <useDisambig> is True or False."
+	assert isinstance(useSilprobLexicon, bool), "Expected <useSilprobLexicon> is True or False."
+	assert isinstance(useSilprob, float) and useSilprob >= 0 and useSilprob <= 1, "Expected <useSilprob> is a probility-like float value."
+	assert isinstance(useDisambigLexicon, bool), "Expected <useDisambigLexicon> is True or False."
 
-	if useSilprob:
+	if useSilprobLexicon:
 		for name in ["lexiconp_silprob", "silprob"]:
 			if not name in lexicons.view:
-				raise WrongOperation(f'When making silprob, expected "{name}" is existed in dictionary.')
+				raise WrongOperation(f'When making silprob, expected "{name}" is existed in lexicon bank.')
 
-	if not outFile.endswith(".fst"):
+	if not outFile.rstrip().endswith(".fst"):
 		outFile += ".fst"
 	make_dependent_dirs(outFile, pathIsFile=True)
 
 	silPhone = lexicons("optional_silence")
 	ndisambig = lexicons.get_parameter("ndisambig")
-	lexicon = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix=".txt")
-	silprob = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix=".txt")
-	phones = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix=".txt")
-	words = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix=".txt")
-	wdisambig_phones = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix=".int")
-	wdisambig_words = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix=".int")
+
+	lexiconTemp = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix="_lexicon.txt")
+	silprobTemp = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix="_silprob.txt")
+	phonesTemp = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix="_phones.txt")
+	wordsTemp = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix="_words.txt")
+	wdisambigPhonesTemp = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix="_wdphones.int")
+	wdisambigWordsTemp = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix="_wdwords.int")
 
 	try:
-		lexicons.dump_dict("phones", phones)
-		lexicons.dump_dict("words", words)
+		lexicons.dump_dict("phones", phonesTemp)
+		lexicons.dump_dict("words", wordsTemp)
 
-		if useDisambig:
-			lexicons.dump_dict("wdisambig_phones", wdisambig_phones, True)
-			lexicons.dump_dict("wdisambig_words", wdisambig_words, True)
-			if useSilprob:
-				lexicons.dump_dict("silprob", silprob)
-				lexicons.dump_dict("lexiconp_silprob_disambig", lexicon)
-				cmd = ExkaldiInfo.KALDI_ROOT + "/egs/wsj/s5/utils/lang/make_lexicon_fst_silprob.py "
-				cmd += f"--sil-phone={silPhone} --sil-disambig=#{ndisambig} {lexicon.name} {silprob.name} | "
+		## Generate text format fst
+		if useDisambigLexicon:
+			# If use disambig lexiconp
+			if useSilprobLexicon:
+				# If specify silprob lexicon, use silprob disambig lexiconp
+				lexicons.dump_dict("silprob", silprobTemp)
+				lexicons.dump_dict("lexiconp_silprob_disambig", lexiconTemp)
+				cmd1 = os.path.join(ExkaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","lang","make_lexicon_fst_silprob.py")
+				cmd1 += f' --sil-phone=\"{silPhone}\" --sil-disambig=#{ndisambig} {lexiconTemp.name} {silprobTemp.name}'
 			else:
-				lexicons.dump_dict("lexiconp_disambig", lexicon)
-				cmd = ExkaldiInfo.KALDI_ROOT + "/egs/wsj/s5/utils/lang/make_lexicon_fst.py "
-				cmd += f"--sil-prob={silProb} --sil-phone={silPhone} --sil-disambig=#{ndisambig} {lexicon.name} | "
+				# If use disambig lexiconp
+				lexicons.dump_dict("lexiconp_disambig", lexiconTemp)
+				cmd1 = os.path.join(ExkaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","lang","make_lexicon_fst.py")
+				cmd1 += f' --sil-prob={useSilprob} --sil-phone=\"{silPhone}\" --sil-disambig=#{ndisambig} {lexiconTemp.name}'
 
-			cmd += f"fstcompile --isymbols={phones.name} --osymbols={words.name} --keep_isymbols=false --keep_osymbols=false | "
-			cmd += f"fstaddselfloops {wdisambig_phones.name} {wdisambig_words.name} | "
-			cmd += f"fstarcsort --sort_type=olabel > {outFile}"
 		else:
-			if useSilprob:
-				lexicons.dump_dict("silprob", silprob)
-				lexicons.dump_dict("lexiconp_silprob", lexicon)
-				cmd = ExkaldiInfo.KALDI_ROOT + "/egs/wsj/s5/utils/lang/make_lexicon_fst_silprob.py "
-				cmd += f"--sil-phone={silPhone} {lexicon.name} {silprob.name} | "
+			# If use lexiconp
+			if useSilprobLexicon:
+				# If specify silprob lexicon, use silprob lexiconp
+				lexicons.dump_dict("silprob", silprobTemp)
+				lexicons.dump_dict("lexiconp_silprob", lexiconTemp)
+				cmd1 = os.path.join(ExkaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","lang","make_lexicon_fst_silprob.py")
+				cmd1 += f' --sil-phone=\"{silPhone}\" {lexiconTemp.name} {silprobTemp.name}'
 			else:
-				lexicons.dump_dict("lexiconp", lexicon)
-				cmd = ExkaldiInfo.KALDI_ROOT + "/egs/wsj/s5/utils/lang/make_lexicon_fst.py "
-				cmd += f"--sil-prob={silProb} --sil-phone={silPhone} {lexicon.name} | "
+				lexicons.dump_dict("lexiconp", lexiconTemp)
+				cmd1 = os.path.join(ExkaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","lang","make_lexicon_fst.py")
+				cmd1 += f' --sil-prob={useSilprob} --sil-phone=\"{silPhone}\" {lexiconTemp.name}'					
 
-			cmd += f"fstcompile --isymbols={phones.name} --osymbols={words.name} --keep_isymbols=false --keep_osymbols=false | "
-			cmd += f"fstarcsort --sort_type=olabel > {outFile}"						
+		out1, err1, cod1 = run_shell_command(cmd1, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		
+		if (isinstance(cod1,int) and cod1 != 0) or out1 is None or (isinstance(out1,str) and len(out1) == 0):
+			print(err1.decode())
+			raise KaldiProcessError("Failed to generate text format fst.")
+		
+		cmd2 = f"fstcompile --isymbols={phonesTemp.name} --osymbols={wordsTemp.name} --keep_isymbols=false --keep_osymbols=false - | "
+		if useDisambigLexicon:
+			lexicons.dump_dict("wdisambig_phones", wdisambigPhonesTemp, True)
+			lexicons.dump_dict("wdisambig_words", wdisambigWordsTemp, True)
+			cmd2 += f"fstaddselfloops {wdisambigPhonesTemp.name} {wdisambigWordsTemp.name} | "
+		cmd2 += f"fstarcsort --sort_type=olabel > {outFile}"			
 
-		out, err, _ = run_shell_command(cmd, stderr=subprocess.PIPE)
-
-		if (not os.path.isfile(outFile)) or (os.path.getsize(outFile) <= 64):
+		out2, err2, cod2 = run_shell_command(cmd2, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=out1)
+		
+		if isinstance(cod2,int) and cod2 != 0:
 			print(err.decode())
 			if os.path.isfile(outFile):
 				os.remove(outFile)
@@ -1375,12 +1455,12 @@ def make_L(lexicons, outFile, useSilprob=False, silProb=0.5, useDisambig=False):
 			return os.path.abspath(outFile)
 
 	finally:
-		lexicon.close()
-		phones.close()
-		words.close()
-		silprob.close()
-		wdisambig_phones.close()
-		wdisambig_words.close()
+		lexiconTemp.close()
+		silprobTemp.close()
+		phonesTemp.close()
+		wordsTemp.close()
+		wdisambigPhonesTemp.close()
+		wdisambigWordsTemp.close()
 
 def make_G(lexicons, arpaFile, outFile, n=3):
 	'''

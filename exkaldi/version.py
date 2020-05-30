@@ -28,6 +28,7 @@ class WrongOperation(Exception):pass
 class WrongDataFormat(Exception):pass
 class ShellProcessError(Exception):pass
 class KaldiProcessError(Exception):pass
+class KenlmProcessError(Exception):pass
 class UnsupportedType(Exception):pass
 class UnsupportedKaldiVersion(Exception): pass
 
@@ -47,21 +48,24 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor"]) ):
 		self.__KALDI_ROOT = None
 		self.__ENV = None
 		self.__LOG_DIR = None
-		 
+		
+		# Update the root path of Kaldi
 		_ = self.KALDI_ROOT
-		_ = self.KALDI
+		# If Kaldi existed, check it's version
+		if not self.__KALDI_ROOT is None:
+			_ = self.KALDI
 		
 		return self
 	
 	@property
 	def EXKALDI(self):
 		'''
-		The exkaldi version infomation.
+		Get the exkaldi version infomation.
 
 		Return:
 		    A named tuple.
 		'''
-		return self.version
+		return self
 
 	@property
 	def KALDI(self):
@@ -83,7 +87,7 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor"]) ):
 				with open(filePath, "r", encoding="utf-8") as fr:
 					v = fr.readline().strip()
 					major, minor = v.split(".")[0:2]
-				if v == "5.5":
+				if v != "5.5":
 					raise UnsupportedKaldiVersion(f"Current Exkaldi supports Kaldi version=={_EXPECTED_KALDI_VERSION} but got {v}.")
 				else:
 					return namedtuple("Kaldi", ["version", "major", "minor"])(v, major, minor)
@@ -148,6 +152,8 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor"]) ):
 		'''	
 		if self.KALDI_ROOT is None:
 			raise WrongPath("Kaldi was not found.")
+		else:
+			return True
 
 	def assign_kaldi_root(self, path):
 		'''
@@ -160,7 +166,7 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor"]) ):
 		assert isinstance(path, str), "<path> should be a directory name-like string."
 		
 		if not os.path.isdir(path):
-			raise WrongPath(f"No such directory:{path}.")
+			raise WrongPath(f"No such directory: {path}.")
 		else:
 			path = os.path.abspath(path.strip())
 
@@ -168,22 +174,22 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor"]) ):
 		p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=os.environ.copy())
 		out, err = p.communicate()
 		if out == b'':
-			raise WrongPath(f"{path} seems unavaliable.")
+			raise WrongPath(f"{path} is not kaldi path avaliable.")
 		else:
 			self.__KALDI_ROOT = path
 
-		newENV = self.ENV['PATH'] #deepcopied dict object
+		oldENV = self.ENV['PATH'] #deepcopied dict object
 		systemPATH = []
 
 		# Abandon old kaldi path of environment
-		for i in newENV.split(':'):
+		for i in oldENV.split(':'):
 			if i.endswith( os.path.join("", "tools", "openfst") ):
 				continue
 			elif i.endswith( os.path.join("", "tools", "openfst", "bin") ):
 				continue			
 			elif i.endswith( os.path.join("", "src", "featbin") ):
 				continue
-			elif i.endswith( os.path.join("", "src", "Gambian") ):
+			elif i.endswith( os.path.join("", "src", "GAMbian") ):
 				continue
 			elif i.endswith( os.path.join("", "src", "nnetbin") ):
 				continue
@@ -194,6 +200,8 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor"]) ):
 			elif i.endswith( os.path.join("", "src", "fstbin") ):
 				continue
 			elif i.endswith( os.path.join("", "src", "latbin") ):
+				continue
+			elif i.endswith( os.path.join("", "src", "gmmbin") ):
 				continue
 			else:
 				systemPATH.append(i)
@@ -208,10 +216,11 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor"]) ):
 		systemPATH.append( os.path.join(path, "src", "lmbin") )
 		systemPATH.append( os.path.join(path, "src", "fstbin") )
 		systemPATH.append( os.path.join(path, "src", "latbin") )
+		systemPATH.append( os.path.join(path, "src", "gmmbin") )
 		
 		# Assign new environment
-		newENV = ":".join(systemPATH)
-		self.__ENV = newENV
+		systemPATH = ":".join(systemPATH)
+		self.__ENV['PATH'] = systemPATH
 
 		# Make a default log dir
 		self.assign_log_dir( path = os.path.join(self.__KALDI_ROOT, ".exkaldilog") )
@@ -258,9 +267,9 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor"]) ):
 				raise WrongPath("SRILM language model tool was not found. Please install it with KALDI_ROOT/tools/.install_srilm.sh .")
 
 			systemPATH = []
-			newENV = self.ENV['PATH']
+			oldENV = self.ENV['PATH']
 			# Abandon old srilm path of environment
-			for i in newENV.split(':'):
+			for i in oldENV.split(':'):
 				if i.endswith('srilm'):
 					continue
 				elif i.endswith( os.path.join('srilm','bin') ):
@@ -275,8 +284,8 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor"]) ):
 			systemPATH.append( os.path.join(SRILMROOT,'bin') )
 			systemPATH.append( os.path.join(SRILMROOT,'bin','i686-m64') )
 
-			newENV= ":".join(systemPATH)
-			self.__ENV = newENV
+			systemPATH = ":".join(systemPATH)
+			self.__ENV['PATH'] = systemPATH
 
 version = ExKaldi(
             '.'.join([_MAJOR_VERSION,_MINOR_VERSION]),

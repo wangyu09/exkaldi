@@ -18,6 +18,7 @@
 """NN acoustic model training."""
 
 import os
+import sys
 import random
 import subprocess
 import tempfile
@@ -25,31 +26,35 @@ import numpy as np
 import threading
 import math
 import time
+import shutil
+from glob import glob
 
-from exkaldi.version import PathError
+from exkaldi.version import WrongPath, WrongOperation, UnsupportedType
 from exkaldi.utils.utils import make_dependent_dirs, type_name, run_shell_command
-from exkaldi.utils.utils import WrongOperation, UnsupportedDataType
 from exkaldi.core.load import load_feat
 
 class Supporter:
 	'''
-	Usage:  supporter = Supporter(outDir='Result')
+	Supporter is used to manage Neural Network training information.
 
-	Supporter is used to manage training information such as the change of loss and others.
+	Args:
+		<outDir>: the output directory of Log information.
 	'''      
 	def __init__(self, outDir='Result'):
-
-		self.currentField = {}
-		self.globalField = []
 
 		assert isinstance(outDir, str), "<outDir> should be a name-like string."
 		make_dependent_dirs(outDir, pathIsFile=False)
 		self.outDir = os.path.abspath(outDir)
+
 		self.logFile = os.path.join(self.outDir,'log')
-		with open(self.logFile, 'w', encoding='utf-8'):
-			pass
-		
+		with open(self.logFile, 'w', encoding='utf-8'): pass
+
+		self.currentField = {}
+		self.currentFieldIsFloat = {}
+		self.globalField = []
+
 		self.lastSavedArch = {}
+		self.savedArchs = []
 		self.savingThreshold = None
 
 		self._allKeys = []
@@ -58,36 +63,46 @@ class Supporter:
 		
 	def send_report(self, info):
 		'''
-		Usage:  supporter = obj.send_report({"epoch":epoch,"train_loss":loss,"train_acc":acc})
-
 		Send information and these will be retained untill you do the statistics by using .collect_report().
-		<info> should be a dict of names and their values with int or float type. 
+
+		Args:
+			<info>: a Python dict object includiing names and their values with int or float type.
+					such as {"epoch":epoch,"train_loss":loss,"train_acc":acc}
+					The value can be Python int, float object, Numpy int, float object or NUmpy ndarray with only one value.
 		'''
 		assert isinstance(info, dict), "Expected <info> is a Python dict object."
-
-		keys = list(info)
-		allKeys = list(self.currentField)
 	
-		for i in keys: 
-			assert isinstance(i, str), f"Expected name-like string but got {type_name(i)}."
-			value = info[i]
-			assert isinstance(value, (int,float)), f"Expected int or float value but got {type_name(value)}."
-			i = i.lower()
-			if not i in allKeys:
-				self.currentField[i] = []
-			self.currentField[i].append(value)
+		for name,value in info.items(): 
+			assert isinstance(name, str) and len(name) > 0, f"The name of info should be string avaliable but got {type_name(name)}."
+			valueDtype = type_name(value)
+			if valueDtype.startswith("int"): # Python int object, Numpy int object
+				pass
+
+			elif valueDtype.startswith("float"): # Python float object, Numpy float object
+				self.currentFieldIsFloat[name] = True
+			
+			elif valueDtype == "ndarray" and value.shape == ():  # Numpy ndarray with only one value
+				if value.dtype == "float":
+					self.currentFieldIsFloat[name] = True
+			else:
+				raise UnsupportedType(f"Expected int or float value but got {type_name(value)}.")
+
+			name = name.lower()
+			if not name in self.currentField.keys():
+				self.currentField[name] = []
+			self.currentField[name].append(value)
 
 	def collect_report(self, keys=None, plot=True):
 		'''
-		Usage:  supporter = obj.collect_report(plot=True)
-
 		Do the statistics of received information. The result will be saved in outDir/log file. 
-		If <keys> is not "None", only collect the data in <keys>. 
-		If <plot> is "True", print the statistics result to standard output.
+
+		Args:
+			<keys>: Specify the data wanted to be collected. If "None", collect all data reported. 
+			<plot>: If "True", print the statistics result to standard output.
 		'''
 		if keys is None:
 			keys = list(self.currentField)
-		elif isinstance(keys,str):
+		elif isinstance(keys, str):
 			keys = [keys,]
 		elif isinstance(keys,(list,tuple)):
 			pass
@@ -96,22 +111,28 @@ class Supporter:
 	
 		self.globalField.append({})
 
-		allKeys = list(self.currentField.keys())
-		self._allKeys.extend(allKeys)
+		self._allKeys.extend( self.currentField.keys() )
 		self._allKeys = list(set(self._allKeys))
 
 		message = ''
-		for i in keys:
-			if i in allKeys:
-				mn = sum(self.currentField[i])/len(self.currentField[i])
-				if type(self.currentField[i][0]) == int:
-					mn = int(mn)
-					message += (i + ':%d    '%(mn))
+		for name in keys:
+			if name in self.currentField.keys():
+
+				if len(self.currentField[name]) == 0:
+					mn = 0.
 				else:
-					message += (i + ':%.5f    '%(mn))
-				self.globalField[-1][i] = mn
+					mn = sum( self.currentField[name] )/len( self.currentField[name] )
+
+				if name in self.currentFieldIsFloat.keys():
+					message += f'{name}:{mn:.5f}    '
+				else:
+					mn = int(mn)
+					message += f'{name}:{mn}    '
+					
+				self.globalField[-1][name] = mn
 			else:
-				message += (i + ':-----    ')
+				message += f'{name}:-----    '
+
 
 		with open(self.logFile, 'a', encoding='utf-8') as fw:
 			fw.write(message + '\n')
@@ -120,54 +141,69 @@ class Supporter:
 			print(message)
 		# Clear
 		self.currentField = {}
+		self.currentFieldIsFloat = {}
 
-	def save_arch(self, saveFunc, arch, addInfo=None, byKey=None, byMax=True):
+	def save_arch(self, saveFunc, arch, addInfo=None, byKey=None, byMax=True, maxRetain=0):
 		'''
 		Usage:  obj.save_arch(saveFunc,archs={'model':model,'opt':optimizer})
 
 		Save architecture such as models or optimizers when you use this function.
-		If you use <byKey> and set <byMax>,  will be saved only while meeting the condition. 
-		<archs> will be sent to <saveFunc> but with new name.
+		Only collected information will be used to check the condition. So data collecting is expected beforehand.
+
+		Args:
+			<saveFunc>: a function to save archivements in <arch>. It need a parameter to reseive <arch>, for example:
+						When use tensorflow 2.x
+							def save_model(arch):
+								for fileName, model in arch.items():
+									model.save_weights(fileName+".h5")
+			<arch>: a dict object whose keys are the name, and values are achivements' object. It will be
+			<addInfo>: a reported name. If it is not None, will add the information to saving file name.
+			<byKey>: a reported name. If it is not None, save achivements only this value is larger than last saved achivements.
+			<byMax>: a bool value. Control the condition of <byKey>.
+			<maxRetain>: the max numbers of saved achivements to retain. If 0, retain all.
 		''' 
 		assert isinstance(arch, dict), "Expected <arch> is dict whose keys are architecture-names and values are architecture-objects."
+		assert callable(saveFunc), "<saveFunc> must be a callable object or function."
+		assert isinstance(maxRetain,int) and maxRetain>=0, "<maxRetain> shoule be a non-negative int value."
 
-		if self.currentField != {}:
-			self.collect_report(plot=False)
+		#if self.currentField != {}:
+		#	self.collect_report(plot=False)
 		
-		suffix = "_"+str(self._iterSymbol)
+		suffix = f"_{self._iterSymbol}"
 		self._iterSymbol += 1
 
 		if not addInfo is None:
-			assert isinstance(addInfo, (str,list,tuple)), 'Expected <addInfo> is string, list or tuple.'
+			assert isinstance(addInfo, (str, list, tuple)), 'Expected <addInfo> is string, list or tuple.'
 			if isinstance(addInfo, str):
 				addInfo = [addInfo,]
-			for i in addInfo:
-				if not i in self.globalField[-1].keys():
-					continue
-				value = self.globalField[-1][i]
-				if isinstance(value, float):
-					suffix += ( "_" + i + (f"{value:.4f}".replace(".","")))
+			for name in addInfo:
+				if not name in self.globalField[-1].keys():
+					suffix += f"{name}None"
 				else:
-					suffix += ( "_" + i + f'{value}')             
+					value = self.globalField[-1][name]
+					if isinstance(value, float):
+						suffix += f"_{name}{value:.4f}".replace(".","")
+					else:
+						suffix += f"_{name}{value}"
 
-		if byKey == None:
-			newArchs = []
+		saveFlag =False
+
+		if byKey is None:
+			self.lastSavedArch = {}
+			newArchs = {}
 			for name in arch.keys():
 				fileName = os.path.join(self.outDir, name+suffix)
-				newArchs.append((fileName, arch[name]))
+				newArchs[fileName] = arch[name]
 				self.lastSavedArch[name] = fileName
-			if len(newArchs) == 1:
-				newArchs = newArchs[0]
-			saveFunc(newArchs)
+			saveFlag = True
+
 		else:
 			byKey = byKey.lower()
 			if not byKey in self.globalField[-1].keys():
-				print(f"Warning: Save architectures defeat. Because the key {byKey} has not been reported.")
+				print(f"Warning: Failed to save architectures. Because the key {byKey} has not been reported last time.")
 				return
 			else:
 				value = self.globalField[-1][byKey]
-
-			save = False
 
 			if self.savingThreshold is None:
 				self.savingThreshold = value
@@ -181,104 +217,116 @@ class Supporter:
 					save = True
 
 			if save is True:
-				newArchs = []
+				self.lastSavedArch = {}
 				for name in arch.keys():
-					if isinstance(value, float):
-						suffix += ( "_" + byKey + (f'{value:.4f}'.replace('.','') ))
-					else:
-						suffix += ( "_" + byKey + f'{value}' )
+					if (addInfo is None) or (byKey not in addInfo):
+						if isinstance(value, float):
+							suffix += f"_{name}{value:.4f}".replace(".","")
+						else:
+							suffix += f"_{name}{value}"
 					fileName = os.path.join(self.outDir, name+suffix)
-					newArchs.append((fileName, arch[name]))
-					if name in self.lastSavedArch.keys():
-						os.remove(self.lastSavedArch[name])                    
+					newArchs[fileName] = arch[name]
 					self.lastSavedArch[name] = fileName
-				if len(newArchs) == 1:
-					newArchs = newArchs[0]
-				saveFunc(newArchs)
+		
+		if saveFlag is True:
+			# Save
+			saveFunc(newArchs)
+			# Try to correct the file name
+			for name, fileName in self.lastSavedArch.items():
+				realFileName = glob( fileName + "*" )
+				if len(realFileName) == 0:
+					raise WrongOperation(f"Achivement whose name starts with {fileName} should have been saved done but not found.")
+				elif len(realFileName) > 1:
+					raise WrongOperation(f"More than one achivements whose name start with {fileName} were found.")
+				else:
+					self.lastSavedArch[name] = realFileName[0]
+
+			self.savedArchs.append( self.lastSavedArch.items() )
+
+			for items in self.savedArchs[0:-maxRetain]:
+				for name, fileName in items:
+					try:
+						if os.path.exists(fileName):
+							if os.path.isfile(fileName):
+								os.remove(fileName)
+							elif os.path.isdir(fileName):
+								shutil.rmtree(fileName)
+							else:
+								raise UnsupportedType(f"Failed to remove {fileName}: It is not a file and directory path.")
+					except Exception as e:
+						print(f"Failed to remove saved achivements:{fileName}.")
+						raise e
+			
+			self.savedArchs = self.savedArchs[-maxRetain:]
 
 	@property
 	def finalArch(self):
 		'''
-		Usage:  model = obj.finalArch
-
-		Get the final saved model. Return a Python dict object whose key is architecture name and value is architecture path. 
+		Get the final saved achivements. 
+		
+		Return:
+			A Python dict object whose key is architecture name and value is file path. 
 		''' 
 		return self.lastSavedArch
    
 	def judge(self, key, condition, threshold, byDeltaRatio=False):
 		'''
 		Usage:  obj.judge('train_loss','<',0.0001,byDeltaRatio=True) or obj.judge('epoch','>=',10)
+		
+		Check if condition is true. 
+		Only collected information will be used to check the condition. So data collecting is expected beforehand.
 
-		Return "True" or "False". And If <key> is not reported before, return "False".
-		if <byDeltaRate> is "True", we compute:
-						   abs((value-value_pre)/value)  
-		and compare it with threshold value.
+		Args:
+			<key>: the name reported.
+			<condition>: a string, condition operators such as ">" or "=="
+			<threshold>: a int or float value.
+			<byDeltaRatio>: bool value, if true, threshold should be a delta ratio value.
+								deltaRatio = abs((value-value_pre)/value) 
+
+		Return:
+			True or False. 
 		''' 
 		assert condition in ['>','>=','<=','<','==','!='], '<condiction> is not a correct conditional operator.'
 		assert isinstance(threshold,(int,float)), '<threshold> should be a float or int value.'
 
-		if self.currentField != {}:
-			self.collect_report(plot=False)
+		#if self.currentField != {}:
+		#	self.collect_report(plot=False)
 		
-		if byDeltaRatio == True:
+		if byDeltaRatio is True:
 			p = []
-			for i in range(len(self.globalField)-1,-1,-1):
+			for i in range(len(self.globalField)-1, -1, -1):
 				if key in self.globalField[i].keys():
 					p.append(self.globalField[i][key])
 				if len(p) == 2:
 					value = str(abs((p[0]-p[1])/p[0]))
-					return eval(value+condition+str(threshold))
+					return eval( value + condition + str(threshold) )
 			return False
 		else:
-			for i in range(len(self.globalField)-1,-1,-1):
+			for i in range(len(self.globalField)-1, -1, -1):
 				if key in self.globalField[i].keys():
 					value = str(self.globalField[i][key])
-					return eval(value+condition+str(threshold))
+					return eval(value + condition + str(threshold))
 			return False
 
-	def dump(self, keepItems=False, fromLogFile=None):
+	def dump(self, keepItems=False):
 		'''
 		Usage:  product = obj.dump()
-
 		Get all reported information.
-		If <fromLogFile> is not "None", read and return information from log file.
-		If <keepItems> is True, return information by iterms name. 
-		'''
+
+		Args:
+			<keepItems>: If True, return a dict object.
+						 Else, return a list of dict objects. 
 		
-		if fromLogFile != None:
-			assert isinstance(fromLogFile, str), "Expected <fromLogFile> is file name-like string."
-			if not os.path.isfile(fromLogFile):
-				raise PathError('No such file:{}.'.format(fromLogFile))
-			else:
-				with open(fromLogFile, 'r', encoding='utf-8') as fr:
-					lines = fr.readlines()
-				allData = []
-				for line in lines:
-					line = line.strip()
-					if len(line) != "":
-						lineData = {}
-						line = line.split()
-						for i in line:
-							i = i.split(":")
-							if "-----" in i[1]:
-								continue
-							else: 
-								try:
-									v = int(i[1])
-								except ValueError:
-									v = float(i[1])
-							lineData[i[0]] = v
-						allData.append(lineData)
-				if len(allData) == 0:
-					raise WrongOperation('Not any information to dump.')
+		Return:
+			A dict object or list object.
+		'''
+		if self.currentField != {}:
+			self.collect_report(plot=False)
+		
+		if self.globalField != []:
+			allData = self.globalField
 		else:
-			if self.currentField != {}:
-				self.collect_report(plot=False)
-			
-			if self.globalField != []:
-				allData = self.globalField
-			else:
-				raise WrongOperation('Not any information to dump.')
+			raise WrongOperation('Not any information to dump.')
 
 		if keepItems is True:
 			items = {}
@@ -291,7 +339,7 @@ class Supporter:
 		else:
 			return allData
 
-class DataIterator(object):
+class DataIterator:
 	'''
 	Usage: obj = DataIterator('train.scp',64,chunks='auto',processFunc=function)
 
@@ -299,7 +347,10 @@ class DataIterator(object):
 	It will shuffle the original scp file and split again while new epoch.
 	'''
 
-	def __init__(self,scpFiles,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,retainData=0.0):
+	def __init__(self, scpTable, processFunc, batchSize, chunks='auto', otherArgs=None, shuffle=False, retainData=0.0):
+		
+		assert type_name(scpTable) == "ScriptTable", "<scpTable> should be an exkaldi ScriptTable object."
+		assert callable(processFunc), "<processFunc> should be a callable instance or function."
 
 		self.fileProcessFunc = processFunc
 		self._batchSize = batchSize
@@ -307,45 +358,36 @@ class DataIterator(object):
 		self._shuffle = shuffle
 		self._chunks = chunks
 
-		if isinstance(scpFiles, str):
-			out, err, _ = run_shell_command(f"ls {scpFiles}", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-			if out == b'':
-				raise PathError(f"No such file:{scpFiles}")
-			else:
-				out = out.decode().strip().split('\n')
-		elif isinstance(scpFiles, list):
-			out = scpFiles
-		else:
-			raise UnsupportedDataType('Expected <scpFiles> is scp file-like string or list object.')
-
-		if isinstance(chunks,int):
+		if isinstance(chunks, int):
 			assert chunks>0, "Expected <chunks> is a positive int number but got {}.".format(chunks)
 		elif chunks != 'auto':
 			raise WrongOperation('Expected <chunks> is a positive int number or <auto> but got {}.'.format(chunks))
+		
+		totalDataNumber = len(scpTable)
+		trainDataNumber = int(  totalDataNumber * (1-retainData) )
+		evalDataNumber = totalDataNumber - trainDataNumber
+		scpTable = scpTable.shuffle()
 
-		temp = []
-		for scpFile in out:
-			with open(scpFile, 'r', encoding='utf-8') as fr:
-				temp.extend(fr.read().strip().split('\n'))
-		K = int(len(temp)*(1-retainData))
-		self.retainedFiles = temp[K:]
-		self.allFiles = temp[0:K]
+		self.trainTable = scpTable.subset(nHead=trainDataNumber)
+		self.evalTable = scpTable.subset(nTail=evalDataNumber)
+		del scpTable
 
 		if chunks == 'auto':
 			#Compute the chunks automatically
-			sampleChunk = random.sample(self.allFiles, 10)
+			sampleTable = self.trainTable.subset(nHead=10)
 			with tempfile.NamedTemporaryFile('w', encoding='utf-8', suffix='.scp') as sampleFile:
-				sampleFile.write('\n'.join(sampleChunk))
+				sampleTable.save(sampleFile)
 				sampleFile.seek(0)
-				sampleChunkData = load_feat(sampleFile.name)
-			meanLength = int(np.mean(sampleChunkData.lens[1]))
-			autoChunkSize = math.ceil(50000/meanLength)  # Use 50000 frames as threshold 
-			self._chunks = len(self.allFiles)//autoChunkSize
+				sampleChunkData = load_feat(sampleFile.name, name="sampleFeature", useSuffix="scp")
+			indexInfo = list(sampleChunkData.utt_index.values())[-1]
+			meanSize = (indexInfo.startIndex + indexInfo.dataSize)/10 #Bytes
+			autoChunkSize = math.ceil(104857600/meanSize)  # 100MB = 102400KB = 104857600 B
+			self._chunks = trainDataNumber//autoChunkSize
 			if self._chunks == 0: 
 				self._chunks = 1
 
 		self.make_dataset_bag(shuffle=False)
-		self._epoch = 0 
+		self._epoch = 0
 		
 		self.load_dataset(0)
 		self.currentDataset = self.nextDataset
@@ -365,28 +407,16 @@ class DataIterator(object):
 			self.loadDatasetThread = threading.Thread(target=self.load_dataset,args=(1,))
 			self.loadDatasetThread.start()
 
-	def make_dataset_bag(self,shuffle=False):
-		self.datasetBag = []
+	def make_dataset_bag(self, shuffle=False):
 		if shuffle:
-			random.shuffle(self.allFiles)
-		chunkSize = math.ceil(len(self.allFiles)/self._chunks)
-		L = self._chunks -(chunkSize * self._chunks - len(self.allFiles))-1
-		start = 0
-		for i in range(self._chunks):
-			if i > L:
-				end = start + chunkSize - 1
-			else:
-				end = start + chunkSize
-			chunkFiles = self.allFiles[start:end]
-			start = end
-			if len(chunkFiles) > 0:
-				self.datasetBag.append(chunkFiles)
+			self.trainTable.shuffle()
+		self.datasetBag = self.trainTable.subset(chunks=self._chunks)
 
-	def load_dataset(self,datasetIndex):
+	def load_dataset(self, datasetIndex):
 		with tempfile.NamedTemporaryFile('w', suffix='.scp') as scpFile:
-			scpFile.write('\n'.join(self.datasetBag[datasetIndex]))
+			self.datasetBag[datasetIndex].save(scpFile)
 			scpFile.seek(0)
-			chunkData = load_feat(scpFile.name)
+			chunkData = load_feat(scpFile.name, name="feat", useSuffix="scp")
 		if self.otherArgs != None:
 			self.nextDataset = self.fileProcessFunc(self, chunkData, self.otherArgs)
 		else:
@@ -499,7 +529,7 @@ class DataIterator(object):
 
 	def get_retained_data(self, processFunc=None, batchSize=None, chunks='auto', otherArgs=None, shuffle=False, retainData=0.0):
 
-		if len(self.retainedFiles) == 0:
+		if self.evalTable.is_void:
 			raise WrongOperation('No retained validation data.')   
 
 		if processFunc is None:
@@ -516,10 +546,7 @@ class DataIterator(object):
 		if otherArgs is None:
 			otherArgs = self.otherArgs
 
-		with tempfile.NamedTemporaryFile('w', encoding='utf-8', suffix='.scp') as reScpFile:
-			reScpFile.write('\n'.join(self.retainedFiles))
-			reScpFile.seek(0)  
-			reIterator = DataIterator(reScpFile.name, processFunc, batchSize, chunks, otherArgs, shuffle, retainData)
+		reIterator = DataIterator(self.evalTable, processFunc, batchSize, chunks, otherArgs, shuffle, retainData)
 
 		return reIterator
 
@@ -629,6 +656,8 @@ def softmax(data, axis=1):
 		A new array.
 	'''
 	assert isinstance(data, np.ndarray), f"<data> should be Numpy array but got {type_name(data)}."
+	if len(data.shape) == 1:
+		axis = 0
 	assert isinstance(axis, int) and 0 <= axis < len(data.shape), "<axis> is out of range of the shape of data."
 	
 	maxValue = data.max(axis, keepdims=True)
@@ -650,6 +679,8 @@ def log_softmax(data, axis=1):
 		A new array.
 	'''
 	assert isinstance(data, np.ndarray), f"Expected <data> is NumPy ndarray but got {type_name(data)}."
+	if len(data.shape) == 1:
+		axis = 0
 	assert isinstance(axis, int) and 0 <= axis < len(data.shape), "<axis> is out of range."
 
 	dataShape = list(data.shape)

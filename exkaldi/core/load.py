@@ -27,9 +27,9 @@ from io import BytesIO
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, UnsupportedType, ShellProcessError, KaldiProcessError
 from exkaldi.utils.utils import run_shell_command, type_name
-from exkaldi.core.achivements import NumpyFeature, BytesFeature, NumpyData, BytesData, NumpyCMVNStatistics, BytesCMVNStatistics
-from exkaldi.core.achivements import NumpyCMVNStatistics, BytesCMVNStatistics, NumpyProbability, BytesProbability
-from exkaldi.core.achivements import BytesAlignmentTrans, NumpyAlignment, NumpyAlignmentTrans, NumpyAlignmentPhone, NumpyAlignmentPdf
+from exkaldi.core.achivements import BytesData, BytesFeature, BytesCMVNStatistics, BytesProbability, BytesAlignmentTrans
+from exkaldi.core.achivements import NumpyData, NumpyFeature, NumpyCMVNStatistics, NumpyProbability, NumpyAlignmentTrans
+from exkaldi.core.achivements import NumpyAlignment, NumpyAlignmentPhone, NumpyAlignmentPdf
 from exkaldi.core.achivements import Transcription
 
 def __read_data_from_file(fileName, useSuffix=None):
@@ -48,8 +48,11 @@ def __read_data_from_file(fileName, useSuffix=None):
 		if os.path.isdir(fileName):
 			raise WrongOperation(f"Expected file name but got a directory:{fileName}.")
 		else:
-			out, err, _ = run_shell_command(f"ls {fileName}", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-			if out == b'':
+			out, err, cod = run_shell_command(f"ls {fileName}", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+			if isinstance(cod, int) and cod != 0:
+				print(err.decode())
+				raise ShellProcessError("Failed to run shell command.")
+			elif out == b'':
 				raise WrongPath(f"No such file:{fileName}")
 			else:
 				allFiles = out.decode().strip().split('\n')
@@ -83,8 +86,8 @@ def __read_data_from_file(fileName, useSuffix=None):
 			cmd = 'copy-feats scp:'
 
 		cmd += '{} ark:-'.format(fileName)
-		out,err,_ = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-		if out == b'':
+		out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		if (isinstance(cod, int) and cod != 0) or out == b'':
 			print(err.decode())
 			raise KaldiProcessError('Copy feat defeated.')
 		else:
@@ -194,7 +197,7 @@ def load_cmvn(target, name="cmvn", useSuffix=None):
 	else:
 		raise UnsupportedType(f"Expected Python dict, bytes object, exkaldi feature object or file path but got{type_name(target)}.")
 
-def load_prob(target, name="postprob", useSuffix=None):
+def load_prob(target, name="prob", useSuffix=None):
 	'''
 	Load post probability data.
 
@@ -249,8 +252,8 @@ def load_ali(target, aliType=None, name="ali", hmm=None):
 	ExkaldiInfo.vertify_kaldi_existed()
 
 	def transform(data, cmd):
-		out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=data)
-		if out == b'':
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=data)
+		if (isinstance(cod,int) and cod != 0) and out == b'':
 			print(err.decode())
 			raise KaldiProcessError('Failed to transform alignment.')
 		else:
@@ -262,7 +265,7 @@ def load_ali(target, aliType=None, name="ali", hmm=None):
 				utt = line[0]
 				matrix = np.array(line[1:], dtype=np.int32)
 				result[utt] = matrix
-			return results	
+			return results
 
 	if isinstance(target, dict):
 		if aliType is None:
@@ -274,18 +277,21 @@ def load_ali(target, aliType=None, name="ali", hmm=None):
 		elif aliType == "pdfID":
 			result = NumpyAlignmentPdf(target, name)
 		else:
-			raise WrongOperation(f"<aliType> should be None, 'transitionID','phoneID' or 'pdfID' but got {aliType}.")
+			raise WrongOperation(f"<aliType> should be None, 'transitionID', 'phoneID' or 'pdfID' but got {aliType}.")
 		result.check_format()
 		return result
 
-	elif isinstance(target, (NumpyAlignment, BytesAlignmentTrans)):
+	elif type_name(target) in ["NumpyAlignment","NumpyAlignmentTrans","NumpyAlignmentPhone","NumpyAlignmentPdf", "BytesAlignmentTrans"]:
 		result = copy.deepcopy(target)
 		result.rename(name)
 		return result
 
 	elif isinstance(target, str):
-		out, err, _ = run_shell_command(f'ls {target}', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-		if out == b'':
+		out, err, cod = run_shell_command(f'ls {target}', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		if (isinstance(cod,int) and cod != 0):
+			print(err.decode())
+			raise ShellProcessError("Failed to run shell command.")
+		elif out == b'':
 			raise WrongPath(f"No such file or dir:{target}.")
 		else:
 			allFiles = out.decode().strip().split('\n')
@@ -324,10 +330,10 @@ def load_ali(target, aliType=None, name="ali", hmm=None):
 					cmd = f'cat {fileName}'
 				
 				if aliType is None or aliType == "transitionID":
-					out, err, _ = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-					if out == b'':
+					out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+					if (isinstance(cod, int) and cod != 0 ) or out == b'':
 						print(err.decode())
-						raise Exception("Failed to get the alignment data from file.")
+						raise ShellProcessError("Failed to get the alignment data from file.")
 					else:
 						temp = BytesAlignmentTrans(out)
 						results["BytesAlignmentTrans"] += temp
@@ -354,7 +360,7 @@ def load_ali(target, aliType=None, name="ali", hmm=None):
 						elif target == "pdfID":
 							cmd = f" | ali-to-pdf {hmmFileName} ark:- ark,t:-"
 							temp = transform(None, cmd)
-							temp =NumpyAlignmentPdf(temp)
+							temp = NumpyAlignmentPdf(temp)
 							results["NumpyAlignmentPdf"] += temp
 						else:
 							raise WrongOperation(f"<target> should be 'trainsitionID', 'phoneID' or 'pdfID' but got {target}.")
@@ -389,7 +395,7 @@ def load_trans(target, name="transcription"):
 	if type_name(target) in ["dict", "Transcription", "ScriptTable"]:
 		for utt, utterance in target.items():
 			assert isinstance(utt, str) and len(utt) > 0, "Utterance ID should be a string."
-			assert isinstance(utt, str), "Utterance text should a string."
+			assert isinstance(utterance, str), "Utterance text should a string."
 		
 		return Transcription(target, name)
 	

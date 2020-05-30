@@ -15,6 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+#try:
+#    import pyaudio
+#except Exception as e:
+#    print("Cannot apply recording from microphone in this machine.")
+#    raise e
+#else:
 import wave
 import pyaudio
 import threading
@@ -482,7 +488,7 @@ class Client:
                         self.client.send(lastMessage)
                     else:
                         self.client.sendto(lastMessage,(self.targetHost,self.targetPort))
-                 
+                
         self.threadManager['send'] = threading.Thread(target=sendWave,args=(self.dataQueue,))
         self.threadManager['send'].start()
     
@@ -917,7 +923,7 @@ class Server:
         Send recognized results to connected remote client.
         '''
         if not self.safeFlag:
-             raise WrongOperation('We only allow user to use client under <with> grammar.')
+            raise WrongOperation('We only allow user to use client under <with> grammar.')
 
         if 'send' in self.threadManager.keys() and self.threadManager['send'].is_alive():
             raise WrongOperation('Another send thread is running now')

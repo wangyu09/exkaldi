@@ -18,28 +18,33 @@
 import copy
 from io import BytesIO
 import numpy as np
+import random
 import struct
 import subprocess
 import os
 import tempfile
 from collections import namedtuple
+import sys
 
-from exkaldi.utils.utils import type_name, run_shell_command, make_dependent_dirs
-from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, UnsupportedType, ShellProcessError, KaldiProcessError
 from exkaldi.version import version as ExkaldiInfo
+from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, UnsupportedType, ShellProcessError, KaldiProcessError
+from exkaldi.utils.utils import type_name, run_shell_command, make_dependent_dirs
 
-''' Kaldi script table '''
-class ScriptTable(dict):
+''' Kaldi script-file table'''
+class ListTable(dict):
 	'''
-	This is a subclass of Python dict and used to hold all kaldi list tables such as feature scp file, utt2spk file, transcription file and so on. 
+	This is a subclass of Python dict and used to hold all kaldi liast format tables such as scp-files, utt2spk file, transcription file and so on. 
 	'''
 	def __init__(self, data={}, name="table"):
 		assert isinstance(name, str) and len(name) >0, "Name is not a string avaliable."
 		self.__name = name
-		super(ScriptTable, self).__init__(data)
-	
+		super(ListTable, self).__init__(data)
+
 	@property
 	def is_void(self):
+		'''
+		If not any data, return True, else return False.
+		'''
 		if len(self.keys()) == 0:
 			return True
 		else:
@@ -73,7 +78,7 @@ class ScriptTable(dict):
 
 		items = sorted(self.items(), key=lambda x:x[0], reverse=reverse)
 		
-		return ScriptTable(items, name=self.name)
+		return ListTable(items, name=self.name)
 
 	def save(self, fileName=None):
 		'''
@@ -94,21 +99,24 @@ class ScriptTable(dict):
 		if fileName is None:
 			return results
 		elif isinstance(fileName, tempfile._TemporaryFileWrapper):
+			fileName.read()
+			fileName.seek(0)
 			fileName.write(results)
+			fileName.seek(0)
 		else:
-			assert isinstance(fileName, str) and len(fileName) > 0, "file name is unavaliable."
+			assert isinstance(fileName, str) and len(fileName) > 0, "File name is unavaliable."
 			make_dependent_dirs(fileName, pathIsFile=True)
 			with open(fileName, "w", encoding="utf-8") as fw:
 				fw.write(results)
 
 	def load(self, fileName):
 		'''
-		Load a script table from file. If utt is existed, it will be overlaped.
+		Load a list table from file. If utt is existed, it will be overlaped.
 
 		Args:
 			<fileName>: the txt file path.
 		'''
-		assert isinstance(fileName, str) and len(fileName) > 0, "file name is unavaliable."
+		assert isinstance(fileName, str) and len(fileName) > 0, "File name is unavaliable."
 		if not os.path.isfile(fileName):
 			raise WrongPath(f"No such file:{fileName}.")
 
@@ -122,6 +130,153 @@ class ScriptTable(dict):
 				raise WrongDataFormat("Missing entire uttID and utterance information.")
 			else:
 				self[le[0]] = le[1]
+		
+		return self
+
+	def shuffle(self):
+		'''
+		Random shuffle the list table.
+
+		Return:
+			A new ListTable object.
+		'''
+		items = list(self.items())
+		random.shuffle(items)
+
+		return ListTable(items, name=self.name)
+	
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+		'''
+		Subset table.
+		
+		Args:
+			<nHead>: If it > 0, extract N head utterances.
+			<nTail>: If nHead=0 and nTail > 0, extract N tail utterances.
+			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
+			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+		Return:
+			a new ListTable object or a list of new ListTable objects.
+		''' 
+		if self.is_void:
+			raise WrongOperation("Cannot subset a void data.")
+
+		if nHead > 0:
+			assert isinstance(nHead, int), f"Expected <nHead> is an int number but got {nHead}."
+			new = list(self.items())[0:nHead]
+			newName = f"subset({self.name},head {nHead})"
+			return ListTable(new, newName)
+		
+		elif nTail > 0:
+			assert isinstance(nTail, int), f"Expected <nTail> is an int number but got {nTail}."
+			new = list(self.items())[-nTail:]
+			newName = f"subset({self.name},tail {nTail})"
+			return ListTable(new, newName)		
+
+		elif chunks > 1:
+			assert isinstance(chunks, int), f"Expected <chunks> is an int number but got {chunks}."
+			datas = []
+			allLens = len(self.keys())
+			if allLens != 0:
+				chunkUtts = allLens//chunks
+				if chunkUtts == 0:
+					chunks = allLens
+					chunkUtts = 1
+					t = 0
+				else:
+					t = allLens - chunkUtts * chunks
+
+				items = list(self.items())
+				for i in range(chunks):
+					temp = {}
+					if i < t:
+						chunkUttList = items[i*(chunkUtts+1):(i+1)*(chunkUtts+1)]
+					else:
+						chunkUttList = items[i*chunkUtts:(i+1)*chunkUtts]
+					temp.update(chunkUttList)
+					newName = f"subset({self.name},chunk {chunks}-{i})"
+					datas.append( ListTable(temp, newName) )
+			return datas
+
+		elif uttList != None:
+			
+			if isinstance(uttList,str):
+				newName = f"subset({self.name},uttList 1)"
+				uttList = [uttList,]
+			elif isinstance(uttList,(list,tuple)):
+				newName = f"subset({self.name},uttList {len(uttList)})"
+				pass
+			else:
+				raise UnsupportedType(f'Expected <uttList> is a string,list or tuple but got {type_name(uttList)}.')
+
+			newDict = {}
+			for utt in uttList:
+				if utt in self.keys():
+					newDict[utt] = self[utt]
+				else:
+					#print('Subset Warning: no data for utt {}'.format(utt))
+					continue
+			return ListTable(newDict, newName)
+		
+		else:
+			raise WrongOperation('Expected <nHead> is larger than "0", or <chunks> is larger than "1", or <uttList> is not None.')
+
+	def __add__(self, other):
+		'''
+		Integrate two ListTable objects. If utt is existed in both two objects, the former will be retained.
+
+		Args:
+			<other>: another ListTable object.
+		Return:
+			A new ListTable object.
+		'''
+		assert isinstance(other, ListTable), f"Cannot add {type_name(other)}."
+		new = copy.deepcopy(other)
+		new.update(self)
+
+		newName = f"add({self.name},{other.name})"
+		new.rename(newName)
+
+		return new
+
+	def reverse(self):
+		'''
+		Exchange the position of key and value. 
+
+		Key and Value must be one-one matching, or Error will be raised.
+		'''
+		newname = f"reverse({self.name})"
+		new = ListTable(name=newname)
+
+		for key,value in self.items():
+			try:
+				_ = new[value]
+			except KeyError:
+				new[value] = key
+			else:
+				raise WrongDataFormat(f"Only one-one matching table can be reversed but mutiple {value} have existed.")
+		
+		return new
+
+class ScriptTable(ListTable):
+	'''
+	This is used to hold kaldi script-file tables. 
+	'''
+	def __init__(self, data={}, name="scpTable"):
+		assert isinstance(name, str) and len(name) >0, "Name is not a string avaliable."
+		self.__name = name
+		super(ScriptTable, self).__init__(data)
+	
+	def sort(self, reverse=False):
+		'''
+		Sort by utterance ID.
+
+		Args:
+			<reverse>: If reverse, sort in descending order.
+		Return:
+			A new ScriptTable object.
+		''' 
+		items = super().sort(reverse=reverse)		
+		return ScriptTable(items, name=self.name)
 
 	def __add__(self, other):
 		'''
@@ -133,15 +288,44 @@ class ScriptTable(dict):
 			A new ScriptTable object.
 		'''
 		assert isinstance(other, ScriptTable), f"Cannot add {type_name(other)}."
-		new = copy.deepcopy(other)
-		new.update(self)
+		result = super().__add__(other)
+		return ScriptTable(result, name=result.name)
 
-		newName = f"add({self.name},{other.name})"
-		new.rename(newName)
+	def shuffle(self):
+		'''
+		Random shuffle the script table.
 
-		return new
+		Return:
+			A new ScriptTable object.
+		'''
+		result = super().shuffle()
 
-class Transcription(ScriptTable):
+		return ScriptTable(result, name=self.name)
+	
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+		'''
+		Subset table.
+		
+		Args:
+			<nHead>: If it > 0, extract N head utterances.
+			<nTail>: If nHead=0 and nTail > 0, extract N tail utterances.
+			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
+			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+		Return:
+			a new ScriptTable object or a list of new ScriptTable objects.
+		''' 
+		result = super().subset(nHead, nTail, chunks, uttList)
+
+		if isinstance(result, list):
+			for index in range(len(result)):
+				temp = result[index]
+				result[index] = ScriptTable(temp, temp.name)
+		else:
+			result = ScriptTable(result, result.name)
+
+		return result
+
+class Transcription(ListTable):
 	'''
 	This is used to hold transcription text, such as decoding n-best. 
 	'''
@@ -157,7 +341,7 @@ class Transcription(ScriptTable):
 		Return:
 			A new Transcription object.
 		''' 
-		items = sorted(self.items(), key=lambda x:x[0], reverse=reverse)		
+		items = super().sort(reverse=reverse)		
 		return Transcription(items, name=self.name)
 
 	def __add__(self, other):
@@ -173,7 +357,41 @@ class Transcription(ScriptTable):
 		result = super().__add__(other)
 		return Transcription(result, name=result.name)
 
-class Cost(ScriptTable):
+	def shuffle(self):
+		'''
+		Random shuffle the script table.
+
+		Return:
+			A new Transcription object.
+		'''
+		result = super().shuffle()
+
+		return Transcription(result, name=self.name)
+
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+		'''
+		Subset feature.
+		
+		Args:
+			<nHead>: If it > 0, extract N head utterances.
+			<nTail>: If it > 0, extract N tail utterances.
+			<chunks>: If nHead == 0, nTail == 0 and chunks > 1, split data into N chunks.
+			<uttList>: If nHead == 0, nTail == 0, chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+		Return:
+			a new Transcription object or a list of new Transcription objects.
+		'''
+		result = super().subset(nHead, nTail, chunks, uttList)
+
+		if isinstance(result, list):
+			for index in range(len(result)):
+				temp = result[index]
+				result[index] = Transcription(temp, temp.name)
+		else:
+			result = Transcription(result, result.name)
+
+		return result
+	
+class Cost(ListTable):
 	'''
 	This is used to hold the AM or LM cost of N-Best. 
 	'''
@@ -189,7 +407,7 @@ class Cost(ScriptTable):
 		Return:
 			A new Cost object.
 		''' 
-		results = super().sort(reverse=False)	
+		results = super().sort(reverse=reverse)
 		return Cost(results, name=self.name)
 	
 	def __add__(self, other):
@@ -205,7 +423,41 @@ class Cost(ScriptTable):
 		result = super().__add__(other)
 		return Cost(result, name=result.name)
 
-class BytesDataIndex(ScriptTable):
+	def shuffle(self):
+		'''
+		Random shuffle the Cost table.
+
+		Return:
+			A new Cost object.
+		'''
+		results = super().shuffle()
+
+		return Cost(results, name=self.name)
+
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+		'''
+		Subset feature.
+		
+		Args:
+			<nHead>: If it > 0, extract N head utterances.
+			<nTail>: If it > 0, extract N tail utterances.
+			<chunks>: If nHead == 0, nTail == 0 and chunks > 1, split data into N chunks.
+			<uttList>: If nHead == 0, nTail == 0, chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+		Return:
+			a new Cost object or a list of new Cost objects.
+		'''
+		result = super().subset(nHead, nTail, chunks, uttList)
+
+		if isinstance(result, list):
+			for index in range(len(result)):
+				temp = result[index]
+				result[index] = Cost(temp, temp.name)
+		else:
+			result = Cost(result, result.name)
+
+		return result
+
+class BytesDataIndex(ListTable):
 	'''
 	For accelerate to find utterance and reduce Memory cost of intermidiate operation.
 	This is used to hold utterance index information of bytes data. It likes the script-file of a feature binary achivements in Kaldi.
@@ -214,11 +466,14 @@ class BytesDataIndex(ScriptTable):
 	'''	
 	def __init__(self, data={}, name="index"):
 		super(BytesDataIndex, self).__init__(data, name=name)
-		
+		# Check the format of index.
 		for key, value in self.items():
-			try:
+			if isinstance(value, (list,tuple)):
+				assert len(value) == 3, f"Expected (frames, start index, data size) but {value} does match."
 				self[key] = self.spec(*value)
-			except:
+			elif type_name(value) == "Index":
+				pass
+			else:
 				raise WrongDataFormat(f"Wrong index info format:{value}.")
 	
 	@property
@@ -233,14 +488,15 @@ class BytesDataIndex(ScriptTable):
 		Sort utterances by frames length or uttID
 
 		Args:
-			<by>: "frame" or "utt" or "startIndex"
-			<reverse>: If reverse, sort in descending order.
+			<by>: "frames" or "utt" or "startIndex".
+			<reverse>: If True, sort in descending order.
+		
 		Return:
-			A new NumpyData object.
+			A new BytesDataIndex object.
 		''' 
 		if self.is_void:
 			raise WrongOperation('No data to sort.')
-		assert by in ["utt","frames", "startIndex"], "We only support sorting by 'name' or 'frame' or 'startIndex'."
+		assert by in ["utt","frames", "startIndex"], "We only support sorting by 'name' or 'frames' or 'startIndex'."
 
 		if by == "utt":
 			items = sorted(self.items(), key=lambda x:x[0], reverse=reverse)
@@ -253,10 +509,11 @@ class BytesDataIndex(ScriptTable):
 
 	def __add__(self, other):
 		'''
-		Integrate two BytesDataIndex objects. If utt is existed in both two objects, the former will be retained.
+		Integrate two BytesDataIndex objects. If utterance ID has existed in both two objects, the former will be retained.
 
 		Args:
 			<other>: another BytesDataIndex object.
+
 		Return:
 			A new BytesDataIndex object.
 		'''
@@ -270,7 +527,41 @@ class BytesDataIndex(ScriptTable):
 	def load(self):
 		raise WrongOperation("BytesDataIndex is unsupported to be loaded from file.")
 
-''' Kaldi archive table '''
+	def shuffle(self):
+		'''
+		Random shuffle the script table.
+
+		Return:
+			A new ScriptTable object.
+		'''
+		result = super().shuffle()
+
+		return BytesDataIndex(result, name=self.name)
+
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+		'''
+		Subset feature.
+		
+		Args:
+			<nHead>: If it > 0, extract N head utterances.
+			<nTail>: If it > 0, extract N tail utterances.
+			<chunks>: If nHead == 0, nTail == 0 and chunks > 1, split data into N chunks.
+			<uttList>: If nHead == 0, nTail == 0, chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+		Return:
+			a new BytesDataIndex object or a list of new BytesDataIndex objects.
+		'''
+		result = super().subset(nHead, nTail, chunks, uttList)
+
+		if isinstance(result, list):
+			for index in range(len(result)):
+				temp = result[index]
+				result[index] = BytesDataIndex(temp, temp.name)
+		else:
+			result = BytesDataIndex(result, result.name)
+
+		return result
+
+''' Kaldi archive table (Bytes Format) '''
 
 class BytesAchievement:
 
@@ -289,6 +580,12 @@ class BytesAchievement:
 	def data(self):
 		return self.__data
 	
+	def reset_data(self, newData):
+		if newData != None:
+			assert isinstance(newData, bytes), f"Expected Python bytes object, but got {type_name(newData)}."
+		del self.__data
+		self.__data = newData		
+
 	@property
 	def is_void(self):
 		if self.__data is None or self.__data == b'':
@@ -321,20 +618,20 @@ class BytesData(BytesAchievement):
 
 		# <indexTable> is used to map the index of every utterance if bytes data.
 		if indexTable is None:
-			self.__generate_index_table()
+			self._dataIndex = self._generate_index_table()
 		else:
 			assert isinstance(indexTable, BytesDataIndex), f"<indexTable> should be a BytesDataIndex object bur got {type_name(indexTable)}."
-			self.__dataIndex = indexTable
+			self._dataIndex = indexTable
 
-	def __generate_index_table(self):
+	def _generate_index_table(self):
 		'''
 		Genrate the index table.
 		'''
 		if self.is_void:
-			self.__dataIndex = None
+			return None
 		else:
 			# Index table will have the same name with BytesData object.
-			self.__dataIndex = BytesDataIndex(name=self.name)
+			newDataIndex = BytesDataIndex(name=self.name)
 			start_index = 0
 			with BytesIO(self.data) as sp:
 				while True:
@@ -347,8 +644,10 @@ class BytesData(BytesAchievement):
 						sampleSize = 4
 					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
 
-					self.__dataIndex[utt] = self.__dataIndex.spec(rows, start_index, oneRecordLen)
+					newDataIndex[utt] = newDataIndex.spec(rows, start_index, oneRecordLen)
 					start_index += oneRecordLen
+			
+			return newDataIndex
 
 	def __read_one_record(self, fp):
 		'''
@@ -396,7 +695,8 @@ class BytesData(BytesAchievement):
 		Return:
 			A BytesDataIndex object.
 		'''
-		return copy.deepcopy(self.__dataIndex)
+		# Return deepcopied dict object.
+		return copy.deepcopy(self._dataIndex)
 
 	@property
 	def dtype(self):
@@ -437,7 +737,6 @@ class BytesData(BytesAchievement):
 		elif self.dtype == "float64" and dtype == "float64":
 			return copy.deepcopy(self)
 		else:
-
 			if dtype == 'float32' or dtype == 'float':
 				newDataType = 'FM '
 			else:
@@ -501,7 +800,7 @@ class BytesData(BytesAchievement):
 		if self.is_void:
 			return []
 		else:
-			return list(self.__dataIndex.keys())
+			return list(self._dataIndex.keys())
 			
 	def check_format(self):
 		'''
@@ -543,7 +842,8 @@ class BytesData(BytesAchievement):
 						sampleSize = 4
 					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
 
-					self.__dataIndex[utt] = self.__dataIndex.spec(rows, start_index, oneRecordLen)
+					# Renew the index table.
+					self._dataIndex[utt] = self._dataIndex.spec(rows, start_index, oneRecordLen)
 					start_index += oneRecordLen				
 					
 			return True
@@ -561,7 +861,7 @@ class BytesData(BytesAchievement):
 		'''
 		lengths = (0, None)
 		if not self.is_void:
-			_lens = dict( (utt, indexInfo.frames ) for utt, indexInfo in self.__dataIndex.items() )
+			_lens = dict( (utt, indexInfo.frames ) for utt, indexInfo in self._dataIndex.items() )
 			lengths = (len(_lens), _lens)
 		
 		return lengths
@@ -605,12 +905,12 @@ class BytesData(BytesAchievement):
 					return arkFileName
 
 		if chunks == 1:
-			if not fileName.strip().endswith('.ark'):
+			if not fileName.rstrip().endswith('.ark'):
 				fileName += '.ark'
 			savedFilesName = save_chunk_data(self.data, fileName, outScpFile)	
 		
 		else:
-			if fileName.strip().endswith('.ark'):
+			if fileName.rstrip().endswith('.ark'):
 				fileName = fileName[0:-4]
 			
 			uttLens = [ value.dataSize for value in self.utt_index.values() ]
@@ -644,9 +944,9 @@ class BytesData(BytesAchievement):
 		Return:
 			a NumpyData object sorted by utterance ID.
 		'''
-		sortedIndex = self.utt_index.sort(by="utt", reverse=False)
 		newDict = {}
 		if not self.is_void:
+			sortedIndex = self.utt_index.sort(by="utt", reverse=False)
 			with BytesIO(self.data) as sp:
 				for utt, indexInfo in sortedIndex.items():
 					sp.seek(indexInfo.startIndex)
@@ -724,14 +1024,15 @@ class BytesData(BytesAchievement):
 		newName = f"plus({self.name},{other.name})"
 		return BytesData(b''.join([self.data, *newData]), name=newName, indexTable=newDataIndex)
 
-	def subset(self, nHead=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
 		'''
 		Subset data.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new BytesData object or a list of new BytesData objects.
 		''' 
@@ -757,7 +1058,27 @@ class BytesData(BytesAchievement):
 				data = sp.read(totalSize)
 	
 			return BytesData(data, name=newName, indexTable=newDataIndex)
-		
+
+		elif nTail > 0:
+			assert isinstance(nTail, int), f"Expected <nTail> is an int number but got {nTail}."			
+			newName = f"subset({self.name},tail {nTail})"
+
+			newDataIndex = BytesDataIndex(name=newName)
+
+			tailNRecord = list(self.utt_index.items())[-nTail:]
+			start_index = tailNRecord[0][1].startIndex
+
+			totalSize = 0
+			for utt, indexInfo in tailNRecord:
+				newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, totalSize, indexInfo.dataSize)
+				totalSize += indexInfo.dataSize
+
+			with BytesIO(self.data) as sp:
+				sp.seek(start_index)
+				data = sp.read(totalSize)
+	
+			return BytesData(data, name=newName, indexTable=newDataIndex)
+
 		elif chunks > 1:
 			assert isinstance(chunks, int), f"Expected <chunks> is an int number but got {chunks}."
 
@@ -855,18 +1176,19 @@ class BytesData(BytesAchievement):
 		Sort utterances by frames length or uttID
 
 		Args:
-			<by>: "frame" or "utt"
+			<by>: "frames" or "utt"
 			<reverse>: If reverse, sort in descending order.
 		Return:
 			A new BytesData object.
 		''' 
-		assert by in ["utt", "frames"], f"<by> should be 'utt' or 'frame'."
+		assert by in ["utt", "frames"], f"<by> should be 'utt' or 'frames'."
 
 		newDataIndex = self.utt_index.sort(by=by, reverse=reverse)
 		ordered = True
 		for i, j in zip(self.utt_index.items(), newDataIndex.items()):
 			if i != j:
 				ordered = False
+				break
 		if ordered:
 			return copy.deepcopy(self)
 
@@ -913,7 +1235,7 @@ class BytesData(BytesAchievement):
 				del chunkdata
 
 		return BytesData(newData, name=self.name, indexTable=newDataIndex)			
-						
+				
 class BytesFeature(BytesData):
 	'''
 	Hold the feature with kaldi binary format.
@@ -967,26 +1289,27 @@ class BytesFeature(BytesData):
 			<left>: the left N-frames to splice.
 			<right>: the right N-frames to splice. If None, right = left.
 		Return:
-			a new BytesFeature object whose dim became original-dim * (1 + left + right).
+			A new BytesFeature object whose dim became original-dim * (1 + left + right).
 		''' 
 		ExkaldiInfo.vertify_kaldi_existed()
 		if self.is_void:
 			raise WrongOperation("Cannot operate a void feature data.")
 
-		assert isinstance(left, int) and left >= 0, f"Expected <left> is a positive int number but got {left}."
+		assert isinstance(left, int) and left >= 0, f"Expected <left> is a positive int value but got {left}."
 		if right is None:
 			right = left
 		else:
-			assert isinstance(right, int) and right >= 0, f"Expected <right> is a positive int number but got {right}."
+			assert isinstance(right, int) and right >= 0, f"Expected <right> is a positive int value but got {right}."
 
 		cmd = f"splice-feats --left-context={left} --right-context={right} ark:- ark:-"
-		out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
 
-		if out == b'':
+		if (isinstance(cod, int) and cod != 0) or out == b'':
 			print(err.decode())
 			raise KaldiProcessError("Failed to splice left-right frames.")
 		else:
 			newName = f"splice({self.name},{left},{right})"
+			# New index table will be generated.
 			return BytesFeature(out, name=newName, indexTable=None)
 
 	def select(self, dims, retain=False):
@@ -1061,27 +1384,30 @@ class BytesFeature(BytesData):
 			raise WrongOperation(f"Expected int value or string like '1,4-9,12' but got {dims}.")
 
 		cmdS = f'select-feats {selectFlag} ark:- ark:-'
-		outS, errS, _ = run_shell_command(cmdS, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
+		outS, errS, codS = run_shell_command(cmdS, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
 		
-		if outS == b'':
+		if (isinstance(codS, int) and codS != 0) or outS == b'':
 			print(errS.decode())
 			raise KaldiProcessError("Failed to select data.")
 		else:
 			newName = f"select({self.name},{dims})"
+			# New index table will be generated.
 			selectedResult = BytesFeature(outS, name=newName, indexTable=None)
 
 		if retain:
 			if retainFlag == "":
 				newName = f"select({self.name}, void)"
+				# New index table will be generated.
 				retainedResult = BytesFeature(name=newName, indexTable=None)
 			else: 
 				cmdR = f"select-feats {retainFlag} ark:- ark:-"
-				outR, errR, _ = run_shell_command(cmdR, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
-				if outR == b'':
+				outR, errR, codR = run_shell_command(cmdR, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
+				if (isinstance(codR, int) and codR != 0) or outR == b'':
 					print(errR.decode())
 					raise KaldiProcessError("Failed to select retained data.")
 				else:
 					newName = f"select({self.name},not {dims})"
+					# New index table will be generated.
 					retainedResult = BytesFeature(outR, name=newName, indexTable=None)
 		
 			return selectedResult, retainedResult
@@ -1089,18 +1415,19 @@ class BytesFeature(BytesData):
 		else:
 			return selectedResult
 
-	def subset(self, nHead=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
 		'''
-		Subset feature.
+		Subset data.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new BytesFeature object or a list of new BytesFeature objects.
-		'''
-		result = super().subset(nHead,chunks,uttList)
+		''' 
+		result = super().subset(nHead, nTail, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -1143,12 +1470,13 @@ class BytesFeature(BytesData):
 			raise WrongOperation("Cannot operate a void feature data.")
 
 		cmd = f"add-deltas --delta-order={order} ark:- ark:-"
-		out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
-		if out == b'':
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
+		if (isinstance(cod, int) and cod != 0) or out == b'':
 			print(err.decode())
 			raise KaldiProcessError('Failed to add delta feature.')
 		else:
 			newName = f"delta({self.name},{order})"
+			# New index table need to be generated.
 			return BytesFeature(data=out, name=newName, indexTable=None)
 
 	def paste(self, others):
@@ -1202,9 +1530,9 @@ class BytesFeature(BytesData):
 				cmd += f"ark:{ot.name} "
 			cmd += "ark:-"
 			
-			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-			if out == b'':
+			if (isinstance(cod, int) and cod != 0) or out == b'':
 				print(err.decode())
 				raise KaldiProcessError("Failed to paste feature.")
 			else:
@@ -1212,7 +1540,7 @@ class BytesFeature(BytesData):
 				for on in otherName:
 					newName += f",{on}"
 				newName += ")"
-
+				# New index table need to be generated.
 				return BytesFeature(out, name=newName, indexTable=None)
 		finally:
 			selfData.close()
@@ -1278,18 +1606,19 @@ class BytesCMVNStatistics(BytesData):
 
 		return BytesCMVNStatistics(result.data, name=result.name, indexTable=result.utt_index)
 
-	def subset(self, nHead=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
 		'''
-		Subset CMVN statistics.
+		Subset data.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new BytesCMVNStatistics object or a list of new BytesCMVNStatistics objects.
-		'''
-		result = super().subset(nHead, chunks, uttList)
+		''' 
+		result = super().subset(nHead, nTail, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -1333,7 +1662,7 @@ class BytesProbability(BytesData):
 	'''
 	Hold the probalility with kaldi binary format.
 	'''
-	def __init__(self, data=b"", name="postprob", indexTable=None):
+	def __init__(self, data=b"", name="prob", indexTable=None):
 		if isinstance(data, BytesProbability):
 			data = data.data
 		elif isinstance(data, NumpyProbability):
@@ -1375,18 +1704,19 @@ class BytesProbability(BytesData):
 
 		return BytesProbability(result.data, result.name, result.utt_index)
 
-	def subset(self, nHead=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
 		'''
-		Subset post probability.
+		Subset data.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new BytesProbability object or a list of new BytesProbability objects.
-		'''
-		result = super().subset(nHead,chunks,uttList)
+		''' 
+		result = super().subset(nHead, nTail, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -1426,11 +1756,11 @@ class BytesProbability(BytesData):
 		result = super().sort(by, reverse)
 		return BytesProbability(result.data, name=result.name, indexTable=result.utt_index)
 
-class BytesAlignmentTrans(BytesAchievement):
+class BytesAlignmentTrans(BytesData):
 	'''
 	Hold the alignment(transition ID) with kaldi binary format.
 	'''
-	def __init__(self, data=b"", name="transitionID"):
+	def __init__(self, data=b"", name="transitionID", indexTable=None):
 		if isinstance(data, BytesProbability):
 			data = data.data
 		elif isinstance(data, NumpyProbability):
@@ -1439,8 +1769,75 @@ class BytesAlignmentTrans(BytesAchievement):
 			pass
 		else:
 			raise UnsupportedType(f"Expected BytesAlignment, NumpyAlignment or Python bytes object but got {type_name(data)}.")		
-		super().__init__(data, name)
-	
+		
+		super().__init__(data, name, indexTable)
+
+	def _generate_index_table(self):
+		'''
+		Genrate the index table.
+		'''
+		if self.is_void:
+			return None
+		else:
+			# Index table will have the same name with BytesData object.
+			newDataIndex = BytesDataIndex(name=self.name)
+
+			cmd = "copy-int-vector ark:- ark,t:-"
+			out, err, cod = run_shell_command(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,inputs=self.data)
+
+			if cod != 0:
+				print(err.decode())
+				raise KaldiProcessError("Failed to vertify alignment data.")
+
+			utterances =[] 
+			with BytesIO(out) as sp:
+				utterances.extend(sp.readlines())
+			
+			start_index = 0
+			for utt in utterances:
+				cmd = "copy-int-vector ark:- ark:-"
+				out, err, cod = run_shell_command(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,inputs=utt)
+				if cod != 0:
+					print(err.decode())
+					raise KaldiProcessError("Failed to vertify alignment data.")
+				else:
+					utt = utt.strip().split()
+					uttID = utt[0].decode()
+					rows = len(utt) - 1 
+					oneRecordLen = len(out)
+					newDataIndex[uttID] = newDataIndex.spec(rows, start_index, oneRecordLen)
+					start_index += oneRecordLen
+
+			return newDataIndex
+
+	@property
+	def utt_index(self):
+		'''
+		Get the index information of utterances.
+		
+		Return:
+			A BytesDataIndex object.
+		'''
+		# Return deepcopied dict object.
+		return copy.deepcopy(self._dataIndex)
+
+	@property
+	def dtype(self):
+		raise WrongOperation("<BytesAlignmentTrans> is unsupported to check dtype.")
+
+	def to_dtype(self, dtype):
+		raise WrongOperation("<BytesAlignmentTrans> is unsupported to change dtype.")
+
+	@property
+	def dim(self):
+		if self.is_void:
+			return None
+		else:
+			return 0
+
+	def check_format(self):
+		raise WrongOperation("<BytesAlignmentTrans> is unsupported to check format.")
+
 	def to_numpy(self, aliType="transitionID", hmm=None):
 		'''
 		Transform alignment to numpy formation.
@@ -1458,8 +1855,8 @@ class BytesAlignmentTrans(BytesAchievement):
 		ExkaldiInfo.vertify_kaldi_existed()
 
 		def transform(data, cmd):
-			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=data)
-			if out == b'':
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=data)
+			if (isinstance(cod,int) and cod != 0) or out == b'':
 				print(err.decode())
 				raise KaldiProcessError('Failed to transform alignment.')
 			else:
@@ -1476,13 +1873,14 @@ class BytesAlignmentTrans(BytesAchievement):
 		if aliType == "transitionID":
 			cmd = "copy-int-vector ark:- ark,t:-"
 			result = transform(self.data, cmd)
-			return NumpyAlignmentTrans(result, self.name)
+			return NumpyAlignmentTrans(result, self.name).sort(by="utt")
 		
 		else:
+			assert hmm is not None, "Expected HMM model."
 			temp = tempfile.NamedTemporaryFile("wb+")
 			try:
 				if type_name(hmm) in ("HMM", "MonophoneHMM", "TriphoneHMM"):
-					hmm.save(temp)
+					temp.write(hmm.data)
 					hmmFileName = temp.name
 				elif isinstance(hmm, str):
 					if not os.path.isfile(hmm):
@@ -1494,12 +1892,12 @@ class BytesAlignmentTrans(BytesAchievement):
 				if aliType == "phoneID":
 					cmd = f"ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-"
 					result = transform(self.data, cmd)
-					return NumpyAlignmentPhone(result, self.name)
+					return NumpyAlignmentPhone(result, self.name).sort(by="utt")
 
 				elif aliType == "pdfID":
 					cmd = f"ali-to-pdf {hmmFileName} ark:- ark,t:-"
 					result = transform(self.data, cmd)
-					return NumpyAlignmentPdf(result, self.name)
+					return NumpyAlignmentPdf(result, self.name).sort(by="utt")
 				else:
 					raise WrongOperation(f"<target> should be 'trainsitionID', 'phoneID' or 'pdfID' but got {aliType}.")
 			finally:
@@ -1514,7 +1912,7 @@ class BytesAlignmentTrans(BytesAchievement):
 			<chunks>: If larger than 1, data will be saved to mutiple files averagely.
 		
 		Return:
-			the path of saved files.
+			The path of saved files.
 		'''
 		ExkaldiInfo.vertify_kaldi_existed()
 		assert isinstance(fileName, str), "file name should be a string."
@@ -1529,9 +1927,9 @@ class BytesAlignmentTrans(BytesAchievement):
 		def save_chunk_data(chunkData, fileName):
 
 			cmd = f"copy-int-vector ark:- ark:{fileName}"
-			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=chunkData)
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=chunkData)
 
-			if not os.path.isfile(fileName) or os.path.getsize(fileName) == 0:
+			if (isinstance(cod,int) and cod != 0) or (not os.path.isfile(fileName)) or (os.path.getsize(fileName)) == 0:
 				print(err.decode())
 				if os.path.isfile(fileName):
 					os.remove(fileName)
@@ -1547,11 +1945,7 @@ class BytesAlignmentTrans(BytesAchievement):
 			if fileName.rstrip().endswith(".ali"):
 				fileName = fileName.rstrip()[:-4]
 
-			cmd = "copy-int-vector ark:- ark,t:-"
-			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE,stderr=subprocess.PIPE, inputs=self.data)
-			utts = []
-			with BytesIO(out) as sp:
-				utts.extend(sp.readlines())
+			utts = [ indexInfo.dataSize for indexInfo in self.utt_index.values() ]
 			allLens = len(utts)
 			chunkUtts = allLens//chunks
 			if chunkUtts == 0:
@@ -1564,16 +1958,117 @@ class BytesAlignmentTrans(BytesAchievement):
 
 			savedFilesName = []
 			start = 0
-			for i in range(chunks):
-				if i < t:
-					chunkLen = chunkUtts + 1
-				else:
-					chunkLen = chunkUtts
-				chunkData = utts[ start:start+chunkLen ]
-				start += chunkLen
-				savedFilesName.append(save_chunk_data(chunkData, fileName + f"_ck{i}.ali"))
+			with BytesIO(self.data) as sp:
+				for i in range(chunks):
+					if i < t:
+						chunkLen = chunkUtts + 1
+					else:
+						chunkLen = chunkUtts
+					chunkData = utts[ start:start+chunkLen ]
+					start += chunkLen
+
+					chunkDataSize = sum(chunkData)
+					chunkData = sp.read(chunkDataSize)
+		
+					savedFilesName.append(save_chunk_data(chunkData, fileName + f"_ck{i}.ali"))
 
 		return savedFilesName
+
+	def __add__(self, other):
+		'''
+		The Plus operation between two objects.
+
+		Args:
+			<other>: a BytesAlignmentTrans or NumpyAlignmentTrans object.
+		Return:
+			a new BytesAlignmentTrans object.
+		''' 
+		if isinstance(other, BytesAlignmentTrans):
+			pass
+		elif type_name(other) == "NumpyAlignmentTrans":
+			other = other.to_bytes()
+		else:
+			raise UnsupportedType(f"Expected exkaldi BytesAlignmentTrans or NumpyAlignmentTrans object but got {type_name(other)}.")
+		
+		if self.is_void:
+			return copy.deepcopy(other)
+		elif other.is_void:
+			return copy.deepcopy(self)
+
+		selfUtts = self.utts
+
+		newDataIndex = self.utt_index
+		lastIndexInfo = list(newDataIndex.sort(by="startIndex", reverse=True).values())[0]
+		start_index = lastIndexInfo.startIndex + lastIndexInfo.dataSize
+
+		newData = []
+		with BytesIO(other.data) as op:
+			for utt, indexInfo in other.utt_index.items():
+				if not utt in selfUtts:
+					op.seek( indexInfo.startIndex )
+					data = op.read( indexInfo.dataSize )
+					data_size = indexInfo.dataSize
+					newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, start_index, data_size)
+					start_index += data_size
+
+					newData.append(data)
+
+		newName = f"plus({self.name},{other.name})"
+		return BytesAlignmentTrans(b''.join([self.data, *newData]), name=newName, indexTable=newDataIndex)
+
+	def __call__(self, uttID):
+		'''
+		Pick out the specified utterance.
+		
+		Args:
+			<uttID>: a string.
+		Return:
+			If existed, return a new BytesAlignmentTrans object.
+			Or return None.
+		''' 
+		result = super().__call__(uttID)
+		if result is None:
+			return None
+		else:
+			return BytesAlignmentTrans(result.data, result.name, result.utt_index)
+
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+		'''
+		Subset data.
+		
+		Args:
+			<nHead>: If it > 0, extract N head utterances.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+		Return:
+			a new BytesAlignmentTrans object or a list of new BytesAlignmentTrans objects.
+		''' 
+		result = super().subset(nHead, nTail, chunks, uttList)
+
+		if isinstance(result, list):
+			for index in range(len(result)):
+				temp = result[index]
+				result[index] = BytesAlignmentTrans(temp.data, temp.name, temp.utt_index)
+		else:
+			result = BytesAlignmentTrans(result.data, result.name, result.utt_index)
+
+		return result
+
+	def sort(self, by="utt", reverse=False):
+		'''
+		Sort utterances by frames length or uttID
+
+		Args:
+			<by>: "frame" or "utt"
+			<reverse>: If reverse, sort in descending order.
+		Return:
+			A new BytesProbability object.
+		''' 
+		result = super().sort(by, reverse)
+		return BytesAlignmentTrans(result.data, name=result.name, indexTable=result.utt_index)
+
+''' Kaldi archive table (Numpy Format) '''
 
 class NumpyAchievement:
 
@@ -1603,7 +2098,7 @@ class NumpyAchievement:
 	def name(self):
 		return self.__name
 
-	def rename(self,newName):
+	def rename(self, newName):
 		assert isinstance(newName,str) and len(newName) > 0, "new name must be a string avaliable."
 		self.__name = newName
 
@@ -1878,7 +2373,7 @@ class NumpyData(NumpyAchievement):
 			raise WrongOperation("Cannot get any data from void object.")
 		else:
 			if uttID not in self.utts:
-				return None
+				raise WrongOperation(f"No such utterance:{uttID}.")
 			else:
 				newName = f"pick({self.name},{uttID})"
 				return NumpyData({uttID:self.data[uttID]}, newName)
@@ -1900,14 +2395,15 @@ class NumpyData(NumpyAchievement):
 				_lens[utt] = len(matrix)
 			return (len(_lens) ,_lens)
 
-	def subset(self, nHead=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
 		'''
 		Subset data.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyData object or a list of new NumpyData objects.
 		''' 
@@ -1920,6 +2416,14 @@ class NumpyData(NumpyAchievement):
 			for utt in self.utts[0:nHead]:
 				newDict[utt]=self.data[utt]
 			newName = f"subset({self.name},head {nHead})"
+			return NumpyData(newDict, newName)
+
+		elif nTail > 0:
+			assert isinstance(nTail, int), f"Expected <nTail> is an int number but got {nTail}."
+			newDict = {}
+			for utt in self.utts[-nTail:]:
+				newDict[utt]=self.data[utt]
+			newName = f"subset({self.name},tail {nTail})"
 			return NumpyData(newDict, newName)
 
 		elif chunks > 1:
@@ -1972,19 +2476,19 @@ class NumpyData(NumpyAchievement):
 		else:
 			raise WrongOperation('Expected <nHead> is larger than "0", or <chunks> is larger than "1", or <uttList> is not None.')
 
-	def sort(self, by='frame', reverse=False):
+	def sort(self, by='frames', reverse=False):
 		'''
 		Sort utterances by frames length or uttID
 
 		Args:
-			<by>: "frame" or "utt"
+			<by>: "frames" or "utt"
 			<reverse>: If reverse, sort in descending order.
 		Return:
 			A new NumpyData object.
 		''' 
 		if self.is_void:
 			raise WrongOperation('No data to sort.')
-		assert by in ["utt","frame"], "We only support sorting by 'name' or 'frame'."
+		assert by in ["utt","frames"], "We only support sorting by 'name' or 'frames'."
 
 		items = self.data.items()
 
@@ -1993,9 +2497,7 @@ class NumpyData(NumpyAchievement):
 		else:
 			items = sorted(items, key=lambda x:len(x[1]), reverse=reverse)
 		
-		newData = {}
-		for key, value in items:
-			newData[key] = value
+		newData = dict(items)
 		
 		newName = "sort({},{})".format(self.name, by)
 		return NumpyData(newData, newName)
@@ -2012,9 +2514,8 @@ class NumpyData(NumpyAchievement):
 		'''
 		assert callable(func), "<func> is not callable."
 
-		new = {}
-		for utt, matrix in self.data.items():
-			new[utt] = func(matrix)
+		new = dict(map( lambda x:(x[0],func(x[1])), self.data.items() ))
+
 		return NumpyData(new, name=f"mapped({self.name})")
 
 class NumpyFeature(NumpyData):
@@ -2030,7 +2531,7 @@ class NumpyFeature(NumpyData):
 			pass
 		else:
 			raise UnsupportedType(f"Expected BytesFeature, NumpyFeature or Python dict object but got {type_name(data)}.")	
-		super().__init__(data,name)
+		super().__init__(data, name)
 
 	def to_dtype(self, dtype):
 		'''
@@ -2055,7 +2556,7 @@ class NumpyFeature(NumpyData):
 			a BytesFeature object.
 		'''		
 		result = super().to_bytes()
-		return BytesFeature(result.data, self.name)
+		return BytesFeature(result.data, self.name, result.utt_index)
 	
 	def __add__(self, other):
 		'''
@@ -2214,18 +2715,19 @@ class NumpyFeature(NumpyData):
 		else:
 			return NumpyFeature(seleDict, newNameSele)
 
-	def subset(self, nHead=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
 		'''
-		Subset feature.
+		Subset data.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyFeature object or a list of new NumpyFeature objects.
-		'''
-		result = super().subset(nHead,chunks,uttList)
+		''' 
+		result = super().subset(nHead, nTail, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -2457,18 +2959,19 @@ class NumpyCMVNStatistics(NumpyData):
 
 		return NumpyCMVNStatistics(result.data, result.name)
 
-	def subset(self, nHead=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
 		'''
-		Subset CMVN statistics.
+		Subset data.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyCMVNStatistics object or a list of new NumpyCMVNStatistics objects.
-		'''
-		result = super().subset(nHead,chunks,uttList)
+		''' 
+		result = super().subset(nHead, nTail, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -2582,18 +3085,19 @@ class NumpyProbability(NumpyData):
 
 		return NumpyProbability(result.data, result.name)
 
-	def subset(self, nHead=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
 		'''
-		Subset post probability.
+		Subset data.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyProbability object or a list of new NumpyProbability objects.
-		'''
-		result = super().subset(nHead,chunks,uttList)
+		''' 
+		result = super().subset(nHead, nTail, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -2697,18 +3201,19 @@ class NumpyAlignment(NumpyData):
 
 		return NumpyAlignment(result.data, result.name)
 
-	def subset(self, nHead=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
 		'''
-		Subset alignment data.
+		Subset data.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyAlignment object or a list of new NumpyAlignment objects.
-		'''
-		result = super().subset(nHead,chunks,uttList)
+		''' 
+		result = super().subset(nHead, nTail, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -2796,8 +3301,8 @@ class NumpyAlignmentTrans(NumpyAlignment):
 		temp = ("\n".join(temp)).encode()
 
 		cmd = 'copy-int-vector ark:- ark:-'
-		out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=temp)
-		if out == b'':
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=temp)
+		if (isinstance(cod,int) and cod != 0) or out == b'':
 			print(err.decode())
 			raise KaldiProcessError('Failed to transform alignment to bytes formation.')
 		else:
@@ -2837,18 +3342,19 @@ class NumpyAlignmentTrans(NumpyAlignment):
 		results = super().__add__(other)
 		return NumpyAlignmentTrans(results.data, results.name)
 
-	def subset(self, nHead=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
 		'''
-		Subset alignment data.
+		Subset data.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyAlignmentTrans object or a list of new NumpyAlignmentTrans objects.
-		'''
-		result = super().subset(nHead, chunks, uttList)
+		''' 
+		result = super().subset(nHead, nTail, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -2905,8 +3411,8 @@ class NumpyAlignmentTrans(NumpyAlignment):
 				raise UnsupportedType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
 
 			cmd = f'copy-int-vector ark:- ark:- | ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-'
-			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=temp)
-			if out == b'':
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=temp)
+			if (isinstance(cod, int) and cod != 0) or out == b'':
 				print(err.decode())
 				raise KaldiProcessError('Failed to transform alignment to phone.')
 			else:
@@ -2955,8 +3461,8 @@ class NumpyAlignmentTrans(NumpyAlignment):
 				raise UnsupportedType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
 
 			cmd = f'copy-int-vector ark:- ark:- | ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-'
-			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=temp)
-			if out == b'':
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=temp)
+			if (isinstance(cod, int) and cod != 0) or out == b'':
 				print(err.decode())
 				raise KaldiProcessError('Failed to transform alignment to pdf.')
 			else:
@@ -3032,18 +3538,19 @@ class NumpyAlignmentPhone(NumpyAchievement):
 		results = super().__add__(other)
 		return NumpyAlignmentPhone(results.data, results.name)
 
-	def subset(self, nHead=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
 		'''
-		Subset alignment data.
+		Subset data.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyAlignmentPhone object or a list of new NumpyAlignmentPhone objects.
-		'''
-		result = super().subset(nHead, chunks, uttList)
+		''' 
+		result = super().subset(nHead, nTail, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -3080,7 +3587,7 @@ class NumpyAlignmentPhone(NumpyAchievement):
 		Return:
 			A new NumpyAlignmentPhone object.
 		''' 			
-		result = super().sort(by,reverse)
+		result = super().sort(by, reverse)
 
 		return NumpyAlignmentPhone(result.data, result.name)
 
@@ -3146,18 +3653,19 @@ class NumpyAlignmentPdf(NumpyAchievement):
 		results = super().__add__(other)
 		return NumpyAlignmentPdf(results.data, results.name)
 
-	def subset(self, nHead=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
 		'''
-		Subset alignment data.
+		Subset data.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
+			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
+			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyAlignmentPdf object or a list of new NumpyAlignmentPdf objects.
-		'''
-		result = super().subset(nHead, chunks, uttList)
+		''' 
+		result = super().subset(nHead, nTail, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):

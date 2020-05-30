@@ -1,4 +1,5 @@
 from setuptools import setup,find_packages
+import glob
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -16,6 +17,9 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/wangyu09/exkaldi",
     packages=find_packages(),
+    data_files = [
+            ("exkaldisrc/tools", glob.glob("tools/*"))
+        ],
     install_requires=["numpy>=1.16","PyAudio>=0.2", "kenlm>=0.0"],
     classifiers=[
         "Programming Language :: Python :: 3",

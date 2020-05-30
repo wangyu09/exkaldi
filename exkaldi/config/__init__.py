@@ -1,3 +1,3 @@
 from __future__ import absolute_import
 
-from exkaldi.hmm.hmm import *
+from exkaldi.config import *

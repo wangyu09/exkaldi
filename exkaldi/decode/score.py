@@ -24,7 +24,7 @@ import subprocess
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath
 from exkaldi.utils.utils import type_name, flatten, run_shell_command
-from exkaldi.utils.utils import UnsupportedDataType, WrongDataFormat, KaldiProcessError, WrongOperation
+from exkaldi.utils.utils import UnsupportedType, WrongDataFormat, KaldiProcessError, WrongOperation
 
 def wer(ref, hyp, ignore=None, mode='all'):
 	'''

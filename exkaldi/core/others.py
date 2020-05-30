@@ -22,7 +22,7 @@ from io import BytesIO
 from collections import namedtuple
 
 from exkaldi.version import version as ExkaldiInfo
-from exkaldi.version import UnsupportedDataType, WrongOperation, KaldiProcessError, WrongDataFormat
+from exkaldi.version import UnsupportedType, WrongOperation, KaldiProcessError, WrongDataFormat
 from exkaldi.utils.utils import run_shell_command, type_name
 from exkaldi.core.achivements import BytesFeature
 
@@ -38,9 +38,6 @@ def tuple_data(achivements, frameLevel=False):
 	'''
 	assert isinstance(achivements, (tuple,list)) and len(achivements)>1, "<achivements> should has mutiple items."
 	
-	result = []
-	uttIDs = achivements.utts
-
 	fields = {}
 	for index,data in enumerate(achivements):
 		if type_name(data) in ["BytesFeature", "BytesCMVNStatistics", "BytesPostProbability", "BytesAlignmentTrans"]:
@@ -49,7 +46,7 @@ def tuple_data(achivements, frameLevel=False):
 								 "NumpyAlignment", "NumpyAlignmentTrans", "NumpyAlignmentPhone", "NumpyAlignmentPdf"]:
 			pass
 		else:
-			raise UnsupportedDataType(f"Cannot tuple {type_name(data)} object.")
+			raise UnsupportedType(f"Cannot tuple {type_name(data)} object.")
 
 		if data.name not in fields.keys():
 			fields[data.name] = []
@@ -58,36 +55,55 @@ def tuple_data(achivements, frameLevel=False):
 
 	fieldNames = list(fields.keys())
 	if frameLevel:
-		TupledData = namedtuple(typename="TupledData", field_names=["uttID","frameIndex",]+fieldNames)
+		templet = namedtuple(typename="TupledData", field_names=["uttID","frameID",]+fieldNames)
 	else:
-		TupledData = namedtuple(typename="TupledData", field_names=["uttID",]+fieldNames)
+		templet = namedtuple(typename="TupledData", field_names=["uttID",]+fieldNames)
 
 	def align_tuple_data_to_frame(utt, record, templet):
 
-		frameSize = len(record[0])
+		if isinstance(record[0],list):
+			frameSize = len(record[0][0])
+		else:
+			frameSize = len(record[0])
+
 		for r in record[1:]:
-			if len(r) != frameSize:
-				raise WrongOperation(f"Cannot tuple data with different frame length to frame level: {frameSize}!={len(r)}.")
+			if isinstance(r, list):
+				for sr in r:
+					if len(sr) != frameSize:
+						raise WrongOperation(f"Cannot tuple data with different frame length to frame level: {frameSize}!={len(sr)}.")
+			else:
+				if len(r) != frameSize:
+					raise WrongOperation(f"Cannot tuple data with different frame length to frame level: {frameSize}!={len(r)}.")				
 		
 		result = []
 		for frameIndex in range(frameSize):
 			new = []
 			for r in record:
-				new.append( r[frameIndex] )
+				if isinstance(r, list):
+					filedR = []
+					for sr in r:
+						filedR.append( sr[frameIndex] )
+					new.append(filedR)
+				else:
+					new.append( r[frameIndex] )
+					
 			result.append(templet( utt, frameIndex, *new  ))
 
 		return result
 
+	uttIDs = achivements[0].utts
+	result = []
 	for utt in uttIDs:
 		oneRecord = []
+
 		missingFlag1 = False
 		for field in fieldNames:
 			fieldData = []
 			missingFlag2 = False
 			for ob in fields[field]:
 				try:
-					fieldData.append(ob(utt))
-				except WrongOperation:
+					fieldData.append( ob.data[utt] )
+				except KeyError:
 					missingFlag2 = True
 					break
 				else:
@@ -103,9 +119,9 @@ def tuple_data(achivements, frameLevel=False):
 			continue
 		else:
 			if frameLevel:
-				result.extend(align_tuple_data_to_frame(utt, oneRecord, TupledData))
+				result.extend(align_tuple_data_to_frame(utt, oneRecord, templet))
 			else:
-				result.append( TupledData(utt,*oneRecord))
+				result.append( templet(utt,*oneRecord))
 	
 	return result
 
@@ -125,12 +141,12 @@ def compute_postprob_norm(ali, posrProbDim):
 	if type_name(ali) in ["NumpyAlignmentPhone", "NumpyAlignmentPdf"]:
 		pass
 	else:
-		raise UnsupportedDataType(f'Expected exkaldi AlignmentPhone or  but got a {type_name(ali)}.')   
+		raise UnsupportedType(f'Expected exkaldi AlignmentPhone or  but got a {type_name(ali)}.')   
 	
 
 	cmd = f"analyze-counts --print-args=False --verbose=0 --binary=false --counts-dim={posrProbDim} ark:- -"
-	out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=ali.data)
-	if len(out) == 0:
+	out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=ali.data)
+	if (isinstance(cod,int) and cod != 0) or out == b"":
 		print(err.decode())
 		raise KaldiProcessError('Analyze counts defailed.')
 	else:
@@ -214,7 +230,7 @@ def decompress_feat(feat):
 					data += matrix.tobytes()
 					newData.append(data)
 				else:
-					raise UnsupportedDataType("This is not a compressed binary data.")
+					raise UnsupportedType("This is not a compressed binary data.")
 			else:
 				raise WrongDataFormat('Miss right binary symbol.')
 

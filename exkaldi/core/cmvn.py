@@ -21,24 +21,19 @@ import tempfile
 import math
 import os
 
-import sys
-sys.path.append('/mnt/c/Users/sanja/Documents/github/exkaldi')
-
 from exkaldi.version import version as ExkaldiInfo
-from exkaldi.version import WrongPath
+from exkaldi.version import WrongPath, UnsupportedType, KaldiProcessError
 from exkaldi.utils.utils import run_shell_command, type_name
+from exkaldi.core.achivements import BytesFeature, BytesCMVNStatistics, ScriptTable
 
-from exkaldi.core.achivements import UnsupportedDataType, KaldiProcessError
-from exkaldi.core.achivements import BytesFeature, BytesCMVNStatistics
-
-def use_cmvn(feat, cmvn, utt2spkFile=None, std=False):
+def use_cmvn(feat, cmvn, utt2spk=None, std=False):
 	'''
 	Apply CMVN statistics to feature.
 
 	Args:
 		<feat>: exkaldi feature object.
 		<cmvn>: exkaldi CMVN statistics object.
-		<utt2spkFile>: utt2spk file path.
+		<utt2spk>: utt2spk file path or ScriptTable object.
 		<std>: If true, apply std normalization.
 
 	Return:
@@ -51,14 +46,14 @@ def use_cmvn(feat, cmvn, utt2spkFile=None, std=False):
 	elif type_name(feat) == "NumpyFeature":
 		feat = feat.sort(by="utt").to_bytes()
 	else:
-		raise UnsupportedDataType(f"Expected exkaldi feature but got {type_name(feat)}.")
+		raise UnsupportedType(f"Expected exkaldi feature but got {type_name(feat)}.")
 
 	if type_name(cmvn) == "BytesCMVNStatistics":
 		cmvn = cmvn.sort(by="utt")
 	elif type_name(cmvn) == "NumpyCMVNStatistics":
 		cmvn = cmvn.sort(by="utt").to_bytes()
 	else:
-		raise UnsupportedDataType(f"Expected exkaldi CMVN statistics but got {type_name(cmvn)}.")
+		raise UnsupportedType(f"Expected exkaldi CMVN statistics but got {type_name(cmvn)}.")
 
 	cmvnTemp = tempfile.NamedTemporaryFile('wb+', suffix='.ark')
 	utt2spkTemp = tempfile.NamedTemporaryFile('w+', encoding="utf-8")
@@ -71,41 +66,45 @@ def use_cmvn(feat, cmvn, utt2spkFile=None, std=False):
 		else:
 			stdOption = ""
 
-		if utt2spkFile is None:
-			cmd = f'apply-cmvn{stdOption} ark,c,cs:{cmvnTemp.name} ark,c,cs:- ark:-'
+		if utt2spk is None:
+			cmd = f'apply-cmvn{stdOption} ark:{cmvnTemp.name} ark:- ark:-'
 		else:
-			assert isinstance(utt2spkFile, str), "<utt2spkFile> should be file path."
-			if not os.path.isfile(utt2spkFile):
-				raise WrongPath(f"No such file:{utt2spkFile}.")
-			cmd = f"sort {utt2spkFile} > {utt2spkTemp.name}"
-			out, err, code = run_shell_command(cmd, stderr=subprocess.PIPE)
-			if (isinstance(code,int) and code != 0) or os.path.getsize(utt2spkTemp.name) == 0:
-				print(err.decode())
-				raise Exception("Failed to sort utt2spk file.")
-			cmd = f'apply-cmvn{stdOption} --utt2spk=ark:{utt2spkTemp.name} ark,c,cs:{cmvnTemp.name} ark,c,cs:- ark:-'
+			if isinstance(utt2spk, str):
+				if not os.path.isfile(utt2spk):
+					raise WrongPath(f"No such file:{utt2spk}.")
+				utt2spkSorted = ScriptTable(name="utt2spk").load(utt2spk).sort()
+				utt2spkSorted.save(utt2spkTemp)
+			elif isinstance(utt2spk, ScriptTable):
+				utt2spkSorted = utt2spk.sort()
+				utt2spkSorted.save(utt2spkTemp)
+			else:
+				raise UnsupportedType(f"<utt2spk> should be a file path or ScriptTable object but got {type_name(utt2spk)}.")
+			utt2spkTemp.seek(0)	
 
-		out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
+			cmd = f'apply-cmvn{stdOption} --utt2spk=ark:{utt2spkTemp.name} ark:{cmvnTemp.name} ark:- ark:-'	
 
-		if out == b'':
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
+
+		if (isinstance(cod,int) and cod != 0) or out == b'':
 			print(err.decode())
 			raise KaldiProcessError('Failed to apply CMVN statistics.')
 		else:
 			newName = f"cmvn({feat.name},{cmvn.name})"
 			if type_name(feat) == "NumpyFeature":
-				return BytesFeature(out, newName).to_numpy()
+				return BytesFeature(out, newName, indexTable=None).to_numpy()
 			else:
-				return BytesFeature(out, newName)
+				return BytesFeature(out, newName, indexTable=None)
 	finally:
 		cmvnTemp.close()
 		utt2spkTemp.close()
 
-def compute_cmvn_stats(feat, spk2uttFile=None, name="cmvn", ordered=False):
+def compute_cmvn_stats(feat, spk2utt=None, name="cmvn"):
 	'''
 	Compute CMVN statistics.
 
 	Args:
 		<feat>: exkaldi feature object.
-		<spk2uttFile>: spk2utt file.
+		<spk2utt>: spk2utt file or exkaldi ScriptTable object.
 		<name>: a string.
 
 	Return:
@@ -114,42 +113,40 @@ def compute_cmvn_stats(feat, spk2uttFile=None, name="cmvn", ordered=False):
 	ExkaldiInfo.vertify_kaldi_existed()
 
 	if type_name(feat) == "BytesFeature":
-		if not ordered:
-			feat = feat.sort("utt")
+		feat = feat.sort("utt")
 	elif type_name(feat) == "NumpyFeature":
-		if ordered:
-			feat = feat.to_bytes()
-		else:
-			feat = feat.sort("utt").to_bytes()
+		feat = feat.sort("utt").to_bytes()
 	else:
-		raise UnsupportedDataType(f"Expected <feat> is a exkaldi feature object but got {type_name(feat)}.")
+		raise UnsupportedType(f"Expected <feat> is a exkaldi feature object but got {type_name(feat)}.")
 	
-	utt2spkSorted = tempfile.NamedTemporaryFile("w+", encoding="utf-8")
+	spk2uttTemp = tempfile.NamedTemporaryFile("w+", encoding="utf-8")
 	try:
-		if spk2uttFile != None:
-			assert isinstance(spk2uttFile, str), "<utt2spkFile> should be a file path."
-			if not os.path.isfile(spk2uttFile):
-				raise WrongPath(f"No such file:{spk2uttFile}.")
-			else:
-				cmd = f"sort {spk2uttFile} > {utt2spkSorted.name}"
-				out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
-				if (isinstance(cod, int) and cod != 0) or os.path.getsize(utt2spkSorted.name) == 0:
-					print(err.decode())
-					raise Exception("Failed to sort utt2spk file.")
-				
-				cmd = f'compute-cmvn-stats --spk2utt=ark,c,cs:{utt2spkSorted.name} ark,c,cs:- ark:-'
+		if spk2utt is None:
+			cmd = 'compute-cmvn-stats ark:- ark:-'
 		else:
-			cmd = 'compute-cmvn-stats ark,c,cs:- ark:-'
+			if isinstance(spk2utt, str):
+				if not os.path.isfile(spk2utt):
+					raise WrongPath(f"No such file:{spk2utt}.")
+				spk2uttSorted = ScriptTable(name="spk2utt").load(spk2utt).sort()
+				spk2uttSorted.save(spk2uttTemp)
+			elif isinstance(spk2utt, ScriptTable):
+				spk2uttSorted = spk2utt.sort()
+				spk2uttSorted.save(spk2uttTemp)
+			else:
+				raise UnsupportedType(f"<spk2utt> should be a file path or ScriptTable object but got {type_name(spk2utt)}.")			
+			spk2uttTemp.seek(0)
 
-		out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
+			cmd = f'compute-cmvn-stats --spk2utt=ark:{spk2uttTemp.name} ark:- ark:-'
 
-		if len(out) == 0:
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
+
+		if (isinstance(cod,int) and cod != 0) or out == b'':
 			print(err.decode())
 			raise KaldiProcessError('Failed to compute CMVN statistics.')
 		else:
-			return BytesCMVNStatistics(out, name)
+			return BytesCMVNStatistics(out, name, indexTable=None)
 	finally:
-		utt2spkSorted.close()
+		spk2uttTemp.close()
 
 def use_cmvn_sliding(feat, windowsSize=None, std=False):
 	'''
@@ -170,7 +167,7 @@ def use_cmvn_sliding(feat, windowsSize=None, std=False):
 	elif type_name(feat) == "NumpyFeature":
 		feat = feat.to_bytes()
 	else:
-		raise UnsupportedDataType(f"Expected <feat> is an exkaldi feature object but got {type_name(feat)}.")
+		raise UnsupportedType(f"Expected <feat> is an exkaldi feature object but got {type_name(feat)}.")
 	
 	if windowsSize == None:
 		featLen = feat.lens[1]
@@ -185,10 +182,10 @@ def use_cmvn_sliding(feat, windowsSize=None, std=False):
 		std='false'
 
 	cmd = f'apply-cmvn-sliding --cmn-window={windowsSize} --min-cmn-window=100 --norm-vars={std} ark:- ark:-'
-	out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
-	if out == b'':
+	out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
+	if (isinstance(cod,int) and cod != 0) or out == b'':
 		print(err.decode())
 		raise KaldiProcessError('Failed to use sliding CMVN.')
 	else:
 		newName = f"cmvn({feat.name},{windowsSize})"
-		return BytesFeature(out,newName)
+		return BytesFeature(out, newName, indexTable=None)
