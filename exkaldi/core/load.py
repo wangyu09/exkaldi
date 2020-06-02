@@ -108,7 +108,7 @@ def __read_data_from_file(fileName, useSuffix=None):
 		else:
 			raise UnsupportedType('Unknown file suffix. You can assign the <useSuffix> with "scp", "ark" or "npy".')
 	
-	if useSuffix is None:
+	if useSuffix == "":
 		if allFiles[0][-3:].lower() == "npy":
 			result = allData_numpy + allData_bytes.to_numpy()
 		else:

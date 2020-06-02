@@ -54,10 +54,16 @@ def tuple_data(achivements, frameLevel=False):
 		fields[data.name].append(data)
 
 	fieldNames = list(fields.keys())
-	if frameLevel:
-		templet = namedtuple(typename="TupledData", field_names=["uttID","frameID",]+fieldNames)
-	else:
-		templet = namedtuple(typename="TupledData", field_names=["uttID",]+fieldNames)
+
+	try:
+		if frameLevel:
+			templet = namedtuple(typename="TupledData", field_names=["uttID","frameID",]+fieldNames)
+		else:
+			templet = namedtuple(typename="TupledData", field_names=["uttID",]+fieldNames)
+	except ValueError as e:
+		print('While tuple data, use "name" of achivements as identified symbols so they are expected Python valid identifiers.')
+		print('You can use ".rename()" method to rename it and try this function again.')
+		raise e
 
 	def align_tuple_data_to_frame(utt, record, templet):
 
@@ -85,7 +91,7 @@ def tuple_data(achivements, frameLevel=False):
 						filedR.append( sr[frameIndex] )
 					new.append(filedR)
 				else:
-					new.append( r[frameIndex] )
+					new.append( r[frameIndex:frameIndex+1] )
 					
 			result.append(templet( utt, frameIndex, *new  ))
 

@@ -21,6 +21,8 @@ import glob
 import subprocess
 import tempfile
 import copy
+import time, datetime
+from collections import namedtuple
 
 from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, BytesAlignmentTrans
 from exkaldi.core.load import load_ali
@@ -30,10 +32,11 @@ from exkaldi.version import WrongPath, KaldiProcessError, UnsupportedType, Wrong
 
 class DecisionTree(BytesAchievement):
 
-	def __init__(self, lexicons, data=b"", contextWidth=3, centralPosition=1, name="tree"):
-
-		assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be exkaldi LexiconBank object but got {type_name(lexicons)}."
+	def __init__(self, data=b"", contextWidth=3, centralPosition=1, lexicons=None, name="tree"):
 		super().__init__(data, name)
+
+		if not lexicons is None:
+			assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
 
 		self.__lex = lexicons
 		self.__contextWidth = contextWidth
@@ -41,6 +44,9 @@ class DecisionTree(BytesAchievement):
 	
 	@property
 	def lex(self):
+		'''
+		Return lexicon bank.
+		'''
 		return self.__lex
 
 	@property
@@ -51,126 +57,238 @@ class DecisionTree(BytesAchievement):
 	def centralPosition(self):
 		return self.__centralPosition
 
-	def accumulate_tree_stats(self, feat, hmm, alignFile, outFile):
+	def accumulate_stats(self, feat, hmm, alignment, outFile, lexicons=None):
+		'''
+		Accumulate statistics in order to compile questions.
+
+		Args:
+			<feat>: exkaldi feature object.
+			<hmm>: exkaldi TriphoneHMM object or model file path.
+			<alignment>: exkaldi alignment object and file path.
+			<outFile>: file name.
+			<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
+						In this step, we will use "context_indep" lexicon.
+		
+		Return:
+			Absolute path of out file.
+		'''
+		if lexicons is None:
+			assert self.lex is not None, "No <lexicons> avaliable defaultly, so provide it please."
+			lexicons = self.lex
+		else:
+			assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
+
+		assert isinstance(outFile, str), "<outFile> should be a string."
+		make_dependent_dirs(outFile, pathIsFile=True)
 
 		if type_name(feat) == "BytesFeature":
-			pass
+			feat = feat.sort(by="utt")
 		elif type_name(feat) == "NumpyFeature":
-			feat = feat.to_bytes()
+			feat = feat.sort(by="utt").to_bytes()
 		else:
 			raise UnsupportedType(f"Expected exkaldi feature object but got {type_name(feat)}.")
+				
+		if isinstance(alignment, str):
+			alignment = load_ali(alignment)
 		
-		if not isinstance(hmm, BaseHMM):
-			raise UnsupportedType(f"Expected exkaldi HMM object but got {type_name(hmm)}.")	
+		if isinstance(alignment, BytesAlignmentTrans):
+			alignment = alignment.sort(by="utt")
+		elif isinstance(alignment, NumpyAlignmentTrans):
+			alignment = alignment.sort(by="utt").to_bytes()
+		else:
+			raise UnsupportedType("<alignment> should be file name or exkaldi alignment object.")		
 
-		assert isinstance(alignFile, str), f"Expected a path-like string but got {type_name(alignFile)}."
-		if not os.path.isfile(alignFile):
-			raise WrongPath(f"No such file:{alignFile}.")
+		ciphones = ":".join(lexicons("context_indep", True))
 
-		ciphones = ":".join(self.__lex("context_indep",True))
-
-		model = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
+		modelTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
+		aliTemp = tempfile.NamedTemporaryFile("wb+", suffix=".ali")
 
 		try:
-			model.write(hmm.data)
-			model.seek(0)
+			if isinstance(hmm, BaseHMM):
+				modelTemp.write(hmm.data)
+				modelTemp.seek(0)
+				hmmFile = modelTemp.name
+			elif isinstance(hmm, str):
+				hmmFile = hmm
+			else:
+				raise UnsupportedType("<hmm> should be file name or exkaldi HMM object.")
+
+			aliTemp.write(alignment.data)
+			aliTemp.seek(0)
 
 			cmd = f'acc-tree-stats --context-width={self.contextWidth} --central-position={self.centralPosition} --ci-phones={ciphones} '
-			cmd += f'{model.name} ark,c,cs:- ark:{alignFile} {outFile}'
+			cmd += f'{hmmFile} ark:- ark:{aliTemp.name} {outFile}'
 
-			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
 
-			if (not os.path.isfile(outFile)) or (os.path.getsize(outFile)==0):
+			if (isinstance(cod,int) and cod != 0) or (not os.path.isfile(outFile)) or (os.path.getsize(outFile)==0):
 				print(err.decode())
 				raise KaldiProcessError("Failed to initialize mono model.")
+			
+			return os.path.abspath(outFile)
 	
 		finally:
-			model.close()
+			modelTemp.close()
+			aliTemp.close()
 		
-	def compile_questions(self, treeStatsFile, topoFile, outFile):
+	def compile_questions(self, treeStatsFile, topoFile, outFile, lexicons=None):
+		'''
+		Compile questions.
+
+		Args:
+			<treeStatsFile>: file path.
+			<topoFile>: topo file path.
+			<outFile>: file name.
+			<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
+						In this step, we will use "sets" and "extra_questions" lexicon.
+		
+		Return:
+			Absolute path of out file.
+		'''
+		if lexicons is None:
+			assert self.lex is not None, "No <lexicons> avaliable defaultly, so provide it please."
+			lexicons = self.lex
+		else:
+			assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
+		assert isinstance(outFile, str), "<outFile> should be a string."
+		make_dependent_dirs(outFile, pathIsFile=True)
 
 		for x in [treeStatsFile, topoFile]:
 			assert isinstance(x, str), f"Expected a path-like string but got {type_name(x)}."
 			if not os.path.isfile(x):
 				raise WrongPath(f"No such file:{x}.")
 		
-		sets = tempfile.NamedTemporaryFile("w+", suffix=".int", encoding="utf-8")
-		questions = tempfile.NamedTemporaryFile("a+", suffix=".int", encoding="utf-8")
-	
+		setsTemp = tempfile.NamedTemporaryFile("w+", suffix="_sets.int", encoding="utf-8")
+
 		try:
-			self.lex.dump_dict(name="sets", outFile=sets, dumpint=True)
+			lexicons.dump_dict(name="sets", outFile=setsTemp, dumpInt=True)
 
 			cmd = f'cluster-phones --context-width={self.contextWidth} --central-position={self.centralPosition} '
-			cmd = f'{treeStatsFile} {sets.name} {questions.name}'
+			cmd += f'{treeStatsFile} {setsTemp.name} -'
 
-			out, err, _ = run_shell_command(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+			out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
 
-			if os.path.getsize(questions.name) == 0:
+			if (isinstance(cod,int) and cod != 0):
 				print(err.decode())
 				raise KaldiProcessError("Failed to cluster phones.")
-			
-			self.lex.dump_dict("extra_questions", questions, True)
+
+			extra = lexicons.dump_dict("extra_questions", None, True)
+
+			questions = "\n".join([out.decode().strip(), extra.strip()])
 
 			cmd = f'compile-questions --context-width={self.contextWidth} --central-position={self.centralPosition} '
-			cmd += f'{topoFile} {questions.name} {outFile}'
+			cmd += f'{topoFile} - {outFile}'
 
-			out, err, _ = run_shell_command(cmd, stderr=subprocess.PIPE)
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=questions)
 
-			if (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
+			if (isinstance(cod, int) and cod != 0) or (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
 				print(err.decode())
 				raise KaldiProcessError("Failed to compile questions.")
+			
+			return os.path.abspath(outFile)
 
 		finally:
-			sets.close()
-			questions.close()	
+			setsTemp.close()
 
-	def build_tree(self, treeStatsFile, questionsFile, numleaves, topoFile, cluster_thresh=-1):
+	def build(self, treeStatsFile, questionsFile, numleaves, topoFile, cluster_thresh=-1, lexicons=None):
+		'''
+		Build tree.
+
+		Args:
+			<treeStatsFile>: file path.
+			<questionsFile>: file path.
+			<numleaves>: target numbers of leaves.
+			<topoFile>: topo file path.
+			<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
+						In this step, we will use "roots" lexicon.
+		
+		Return:
+			Absolute path of out file.
+		'''
+		if lexicons is None:
+			assert self.lex is not None, "No <lexicons> avaliable defaultly, so provide it please."
+			lexicons = self.lex
+		else:
+			assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
 
 		assert isinstance(questionsFile, str), f"Expected a path-like string but got {type_name(questionsFile)}."
 		if not os.path.isfile(questionsFile):
 			raise WrongPath(f"No such file:{questionsFile}.")
 
-		roots = tempfile.NamedTemporaryFile("w+", suffix=".int", encoding="utf-8")
+		rootsTemp = tempfile.NamedTemporaryFile("w+", suffix=".int", encoding="utf-8")
 
 		try:
-			self.lex.dump_dict("roots", roots, True)
+			lexicons.dump_dict("roots", rootsTemp, True)
 
 			cmd = f'build-tree --context-width={self.contextWidth} --central-position={self.centralPosition} '
 			cmd += f'--verbose=1 --max-leaves={numleaves} --cluster-thresh={cluster_thresh} '
-			cmd += f'{treeStatsFile} {roots.name} {questionsFile} {topoFile}'
+			cmd += f'{treeStatsFile} {rootsTemp.name} {questionsFile} {topoFile} -'
 
-			out, err, _ = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+			out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-			if len(out) == 0:
+			if (isinstance(cod,int) and cod !=0 ) or len(out) == 0:
 				print(err.decode())
 				raise KaldiProcessError("Failed to build tree.")
 			else:
-				self.__data = out
+				self.reset_data(out)
+				return self
 
 		finally:
-			roots.close()			
+			rootsTemp.close()			
 
-	def train(self, feat, hmm, alignFile, topoFile, numleaves, tempDir, cluster_thresh=-1, treeaccOutFile=None):
+	def train(self, feat, hmm, alignment, topoFile, numleaves, tempDir, cluster_thresh=-1, lexicons=None):
+		'''
+		This is a hign-level API to build a decision tree.
 
-		print("Accumulate tree statistics")
-		if treeaccOutFile is None:
-			treeaccOutFile = os.path.join(tempDir, "treeacc")
-		self.accumulate_tree_stats(feat, hmm, alignFile, treeaccOutFile)
+		Args:
+			<feat>: exkaldi feature object.
+			<hmm>: file path or exkaldi HMM object.
+			<alignment>: file path or exkaldi transition-ID Alignment object.
+			<numleaves>: target numbers of leaves.
+			<tempDir>: a temp directory to storage some intermidiate files.
+			<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
+						In this step, we will use "roots" lexicon.
+		'''
+		if lexicons is None:
+			assert self.lex is not None, "No <lexicons> avaliable defaultly, so provide it please."
+			lexicons = self.lex
+		else:
+			assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
 
-		print("Compile questions")
+		print("Start to build decision tree.")
+		make_dependent_dirs(tempDir, pathIsFile=False)
+
+		starttime = datetime.datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
+		print(f"Start Time: {starttime}")
+
+		print(">> Accumulate tree statistics")
+		statsFile = os.path.join(tempDir,"treeStats.acc")
+		self.accumulate_stats(feat, hmm, alignment, outFile=statsFile, lexicons=lexicons)
+
+		print(">> Cluster phones and compile questions")
 		questionsFile = os.path.join(tempDir, "questions.qst" )
-		self.compile_questions(treeaccOutFile, topoFile, questionsFile)
+		self.compile_questions(statsFile, topoFile, outFile=questionsFile, lexicons=lexicons)
 
-		print("Build tree")
-		self.build_tree(treeaccOutFile, questionsFile, numleaves, topoFile, cluster_thresh)
+		print(">> Build tree")
+		self.build(statsFile, questionsFile, numleaves, topoFile, cluster_thresh)
 
-		print("Train tree done.")
+		treeFile = os.path.join(tempDir,"tree")
+		self.save(treeFile)
+
+		print('Done to build the decision tree.')
+		print(f"Saved Final Tree: {treeFile}")
+		endtime = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+		print(f"End Time: {endtime}")
 
 	def save(self, outFile="tree"):
+		'''
+		Save tree to file.
+		'''
 		if isinstance(outFile, str):
 			make_dependent_dirs(outFile, pathIsFile=True)
 			with open(outFile,"wb") as fw:
 				fw.write(self.data)
+			return os.path.abspath(outFile)
 		elif isinstance(outFile, tempfile._TemporaryFileWrapper):
 			outFile.read()
 			outFile.seek(0)
@@ -179,44 +297,75 @@ class DecisionTree(BytesAchievement):
 		else:
 			raise UnsupportedType("<outFile> is unavaliable file name")
 
-	def load(self, path):
+	def load(self, target):
 		'''
-		Load tree from file.
+		Reload a tree from file.
+		The original data will be discarded.
 
-		<Args>:
-			file path.
-		<Return>:
-			An exkaldi DecisionTree object.
+		Args:
+			<target>: file name.
 		'''
-		#cmd = "tree-info"
-		pass
+		assert isinstance(target,str), "<target> should be a file path."
+		if not os.path.isfile(target):
+			raise WrongPath(f"No such file: {target}.")
+		
+		cmd = f"tree-info {target}"
+		out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+		if isinstance(cod,int) and cod != 0:
+			print(err.decode())
+			raise WrongDataFormat("Failed to load tree.")
+		else:
+			with open(target, "rb") as fr:
+				data = fr.read()
+			self.reset_data(data)
+			return self
+
+	@property
+	def info(self):
+		
+		'''
+		Get the information of tree.
+		'''
+		if self.is_void:
+			raise WrongOperation("Tree is void.")
+		
+		cmd = f"tree-info -"
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
+		if isinstance(cod, int) and cod != 0:
+			print(err.decode())
+			raise WrongDataFormat("Failed to get the infomation of model.")
+		else:
+			out = out.decode().strip().split("\n")
+			names = []
+			values = []
+			for t1 in out:
+				t1 = t1.strip().split()
+				value = int(t1[-1])
+				name = t1[-2].split("-")
+				for index,t2 in enumerate(name[1:],start=1):
+					name[index] = t2[0].upper() + t2[1:]
+				name = "".join(name)
+
+				names.append(name)
+				values.append(value)
+			return namedtuple("TreeInfo",names)(*values)
 
 class BaseHMM(BytesAchievement):
 
-	def __init__(self, lexicons, data=b"", name="hmm"):
-		assert type_name(lexicons) == "LexiconBank", f"Expected a exkaldi LexiconBank object but got {type_name(lexicons)}."
-		self.__lex = lexicons
-		
+	def __init__(self, data=b"", name="hmm", lexicons=None):
 		super().__init__(data, name)
-		self.__numgauss = 0
-
-	@property
-	def numgauss(self):
-		if self.is_void:
-			raise WrongOperation("Void HMM-GMM model.")
-		cmd = "gmm-info --print-args=false - | grep gaussians"
-		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
-		if (isinstance(cod,int) and cod != 0):
-			print(err.decode())
-			raise KaldiProcessError("Get the number of gaussian functions.")
-
-		return int(out.rstrip().split()[-1])
+		if not lexicons is None:
+			assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
+		self.__lex = lexicons
 
 	@property
 	def lex(self):
+		'''
+		Get the lexicon.
+		'''
 		return self.__lex
 	
-	def compile_train_graphs(self, tree, transcription, LFile, outFile):
+	def compile_train_graph(self, tree, transcription, LFile, outFile, lexicons=None):
 		'''
 		Compile training graph.
 
@@ -226,11 +375,22 @@ class BaseHMM(BytesAchievement):
 							Note that: int fotmat, not text format.
 			<Lfile>: L.fst file path.
 			<outFile>: graph output file path.
+			<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
+						In this step, we will use "context_indep" lexicon.
+		
+		Return:
+			Absolute path of output file.
 		'''
 		assert isinstance(outFile, str), "<outFile> should be string."
 
 		if self.is_void:
 			raise WrongOperation("Model is void.")
+
+		if lexicons is None:
+			assert self.lex is not None, "No <lexicons> avaliable defaultly, so provide it please."
+			lexicons = self.lex
+		else:
+			assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
 
 		ExkaldiInfo.vertify_kaldi_existed()
 
@@ -247,7 +407,7 @@ class BaseHMM(BytesAchievement):
 				tree.save(outFile=treeTemp)
 				treeFile = treeTemp.name
 			else:
-				raise UnsupportedType(f"<tree> should be file path or exkaldi DecisionTree objectc.")
+				raise UnsupportedType(f"<tree> should be file path or exkaldi DecisionTree object.")
 
 			if isinstance(transcription, str):
 				if not os.path.isfile(transcription):
@@ -257,12 +417,10 @@ class BaseHMM(BytesAchievement):
 				transcription = transcription.sort()
 			else:
 				raise UnsupportedType(f"<transcription> should be file path or exkaldi Transcription object.")
-			transcription.save(outFile=transTemp)
+			transcription.save(transTemp)
 			transFile = transTemp.name
 
-			assert isinstance(tree, DecisionTree), f"<tree> should be a DecisionTree object but got {type_name(tree)}."
-
-			self.lex.dump_dict(name="disambig", outFile=disambigTemp, dumpInt=True)
+			lexicons.dump_dict(name="disambig", outFile=disambigTemp, dumpInt=True)
 
 			make_dependent_dirs(outFile, pathIsFile=True)
 
@@ -277,13 +435,14 @@ class BaseHMM(BytesAchievement):
 				if os.path.isfile(outFile):
 					os.remove(outFile)
 				raise KaldiProcessError("Failed to construct train graph.")
-			
+			else:
+				return os.path.abspath(outFile)
 		finally:
 			disambigTemp.close()
 			treeTemp.close()
 			transTemp.close()
 
-	def estimate_gmm(self, gmmStatsFile, numgauss, power=0.25, minGaussianOccupancy=10):
+	def update(self, gmmStatsFile, numgauss, power=0.25, minGaussianOccupancy=10):
 
 		if self.is_void:
 			raise WrongOperation("Model is void.")
@@ -291,7 +450,8 @@ class BaseHMM(BytesAchievement):
 		assert isinstance(gmmStatsFile, str), f"Expected a path-like string but got {type_name(gmmStatsFile)}."
 		if not os.path.isfile(gmmStatsFile):
 			raise WrongPath(f"No such file:{gmmStatsFile}.")
-		assert isinstance(numgauss, int) and numgauss >= self.numgauss, f"<numgauss> should be a int value and no less than current numbers {self.numgauss}."
+		gaussians = self.info.gaussians
+		assert isinstance(numgauss, int) and numgauss >= gaussians, f"<numgauss> should be a int value and no less than current numbers {gaussians}."
 
 		cmd = f'gmm-est --min-gaussian-occupancy={minGaussianOccupancy} --mix-up={numgauss} --power={power} '
 		cmd += f'- {gmmStatsFile} -'
@@ -305,50 +465,62 @@ class BaseHMM(BytesAchievement):
 			self.reset_data(out)
 			return self
 
-	def align_compiled(self, feat, trainGraphsFile, outFile, transitionScale=1.0, acousticScale=0.1, 
-						selfloopScale=0.1, beam=10, retry_beam=40, boost_silence=1.0, careful=False):
-
+	def align(self, feat, trainGraphFile, transitionScale=1.0, acousticScale=0.1, 
+				selfloopScale=0.1, beam=10, retry_beam=40, boost_silence=1.0, careful=False, name="ali", lexicons=None):
+		'''
+		Align acoustic feature with kaldi vertibi algorithm.
+			<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
+						In this step, we will use "context_indep" lexicon.
+		'''
 		if self.is_void:
 			raise WrongOperation("Model is void.")
 
 		if type_name(feat) == "BytesFeature":
-			pass
+			feat = feat.sort(by="utt")
 		elif type_name(feat) == "NumpyFeature":
-			feat = feat.to_bytes()
+			feat = feat.sort(by="utt").to_bytes()
 		else:
 			raise UnsupportedType(f"Expected exkaldi feature object but got {type_name(feat)}.")
 
-		assert isinstance(trainGraphsFile, str), f"Expected a path-like string but got {type_name(trainGraphsFile)}."
-		if not os.path.isfile(trainGraphsFile):
-			raise WrongPath(f"No such file:{trainGraphsFile}.")		
-		
-		optionSilence = ":".join(self.__lex("optional_silence", True))
+		assert isinstance(trainGraphFile, str), f"Expected a path-like string but got {type_name(trainGraphsFile)}."
+		if not os.path.isfile(trainGraphFile):
+			raise WrongPath(f"No such file:{trainGraphFile}.")		
+
+		if lexicons is None:
+			assert self.lex is not None, "No <lexicons> avaliable defaultly, so provide it please."
+			lexicons = self.lex
+		else:
+			assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
+
+		optionSilence = ":".join(lexicons("optional_silence", True))
 
 		model = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
 
 		try:
 			cmd = f'gmm-boost-silence --boost={boost_silence} {optionSilence} - {model.name}'
-			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
 
-			if os.path.getsize(model.name) == 0:
+			if (isinstance(cod,int) and cod != 0 ) or os.path.getsize(model.name) == 0:
 				print(err.decode())
 				raise KaldiProcessError("Generate new HMM defeated.")
 
 			cmd = f'gmm-align-compiled --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} '
 			cmd += f'--beam={beam} --retry-beam={retry_beam} --careful={careful} {model.name} '
-			cmd += f'ark:{trainGraphsFile} '
-			cmd += f'ark,c,cs:- ark,t:{outFile}'
+			cmd += f'ark:{trainGraphFile} '
+			cmd += f'ark:- ark:-'
 
-			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
 
-			if (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
+			if (isinstance(cod,int) and cod != 0):
 				print(err.decode())
-				raise KaldiProcessError("Failed to align.")
+				raise KaldiProcessError("Failed to align feature.")
+			
+			return BytesAlignmentTrans(out, name=name)
 		
 		finally:
 			model.close()
 	
-	def accumulate_gmm_stats(self, feat, alignment, outFile):
+	def accumulate_stats(self, feat, alignment, outFile):
 		'''
 		Accumulate GMM statistics in order to update GMM parameters.
 
@@ -398,14 +570,14 @@ class BaseHMM(BytesAchievement):
 			alignTemp.close()
 			modelTemp.close()
 
-	def align_equal_compiled(self, feat, trainGraphFile, outFile=None):
+	def align_equally(self, feat, trainGraphFile, name="equal_ali"):
 		'''
 		Align feature averagely.
 
 		Args:
 			<feat>: exkaldi feature object.
 			<trainGraphFile>: file path.
-			<outFile>: None or file name. If None, return exkaldi
+			<name>: string.
 		'''
 		if self.is_void:
 			raise WrongOperation("Model is void.")
@@ -421,22 +593,15 @@ class BaseHMM(BytesAchievement):
 		if not os.path.isfile(trainGraphFile):
 			raise WrongPath(f"No such file:{trainGraphFile}.")
 
-		if outFile is None:
-			cmd = f'align-equal-compiled ark:{trainGraphFile} ark:- ark:-'
-		else:
-			assert isinstance(outFile, str), f"<outFile> should be None or file name but got: {type_name(outFile)}."
-			cmd = f'align-equal-compiled ark:{trainGraphFile} ark:- ark:{outFile}'
+		cmd = f'align-equal-compiled ark:{trainGraphFile} ark:- ark:-'
 
 		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
 
 		if (isinstance(cod,int) and cod != 0):
 			print(err.decode())
 			raise KaldiProcessError("Failed to align feature equally.")
-		else:
-			os.path.abspath(outFile)
 		
-		if outFile is None:
-			return BytesAlignmentTrans(out)
+		return BytesAlignmentTrans(out, name=name)
 	
 	def save(self, outFile):
 		'''
@@ -455,14 +620,76 @@ class BaseHMM(BytesAchievement):
 			outFile.seek(0)
 		else:
 			raise UnsupportedType("<outFile> is unavaliable file name.")
+	
+	def load(self, target):
+		'''
+		Reload a HMM-GMM model from file.
+		The original data will be discarded.
+
+		Args:
+			<target>: file name.
+		'''
+		assert isinstance(target,str), "<target> should be a file path."
+		if not os.path.isfile(target):
+			raise WrongPath(f"No such file: {target}.")
+		
+		cmd = f"gmm-info {target}"
+		out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+		if isinstance(cod,int) and cod != 0:
+			print(err.decode())
+			raise WrongDataFormat("Failed to load HMM-GMM model.")
+		else:
+			with open(target, "rb") as fr:
+				data = fr.read()
+			self.reset_data(data)
+			return self
+
+	@property
+	def info(self):
+		'''
+		Get the information of model.
+		'''
+		if self.is_void:
+			raise WrongOperation("Model is void.")
+		
+		cmd = f"gmm-info -"
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
+		if isinstance(cod, int) and cod != 0:
+			print(err.decode())
+			raise WrongDataFormat("Failed to get the infomation of model.")
+		else:
+			out = out.decode().strip().split("\n")
+			names = []
+			values = []
+			for t1 in out:
+				t1 = t1.strip().split()
+				value = int(t1[-1])
+				name = t1[-2].split("-")
+				for index,t2 in enumerate(name[1:],start=1):
+					name[index] = t2[0].upper() + t2[1:]
+				name = "".join(name)
+
+				names.append(name)
+				values.append(value)
+			return namedtuple("ModelInfo",names)(*values)
 
 class MonophoneHMM(BaseHMM):
 
-	def __init__(self, lexicons, name="mono"):
-		super().__init__(lexicons, None, name)
+	def __init__(self, lexicons=None, name="mono"):
+		super().__init__(data=None,name=name,lexicons=lexicons)
 		self.__tempTree = None
 
-	def initialize(self, feat, topoFile):
+	def initialize(self, feat, topoFile, lexicons=None):
+		'''
+		Initialize Monophone HMM-GMM model.
+
+		Args:
+			<feat>: exkaldi DecisionTree object.
+			<topoFile>: file path.
+			<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
+						In this step, we will use "context_indep" lexicon.
+		'''
+
 		if type_name(feat) == "BytesFeature":
 			feat = feat.subset(nHead=10)
 		elif type_name(feat) == "NumpyFeature":
@@ -476,12 +703,18 @@ class MonophoneHMM(BaseHMM):
 		else:
 			raise UnsupportedType("Expected toponology file path.")
 
+		if lexicons is None:
+			assert self.lex is not None, "No <lexicons> avaliable defaultly, so provide it please."
+			lexicons = self.lex
+		else:
+			assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
+	
 		sets = tempfile.NamedTemporaryFile('w+', suffix=".int", encoding="utf-8")
 		tree = tempfile.NamedTemporaryFile('wb+')
 		model = tempfile.NamedTemporaryFile('wb+')
 
 		try:
-			self.lex.dump_dict(name="sets", outFile=sets, dumpInt=True)
+			lexicons.dump_dict(name="sets", outFile=sets, dumpInt=True)
 
 			cmd = f'gmm-init-mono --shared-phones={sets.name} --train-feats=ark:- {topoFile} {feat.dim} {model.name} {tree.name}'
 			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
@@ -499,8 +732,6 @@ class MonophoneHMM(BaseHMM):
 				print(err.decode())
 				raise KaldiProcessError("Cannot get the numbers of gaussians.")
 
-			self.__numgauss = int(out.decode().strip().split()[-1])
-
 			tree.seek(0)
 			self.__tempTree = DecisionTree(lexicons=self.lex, data=tree.read(), name="monoTree")
 			model.seek(0)
@@ -513,90 +744,150 @@ class MonophoneHMM(BaseHMM):
 	
 	@property
 	def tree(self):
+		'''
+		Get the temp tree in monophone model.
+		'''
 		return self.__tempTree
 
-	def train(self, feat, transcriptionFile, LFile, tempDir,
+	def train(self, feat, transcription, LFile, tempDir,
 				num_iters=40, max_iter_inc=30, totgauss=1000, realign_iter=None,
 				transitionScale=1.0, acousticScale=0.1, selfloopScale=0.1,
 				initial_beam=6, beam=10, retry_beam=40,
-				boost_silence=1.0, careful=False, power=0.25, minGaussianOccupancy=10):
+				boost_silence=1.0, careful=False, power=0.25, minGaussianOccupancy=10, lexicons=None):
+		'''
+		This is a high-level APi to train the HMM-GMM model.
 
+		Args:
+			<feat>: exkaldi feature object.
+			<transcription>: file or exkaldi transcription object.
+							Note that, it should be text format, not int value format.
+			<LFile>: L.fst file path.
+			<tempDir>: A directory to save intermidiate files.
+			<num_iters>: Int value, the max iteration times.
+			<max_iter_inc>: Int value, increase numbers of gaussian functions when iter is smaller than <num_iters>.
+			<totgauss>: Int value, the rough target numbers of gaussian functions.
+			<realign_iter>: None or list or tuple, the iter to realign.
+		'''
 		ExkaldiInfo.vertify_kaldi_existed()
 
 		if self.is_void:
 			raise WrongOperation("Model must be initialized befor training.")
 		
+		exNumgauss = self.info.gaussians
+		assert isinstance(totgauss,int) and totgauss >= exNumgauss, f"<totgauss> should be larger than current gaussians: {exNumgauss}."
+
+		if lexicons is None:
+			assert self.lex is not None, "No <lexicons> avaliable defaultly, so provide it please."
+			lexicons = self.lex
+		else:
+			assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
+
 		if realign_iter is not None:
 			assert isinstance(realign_iter,(list,tuple)),"<realign_iter> should be a list or tuple of iter numbers."
 
 		print("Start to train mono model.")
-		print('Compiling training graphs.')
-		trainGraphFile = os.path.join(tempDir, "trainGraph")
-		self.compile_train_graphs(self.__tempTree, transcriptionFile, LFile, trainGraphFile)
+		make_dependent_dirs(tempDir, pathIsFile=False)
 
-		print("Iter 0")
-		print('Aligning data equally')
-		alignmentFile = os.path.join(tempDir, "ali")
-		self.align_equal_compiled(feat, trainGraphFile, alignmentFile)
+		starttime = datetime.datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
+		print(f"Start Time: {starttime}")
 
-		print('Accumulate GMM statistics')
-		gmmStatsFile = os.path.join(tempDir, "gmmStats.acc")
-		self.accumulate_gmm_stats(feat, alignmentFile, gmmStatsFile)
+		print("Convert transcription to int value format.")
+		trans = transcription_to_int(transcription, wordSymbolTable=lexicons, unkSymbol=lexicons("oov"))
 
-		exNumgauss = self.numgauss
-		print('Estimate GMM parameters')
-		self.estimate_gmm(alignmentFile, exNumgauss, power, minGaussianOccupancy=3)
+		print('Compiling training graph.')
+		trainGraphFile = os.path.join(tempDir, "train_graph")
+		self.compile_train_graph(tree=self.tree, transcription=trans, LFile=LFile, outFile=trainGraphFile, lexicons=lexicons)
 
-		incgauss = (totgauss - self.numgauss)//max_iter_inc
+		print("\nIter 0")
+		print('Aligning data equally', end=" ")
+		ali = self.align_equally(feat, trainGraphFile=trainGraphFile)
+
+		print('>> Accumulate GMM statistics', end=" ")
+		statsFile = os.path.join(tempDir, "stats.acc")
+		self.accumulate_stats(feat, alignment=ali, outFile=statsFile)
+
+		print('>> Update GMM parameters')
+		self.update(statsFile, exNumgauss, power=power, minGaussianOccupancy=3)
+
+		assert isinstance(max_iter_inc, int) and max_iter_inc > 0, f"<max_iter_inc> must be positive int value but got: {max_iter_inc}."
+		incgauss = (totgauss - exNumgauss)//max_iter_inc
 		search_beam = initial_beam
 
 		for i in range(1, num_iters+1, 1):
 			
-			print(f"Iter {i}")
+			print(f"\nIter {i}")
 
 			if (realign_iter is None) or (i in realign_iter):
-				print("Aligning data")
-				self.align_compiled(feat, trainGraphFile, alignmentFile, transitionScale, acousticScale, selfloopScale, search_beam, retry_beam, boost_silence, careful)
+				print("Aligning data", end=" ")
+				del ali
+				ali = self.align(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, search_beam, retry_beam, boost_silence, careful, lexicons=lexicons)
+			else:
+				print("Skip aligning", end=" ")
 
-			print("Accumulate GMM statistics")
-			self.accumulate_gmm_stats(feat, alignmentFile, gmmStatsFile)
+			print(">> Accumulate GMM statistics", end=" ")
+			os.remove(statsFile)
+			self.accumulate_stats(feat, alignment=ali, outFile=statsFile)
 
-			print('Estimate GMM parameters')
-			self.estimate_gmm(gmmStatsFile, exNumgauss, power, minGaussianOccupancy)
+			print(">> Update GMM parameter")
+			self.update(statsFile, exNumgauss, power, minGaussianOccupancy)
 
 			exNumgauss += incgauss
 			search_beam = beam
 		
-		print('Done training monophone system')
+		modelFile = os.path.join(tempDir,"final.mdl")
+		self.save(modelFile)
+
+		print('\nAlign last time with final model.')
+		del ali
+		ali = self.align(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, search_beam, retry_beam, boost_silence, careful)
+		aliFile = os.path.join(tempDir,"final.ali")
+		ali.save(aliFile)
+
+		print('\nDone to train the monophone model.')
+		print(f"Saved Final Model: {modelFile}")
+		print(f"Saved Alignment Model: {aliFile}")
+		endtime = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+		print(f"End Time: {endtime}")
 
 class TriphoneHMM(BaseHMM):
 
-	def __init__(self, lexicons, name="tri"):
-		super().__init__(lexicons, None, name)
+	def __init__(self, lexicons=None, name="tri"):
+		super().__init__(data=None, name=name, lexicons=lexicons)
 		self.__tree = None
 
-	def initialize(self, tree, treeAccFile, topoFile, numgauss):
+	def initialize(self, tree, treeStatsFile, topoFile, numgauss):
+		'''
+		Initialize a Triphone Model.
 
-		assert isinstance(tree, DecisionTree), "<tree> should be DecisionTree object."
+		Args:
+			<tree>: file path or exkaldi DecisionTree object.
+			<treeStatsFile>: file path.
+			<topoFile>: file path.
+			<numgauss>: int value.
+		'''
+		if isinstance(tree, str):
+			tree =  DecisionTree().load(tree)
+		else:
+			assert isinstance(tree, DecisionTree), "<tree> should be file name or exkaldi DecisionTree object."
 
-		occs = tempfile.NamedTemporaryFile("wb+")
+		occs = tempfile.NamedTemporaryFile("wb+", suffix=".occs")
 		try:
-			cmd = f"gmm-init-model --write-occs={occs.name} - {treeAccFile} {topoFile} -"
-			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=tree.data)
-			if len(out) == 0:
+			cmd = f"gmm-init-model --write-occs={occs.name} - {treeStatsFile} {topoFile} -"
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=tree.data)
+			if (isinstance(cod, int) and cod != 0) or len(out) == 0:
 				print(err.decode())
 				raise KaldiProcessError("Failed to initialize triphone model.") 
 			
 			occs.seek(0)
 			cmd = f"gmm-mixup --mix-up={numgauss} - {occs.name} -"
-			out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=out)
-			if len(out) == 0:
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=out)
+			if (isinstance(cod, int) and cod != 0) or len(out) == 0:
 				print(err.decode())
 				raise KaldiProcessError("Failed to initialize triphone model.")
 
-			self.__data = out
-			self.__numgauss = numgauss
+			self.reset_data(out)
 			self.__tree = tree
+
 		finally:
 			occs.close()
 
@@ -604,12 +895,26 @@ class TriphoneHMM(BaseHMM):
 	def tree(self):
 		return self.__tree
 
-	def train(self, feat, transcriptionFile, LFile, tree, tempDir,
+	def train(self, feat, transcription, LFile, tree, tempDir,
 				num_iters=40, max_iter_inc=30, totgauss=1000, realign_iter=None,
 				transitionScale=1.0, acousticScale=0.1, selfloopScale=0.1,
 				initial_beam=6, beam=10, retry_beam=40,
-				boost_silence=1.0, careful=False, power=0.25, minGaussianOccupancy=10):
+				boost_silence=1.0, careful=False, power=0.25, minGaussianOccupancy=10, lexicons=None):
+		'''
+		This is a high-level API to train the HMM-GMM model.
 
+		Args:
+			<feat>: exkaldi feature object.
+			<transcription>: file or exkaldi transcription object.
+							 Note that, it should be text format, not int value format.
+			<LFile>: L.fst file path.
+			<tree>: file path or exkaldi DecisionTree object.
+			<tempDir>: A directory to save intermidiate files.
+			<num_iters>: Int value, the max iteration times.
+			<max_iter_inc>: Int value, increase numbers of gaussian functions when iter is smaller than <num_iters>.
+			<totgauss>: Int value, the rough target numbers of gaussian functions.
+			<realign_iter>: None or list or tuple, the iter to realign.
+		'''
 		ExkaldiInfo.vertify_kaldi_existed()
 
 		if self.is_void:
@@ -618,40 +923,131 @@ class TriphoneHMM(BaseHMM):
 		if realign_iter is not None:
 			assert isinstance(realign_iter,(list,tuple)), "<realign_iter> should be a list or tuple of iter numbers."
 
-		print("Start to train triphone model.")
-		print('Compiling training graphs.')
-		trainGraphFile = os.path.join( tempDir, "traingraph" )
-		self.compile_train_graphs(transcriptionFile, LFile, tree, trainGraphFile)
+		if lexicons is None:
+			assert self.lex is not None, "No <lexicons> avaliable defaultly, so provide it please."
+			lexicons = self.lex
+		else:
+			assert type_name(lexicons)=="LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
 
-		incgauss = (totgauss - self.numgauss)//max_iter_inc
+		exNumgauss = self.info.gaussians
+		assert isinstance(totgauss,int) and totgauss >= exNumgauss, f"<totgauss> should be larger than current gaussians: {exNumgauss}."
+
+		print("Start to train triphone model.")
+		make_dependent_dirs(tempDir, pathIsFile=False)
+
+		starttime = datetime.datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
+		print(f"Start Time: {starttime}")
+
+		print("Convert transcription to int value format.")
+		trans = transcription_to_int(transcription, wordSymbolTable=lexicons, unkSymbol=lexicons("oov"))
+
+		print('Compiling training graph.')
+		trainGraphFile = os.path.join(tempDir, "train_graph")
+		self.compile_train_graph(tree=tree, transcription=trans, LFile=LFile, outFile=trainGraphFile, lexicons=lexicons)
+
+		assert isinstance(max_iter_inc, int) and max_iter_inc > 0, f"<max_iter_inc> must be positive int value but got: {max_iter_inc}."
+		incgauss = (totgauss - exNumgauss)//max_iter_inc
 		search_beam = initial_beam
 
-		alignmentFile = os.path.join( tempDir, "ali" )
-		gmmStatistics = os.path.join( tempDir, "gmmStats" )
+		statsFile = os.path.join(tempDir, "gmmStats.acc")
 		for i in range(1, num_iters+1, 1):
 			
-			print("Iter {}".format(i))
+			print(f"\nIter {i}")
 
-			if (realign_iter is None) or (i in realign_iter):
-				print("Aligning data")
-				self.align_compiled(feat, trainGraphFile, alignmentFile, transitionScale, acousticScale, selfloopScale, search_beam, retry_beam, boost_silence, careful)
+			if (realign_iter is None) or i==1 or (i in realign_iter):
+				print("Aligning data", end=" ")
+				ali = self.align(feat,trainGraphFile,transitionScale,acousticScale,selfloopScale,search_beam,retry_beam,boost_silence,careful,lexicons=lexicons)
+			else:
+				print("Skip aligning", end=" ")
 
-			print("Accumulate GMM statistics")
-			self.accumulate_gmm_stats(feat, alignmentFile, gmmStatistics)
+			print(">> Accumulate GMM statistics", end=" ")
 
-			print('Estimate GMM parameters')
-			self.estimate_gmm(gmmStatistics, exNumgauss, power, minGaussianOccupancy)
+			self.accumulate_stats(feat, alignment=ali, outFile=statsFile)
+			del ali
+
+			print(">> Update GMM parameter")
+			self.update(statsFile, exNumgauss, power, minGaussianOccupancy)
+			os.remove(statsFile)
 
 			exNumgauss += incgauss
 			search_beam = beam
 		
-		print('Done training Triphone system')
+		modelFile = os.path.join(tempDir,"final.mdl")
+		self.save(modelFile)
 
-def load_tree(path):
-	pass
+		print('\nAlign last time with final model.')
+		ali = self.align(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, search_beam, retry_beam, boost_silence, careful)
+		aliFile = os.path.join(tempDir,"final.ali")
+		ali.save(aliFile)
+		del ali
 
-def load_hmm(path):
-	pass
+		del self.__tree
+		self.__tree = tree
+
+		print('\nDone to train the triphone model.')
+		print(f"Saved Final Model: {modelFile}")
+		print(f"Saved Alignment Model: {aliFile}")
+		endtime = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+		print(f"End Time: {endtime}")
+
+def load_tree(target, name="tree", lexicons=None):
+	'''
+	Reload a tree from file.
+	The original data will be discarded.
+
+	Args:
+		<target>: file name.
+		<name>: a string.
+	
+	Return:
+		A exkaldi DecisionTree object.
+	'''
+	assert isinstance(target,str), "<target> should be a file path."
+	if not os.path.isfile(target):
+		raise WrongPath(f"No such file: {target}.")
+	
+	cmd = f"tree-info {target}"
+	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+	if isinstance(cod,int) and cod != 0:
+		print(err.decode())
+		raise WrongDataFormat("Failed to load tree.")
+	else:
+		with open(target, "rb") as fr:
+			data = fr.read()
+		return DecisionTree(data=out, name=name, lexicons=lexicons)
+
+def load_hmm(target, hmmType="triphone", name="hmm", lexicons=None):
+	'''
+	Reload a HMM-GMM model from file.
+	The original data will be discarded.
+
+	Args:
+		<target>: file name.
+		<hmmType>: "monophone" or "triphone".
+		<name>: a string.
+		<lexicons>: None or exkaldi LexiconBank object.
+
+	Return:
+		A MonophoneHMM object if hmmType is "monophone", else return TriphoneHMM object.
+	'''
+	assert isinstance(target, str), "<target> should be a file path."
+	if not os.path.isfile(target):
+		raise WrongPath(f"No such file: {target}.")
+	
+	cmd = f"gmm-info {target}"
+	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+	if isinstance(cod,int) and cod != 0:
+		print(err.decode())
+		raise WrongDataFormat("Failed to load HMM-GMM model.")
+	else:
+		with open(target, "rb") as fr:
+			data = fr.read()
+		if hmmType == "monophone":
+			hmm = MonophoneHMM(name=name, lexicons=lexicons)
+		else:
+			hmm = TriphoneHMM(name=name, lexicons=lexicons)
+		hmm.reset_data(data)
+		return hmm
 
 def sum_gmm_accs(gmmStats, outFile):
 	'''
@@ -721,7 +1117,7 @@ def sum_tree_stats(treeStats, outFile):
 	else:
 		return os.path.abspath(outFile)
 
-def make_toponology(lexicons, outFile="topo", numNonsilStates=3, numSilStates=5):
+def make_toponology(lexicons, outFile, numNonsilStates=3, numSilStates=5):
 	'''
 	Make toponology file.
 
@@ -758,42 +1154,71 @@ def make_toponology(lexicons, outFile="topo", numNonsilStates=3, numSilStates=5)
 	else:
 		return os.path.abspath(outFile)
 
-def convert_alignment(aliFile, monoHmm, triHmm, tree, outFile):
+def convert_alignment(alignment, monoHmm, triHmm, tree):
 	'''
 	Convert alignment from monophone level to triphone level.
 
 	Args:
-		<aliFile>: alignment file path.
-		<monoHmm>: MonophoneHMM object.
-		<triHmm>: TriphoneHMM object.
-		<tree>: DecisionTree object.
-		<outFile>: new alignment file path.
+		<alignment>: file path or exkaldi transition-ID alignment object.
+		<monoHmm>: file path or exkaldi MonophoneHMM object.
+		<triHmm>: file path or exkaldi TriphoneHMM object.
+		<tree>: file path or exkaldi DecisionTree object.
 	Return:
-	 	absolute path of generated file.
+	 	An exkaldi Transition-ID alignment object.
 	'''
-	assert isinstance(monoHmm, MonophoneHMM), "<monoHmm> should be MonophoneHMM object."
-	assert isinstance(triHmm, TriphoneHMM), "<triHmm> should be TriphoneHMM object."
-	assert isinstance(tree, DecisionTree), "<tree> should be DecisionTree object."
+	if isinstance(alignment, str):
+		alignment = load_ali(alignment)
+	else:
+		assert type_name(alignment) in ["BytesAlignmentTrans","NumpyAlignmentTrans"], f"<alignment> should be file name or exkaldi trans-ID alignment object but got: {(type_name(alignment))}." 
 
-	monomodel = tempfile.NamedTemporaryFile("wb+")
-	trimodel = tempfile.NamedTemporaryFile("wb+")
+	if type_name(alignment) == "BytesAlignmentTrans":
+		bytesFlag = True
+	elif type_name(alignment) == "NumpyAlignmentTrans":
+		alignment = alignment.to_bytes()
+		bytesFlag = False
+	else:
+		raise UnsupportedType(f"Expected trainstion-ID alignment data but got: {type_name(alignment)}.")
+
+	if isinstance(monoHmm, str):
+		monoHmm = MonophoneHMM().load(monoHmm)
+	else:
+		assert isinstance(monoHmm, MonophoneHMM), f"<monoHmm> must be file or MonophoneHMm object but got: {type_name(monoHmm)}."
+
+	if isinstance(triHmm, str):
+		triHmm = TriphoneHMM().load(triHmm)
+	else:
+		assert isinstance(triHmm, TriphoneHMM), f"<triHmm> must be file or TriphoneHMM object but got: {type_name(triHmm)}."
+
+	if isinstance(tree, str):
+		tree = DecisionTree().load(tree)
+	else:
+		assert isinstance(tree, DecisionTree), f"<tree> must be file or DecisionTree object but got: {type_name(tree)}."
+
+	monomodelTemp = tempfile.NamedTemporaryFile("wb+", suffix="_mono.mdl")
+	trimodelTemp = tempfile.NamedTemporaryFile("wb+", suffix="_tri.mdl")
+	treeTemp = tempfile.NamedTemporaryFile("wb+", suffix=".tree")
 
 	try:
-		monomodel.write(monoHmm.data)
-		monomodel.seek(0)
-		trimodel.write(triHmm.data)
-		trimodel.seek(0)
+		monoHmm.save(monomodelTemp)
+		triHmm.save(trimodelTemp)
+		tree.save(treeTemp)
 
-		cmd = f"convert-ali {monomodel.name} {trimodel.name} - ark:{aliFile} ark:{outFile}"
+		cmd = f"convert-ali {monomodelTemp.name} {trimodelTemp.name} {treeTemp.name} ark:- ark:-"
 
-		out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=tree.data)
-		if not os.path.isfile(outFile) or os.path.getsize(outFile):
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=alignment.data)
+		if (isinstance(cod,int) and cod != 0) or len(out) == 0:
 			print(err.decode())
 			raise KaldiProcessError("Failed to convert alignment.")
+		else:
+			if bytesFlag:
+				return BytesAlignmentTrans(out, name=alignment.name)
+			else:
+				return BytesAlignmentTrans(out, name=alignment.name).to_numpy()
 	
 	finally:
-		monomodel.close()
-		trimodel.close()
+		monomodelTemp.close()
+		trimodelTemp.close()
+		treeTemp.close()
 
 def transcription_to_int(transcription, wordSymbolTable, unkSymbol):
 	'''
@@ -867,7 +1292,14 @@ def transcription_from_int(transcription, wordSymbolTable):
 			try:
 				text[index] = str(symbolWordTable[word])
 			except KeyError:
-				raise WrongDataFormat(f"Word symbol table miss symbol: {word}")
+				try:
+					text[index] = str(symbolWordTable[int(word)])
+				except KeyError:
+					raise WrongDataFormat(f"Word symbol table miss symbol: {word}")
+				except ValueError as e:
+					print("Transcription may conlude non-int value.")
+					raise e
+					
 		trans[utt] = " ".join(text)
 	
 	return trans

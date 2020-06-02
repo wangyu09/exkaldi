@@ -113,6 +113,9 @@ def train_ngrams_srilm(lexicons, order, textFile, outFile, discount="kndiscount"
 	finally:
 		wordlist.close()
 
+###
+# Memory Bug: 20200602
+###
 def train_ngrams_kenlm(lexicons, order, textFile, outFile):
 	'''
 	Train n-grams language model with KenLm tookit.

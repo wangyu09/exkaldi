@@ -1,4 +1,4 @@
-decode_lattice = {
+config = {
             "--acoustic-scale":[0.1,float],
             "--allow-partial":["false",str],
             "--beam":[13,int],

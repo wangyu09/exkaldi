@@ -22,9 +22,10 @@ import re
 import subprocess
 
 from exkaldi.version import version as ExkaldiInfo
-from exkaldi.version import WrongPath
+from exkaldi.version import WrongPath, UnsupportedType, WrongDataFormat, KaldiProcessError, WrongOperation
 from exkaldi.utils.utils import type_name, flatten, run_shell_command
-from exkaldi.utils.utils import UnsupportedType, WrongDataFormat, KaldiProcessError, WrongOperation
+from exkaldi.core.load import load_trans
+from exkaldi.nn.nn import pure_edit_distance
 
 def wer(ref, hyp, ignore=None, mode='all'):
 	'''
@@ -54,7 +55,7 @@ def wer(ref, hyp, ignore=None, mode='all'):
 				else:
 					hypFileName = hyp
 			else:
-				raise UnsupportedDataType('<hyp> should be exkaldi Transcription object or file path.')
+				raise UnsupportedType('<hyp> should be exkaldi Transcription object or file path.')
 
 			if type_name(ref) == "Transcription":
 				ref.save(refTemp)
@@ -66,7 +67,7 @@ def wer(ref, hyp, ignore=None, mode='all'):
 				else:
 					refFileName = ref
 			else:
-				raise UnsupportedDataType('<ref> should be exkaldi Transcription object or file path.')
+				raise UnsupportedType('<ref> should be exkaldi Transcription object or file path.')
 
 			cmd = f'compute-wer --text --mode={mode} ark:{refFileName} ark,p:{hypFileName}'
 			scoreOut, scoreErr, _ = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -80,7 +81,7 @@ def wer(ref, hyp, ignore=None, mode='all'):
 					with open(hyp, "r", encoding="utf-8") as fr:
 						hyp = fr.read()
 			else:
-				raise UnsupportedDataType('<hyp> should be exkaldi Transcription object or file path.')
+				raise UnsupportedType('<hyp> should be exkaldi Transcription object or file path.')
 			
 			cmd = f'sed "s/{ignore} //g" > {hypTemp.name}'
 			hypOut, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=hyp.encode())
@@ -97,11 +98,11 @@ def wer(ref, hyp, ignore=None, mode='all'):
 					with open(ref, "r", encoding="utf-8") as fr:
 						ref = fr.read()
 			else:
-				raise UnsupportedDataType('<ref> should be exkaldi Transcription object or file path.')
+				raise UnsupportedType('<ref> should be exkaldi Transcription object or file path.')
 			
 			cmd = f'sed "s/{ignore} //g" > {refTemp.name}'
-			refOut, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=hyp.encode())
-			if len(refOut) == 0:
+			refOut, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=hyp.encode())
+			if cod != 0 or len(refOut) == 0:
 				print(err.decode())
 				raise WrongDataFormat("<ref> has wrong data formation.")
 
@@ -125,7 +126,7 @@ def wer(ref, hyp, ignore=None, mode='all'):
 		s2 = re.findall(pattern2,out[1])[0]
 		s3 = re.findall(pattern3,out[2])[0]    
 
-		return namedtuple("Score",["WER", "words", "ins", "del", "sub", "SER", "sentences", "wrongSentences", "missedSentences"])(
+		return namedtuple("Score",["WER", "words", "insErr", "delErr", "subErr", "SER", "sentences", "wrongSentences", "missedSentences"])(
 						float(s1[0]), #WER
 						int(s1[2]),   #words
 						int(s1[3]),	  #ins
@@ -136,105 +137,6 @@ def wer(ref, hyp, ignore=None, mode='all'):
 						int(s2[2]),   #wrong sentences
 						int(s3[1])    #missed sentences
 				)
-
-def accuracy(ref, hyp, ignore=None, mode='all'):
-	'''
-	Score one-2-one matching score between two items.
-
-	Args:
-		<ref>, <hyp>: iterable objects like list, tuple or NumPy array. It will be flattened before scoring.
-		<ignore>: Ignoring specific symbols.
-		<model>: If <mode> is "all", compute one-one matching score. For example, <ref> is (1,2,3,4), and <hyp> is (1,2,2,4), the score will be 0.75.
-				 If <mode> is "present", only the members of <hyp> which appeared in <ref> will be scored no matter which position it is. 
-	Return:
-		a namedtuple object of score information.
-	'''
-	assert type_name(ref)=="Transcription" or type_name(hyp) == "Transcription", "Exkaldi Transcription objects are unsupported in this function."
-
-	assert mode in ['all','present'], 'Expected <mode> to be "present" or "all".'
-
-	x = flatten(ref)
-	x = list( filter(lambda i:i!=ignore, x) ) 
-	y = flatten(hyp)
-	y = list( filter(lambda i:i!=ignore, y) ) 
-
-	if mode == 'all':
-		i = 0
-		score = 0
-		while True:
-			if i >= len(x) or i >= len(y):
-				break
-			elif x[i] == y[i]:
-				score += 1
-			i += 1
-		if i < len(x) or i < len(y):
-			raise WrongOperation('<ref> and <hyp> have different length to score.')
-		else:
-			if len(x) == 0:
-				accuracy = 1.0
-			else:
-				accuracy = score/len(x)
-
-			return namedtuple("Score",["accuracy", "items", "rightItems"])(
-						accuracy, len(x), score
-					)
-	else:
-		x = sorted(x)
-		score = 0
-		for i in y:
-			if i in x:
-				score += 1
-		if len(y) == 0:
-			if len(x) == 0:
-				accuracy = 1.0
-			else:
-				accuracy = 0.0
-		else:
-			accuracy = score/len(y)
-		
-		return namedtuple("Score", ["accuracy", "items", "rightItems"])(
-					accuracy, len(y), score
-				)
-
-def __edit_distance(ref, hyp, ignore=None):
-	'''
-	Compute edit-distance score.
-
-	Args:
-		<ref>, <hyp>: iterable objects like list, tuple or NumPy array. It will be flattened before scoring.
-		<ignore>: Ignoring specific symbols.	 
-	Return:
-		a namedtuple object including score information.	
-	'''
-	assert isinstance(ref, Iterable), "<ref> is not a iterable object."
-	assert isinstance(hyp, Iterable), "<hyp> is not a iterable object."
-	
-	x = flatten(ref)
-	x = list( filter(lambda i:i!=ignore, x) ) 
-	y = flatten(hyp)
-	y = list( filter(lambda i:i!=ignore, y) ) 
-
-	lenX = len(x)
-	lenY = len(y)
-
-	mapping = np.zeros((lenX+1,lenY+1))
-
-	for i in range(lenX+1):
-		mapping[i][0] = i
-	for j in range(lenY+1):
-		mapping[0][j] = j
-	for i in range(1,lenX+1):
-		for j in range(1,lenY+1):
-			if x[i-1] == y[j-1]:
-				delta = 0
-			else:
-				delta = 1       
-			mapping[i][j] = min(mapping[i-1][j-1]+delta, min(mapping[i-1][j]+1, mapping[i][j-1]+1))
-	
-	score = int(mapping[lenX][lenY])
-	return namedtuple("Score",["editDistance", "items"])(
-				score, len(x)
-			)
 
 def edit_distance(ref, hyp, ignore=None, mode='present'):
 	'''
@@ -247,44 +149,58 @@ def edit_distance(ref, hyp, ignore=None, mode='present'):
 	Return:
 		a namedtuple object including score information.	
 	'''
-	if type_name(hyp) == "Transcription" and type_name(hyp) == "Transcription":
-		allED = 0
-		words = 0
-		SER = 0
-		sentences = 0
-		wrongSentences = 0
-		missedSentences = 0
-
-		ref = ref.sort()
-		hyp = hyp.sort()
-		for utt, hypTrans in hyp.items():
-			try:
-				refTrans = ref[utt]
-			except KeyError as e:
-				if mode == "all":
-					raise Exception("Missing transcription in reference, set <mode> as 'all' to skip it.")
-				else:
-					missedSentences += 1
-			else:
-				sentences += 1
-				refTrans = refTrans.split()
-				hypTrans = hypTrans.split()
-				ed, wds = __edit_distance(refTrans, hypTrans, ignore=ignore)
-				allED += ed
-				words += wds
-				if ed > 0:
-					wrongSentences += 1
-		if sentences == 0:
-			raise Exception("Missing all transcription in reference.")
-
-		return namedtuple("Score",["editDistance", "words", "SER", "sentences", "wrongSentences", "missedSentences"])(
-				allED, words, wrongSentences/sentences, sentences, wrongSentences, missedSentences
-				)
-	
-	else:
-		if type_name(hyp) == "Transcription" or type_name(hyp) == "Transcription":
-			raise WrongOperation("<hyp> and <ref> should be exkaldi Transcription simultaneously.")
+	if type_name(ref) == "Transcription":
+		pass
+	elif isinstance(ref, str):
+		if not os.path.isfile(ref):
+			raise WrongPath(f"No such file:{ref}.")
 		else:
-			ed, wds = __edit_distance(ref, hyp, ignore=ignore)
-			return namedtuple("Score",["editDistance", "words"])(ed, wds)			
+			ref = load_trans(ref)
+	else:
+		raise UnsupportedType('<ref> should be exkaldi Transcription object or file path.')
+
+	if type_name(hyp) == "Transcription":
+		pass
+	elif isinstance(hyp, str):
+		if not os.path.isfile(hyp):
+			raise WrongPath(f"No such file:{hyp}.")
+		else:
+			hyp = load_trans(hyp)
+	else:
+		raise UnsupportedType('<hyp> should be exkaldi Transcription object or file path.')
+
+	allED = 0
+	words = 0
+	SER = 0
+	sentences = 0
+	wrongSentences = 0
+	missedSentences = 0
+
+	ref = ref.sort()
+	hyp = hyp.sort()
+	for utt, hypTrans in hyp.items():
+		try:
+			refTrans = ref[utt]
+		except KeyError as e:
+			if mode == "all":
+				raise Exception("Missing transcription in reference, set <mode> as 'all' to skip it.")
+			else:
+				missedSentences += 1
+		else:
+			sentences += 1
+			refTrans = refTrans.split()
+			hypTrans = hypTrans.split()
+			ed, wds = pure_edit_distance(refTrans, hypTrans, ignore=ignore)
+			allED += ed
+			words += wds
+			if ed > 0:
+				wrongSentences += 1
+	if sentences == 0:
+		raise Exception("Missing all transcription in reference.")
+
+	return namedtuple("Score",["editDistance", "words", "SER", "sentences", "wrongSentences", "missedSentences"])(
+			allED, words, wrongSentences/sentences, sentences, wrongSentences, missedSentences
+			)
+	
+	
 

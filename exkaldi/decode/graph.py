@@ -19,11 +19,12 @@
 import tempfile
 import os
 import subprocess
+import pickle
 
 from exkaldi.version import version as ExkaldiInfo
-from exkaldi.version import WrongPath
-from exkaldi.utils.utils import WrongOperation, WrongDataFormat, KaldiProcessError, ShellProcessError, UnsupportedType
+from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, KaldiProcessError, ShellProcessError, UnsupportedType
 from exkaldi.utils.utils import make_dependent_dirs, run_shell_command, type_name
+from exkaldi.core.achivements import ListTable
 
 class LexiconBank:
 	'''
@@ -787,7 +788,10 @@ class LexiconBank:
 			raise WrongOperation('No such lexicon: "{}".'.format(name))
 
 		if returnInt is False:
-			return self.__dictionaries[name]
+			result = self.__dictionaries[name]
+			if name in ["words", "phones"]:
+				result = ListTable(result, name=name)
+			return result
 
 		else:
 			if name in ["lexiconp", "lexiconp_disambig"]:
@@ -874,7 +878,7 @@ class LexiconBank:
 			else:
 				raise WrongOperation('Transform lexicon "{}" to int-number format defeated.'.format(name))
 
-	def dump_dict(self, name, outFile, dumpInt=False):
+	def dump_dict(self, name, outFile=None, dumpInt=False):
 		'''
 		Usage: lexobj.dump_dict(name="lexiconp_disambig", outFile="lexiconp_disambig.txt")
 
@@ -883,27 +887,33 @@ class LexiconBank:
 		Some lexicons have not corresponding int table. So if you require them, a warning message will be printed and nothing will be saved.
 		In addition, <outFile> can received a tempfile._TemporaryFileWrapper object if you just want to use the file temporarily.  
 		'''
-
-		if isinstance(outFile,str):
+		
+		if outFile is None:
+			pass
+		elif isinstance(outFile, str):
 			if dumpInt is False:
 				if not outFile.endswith(".txt"):
 					outFile += ".txt"
 			else:
 				if not outFile.endswith(".int"):
 					outFile += ".int"
-
-			make_dependent_dirs(outFile)
-
+			make_dependent_dirs(outFile, pathIsFile=True)
 		elif not isinstance(outFile,tempfile._TemporaryFileWrapper):
 			raise WrongOperation('<outFile> shoule be a name-like string.')		
 
 		def write_file(fileName, message):
-			if isinstance(fileName,tempfile._TemporaryFileWrapper):
+			if fileName is None:
+				return message
+			elif isinstance(fileName,tempfile._TemporaryFileWrapper):
+				fileName.read()
+				fileName.seek(0)
 				fileName.write(message)
 				fileName.seek(0)
+				return None
 			else:
 				with open(fileName, "w", encoding='utf-8') as fw:
 					fw.write(message)
+				return os.path.abspath(fileName)
 		
 		## Different lexicon has different data format, So judge them before save
 
@@ -919,21 +929,24 @@ class LexiconBank:
 								"lexiconp_silprob_disambig", "align_lexicon"]:
 						key = key[0]
 					contents.append("{} {}".format(key, value))
-				write_file(outFile, "\n".join(contents))
-
+				result = write_file(outFile, "\n".join(contents))
+				return	result
+					
 		## Type2: tuple, ()
 		elif name in ["nonsilence_phones", "silence_phones", "disambig", "silence", "nonsilence", 
 					  "wdisambig", "wdisambig_phones", "wdisambig_words", "context_indep"]:
 			contents = self.__call__(name,dumpInt)
 			if not contents is None:
-				write_file(outFile, "\n".join(contents))
+				result = write_file(outFile, "\n".join(contents))
+				return result
 
 		## Type3: tuple, (tuple,)
 		elif name in ["sets","extra_questions"]:
 			contents = []
 			for value in self.__call__(name,dumpInt):
 				contents.append(" ".join(value))
-			write_file(outFile, "\n".join(contents))
+			result = write_file(outFile, "\n".join(contents))
+			return result
 		
 		## Type4: dict, { str:int or str }
 		elif name in ["phones", "words", "word_boundary", "silprob"]:
@@ -942,12 +955,14 @@ class LexiconBank:
 			if not temp is None:
 				for key, value in temp.items():
 					contents.append("{} {}".format(key, value))
-				write_file(outFile, "\n".join(contents))
+				result = write_file(outFile, "\n".join(contents))
+				return result
 
 		## Type5: str						
 		elif name in ["oov", "optional_silence"]:
 			contents = self.__call__(name,dumpInt)
-			write_file(outFile, contents)
+			result = write_file(outFile, contents)
+			return result
 
 		## Type6: special format for roots
 		elif name == "roots":
@@ -958,7 +973,8 @@ class LexiconBank:
 			for phones in temp["shared split"]:
 				phones = " ".join(phones)
 				contents.append("shared split {}".format(phones))
-			write_file(outFile, "\n".join(contents))
+			result = write_file(outFile, "\n".join(contents))
+			return result
 	
 		else:
 			raise WrongOperation("Unsupported lexicon: {} to dump.".format(name))
@@ -987,6 +1003,23 @@ class LexiconBank:
 								"nonsilence_phones", "silence_phones", "silprob"]:
 
 					self.dump_dict(name, outFile+".int", True)
+
+	def save(self, fileName):
+		'''
+		Save LexiconBank object to binary file.
+
+		Args:
+			<fileName>: file name.
+		'''
+		assert isinstance(fileName, str), "<fileName> should be a string."
+		if not fileName.rstrip().endswith(".lex"):
+			fileName += ".lex"
+		make_dependent_dirs(fileName, pathIsFile=True)
+
+		with open(fileName, "wb") as fw:
+			pickle.dump(self, fw)
+
+		return os.path.abspath(fileName)
 
 	#------------------------------------- Advance functions ------------------------------
 
@@ -1358,6 +1391,22 @@ def lexicon_bank(pronLexiconFile, silWords=["<sil>"], unkSymbol="unk", optionalS
 		return LexiconBank(pronLexiconFile, silWords, unkSymbol, optionalSilPhone, extraQuestions, 
 							positionDependent, shareSilPdf, extraDisambigPhoneNumbers, extraDisambigWords)
 
+def load_lex(target):
+	'''
+	Load LexiconBank object from file.
+	'''
+	assert isinstance(target,str), "<target> must be file name."
+	if not os.path.isfile(target):
+		raise WrongPath(f"No such file: {target}.")
+	
+	with open(target, "rb") as fr:
+		obj = pickle.load(fr)
+	
+	if not isinstance(obj, LexiconBank):
+		raise WrongDataFormat("It is not a LexiconBank object avaliable.")
+	else:
+		return obj
+
 def make_L(lexicons, outFile, useSilprobLexicon=False, useSilprob=0.5, useDisambigLexicon=False):
 	'''
 	Generate L.fst(or L_disambig.fst) file
@@ -1462,7 +1511,7 @@ def make_L(lexicons, outFile, useSilprobLexicon=False, useSilprob=0.5, useDisamb
 		wdisambigPhonesTemp.close()
 		wdisambigWordsTemp.close()
 
-def make_G(lexicons, arpaFile, outFile, n=3):
+def make_G(lexicons, arpaFile, outFile, order=3):
 	'''
 	Transform ARPA format language model to FST format. 
 	
@@ -1470,47 +1519,39 @@ def make_G(lexicons, arpaFile, outFile, n=3):
 		<lexicon>: A LexiconBank object.
 		<arpaFile>: An ARPA LM file path.
 		<outFile>: A fst file name.
-		<n>
+		<order>: the maximum order to use when make G fst.
 	Return:
-		absolute path of generated fst LM.
+		Absolute path of generated fst file.
 	'''
 	assert isinstance(arpaFile, str), "<arpaFile> should be a name-like string."
 	assert isinstance(outFile, str), "<outFile> should be a name-like string."
 	assert isinstance(lexicons, LexiconBank), "Expected <lexicons> is exkaldi LexiconBank object."
-	assert isinstance(n, int) and n > 0 and n < 10, "<n> positive int value and must smaller than 10."
+	assert isinstance(order, int) and order > 0 and order < 10, "<order> positive int value and must smaller than 10."
 
 	if not os.path.isfile(arpaFile):
 		raise WrongPath(f"No such file:{arpaFile}.")
-	
-	if not outFile.endswith('.fst'):
+	if not outFile.rstrip().endswith('.fst'):
 		outFile += ".fst"
-	make_dependent_dirs(outFile)
+
+	make_dependent_dirs(outFile, pathIsFile=True)
 	
-	words = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix=".txt")
-	vocab = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix=".txt")
+	wordsTemp = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix="_words.txt")
 
 	try:
-		lexicons.dump_dict(name="words", outFile=words)
-		vocab.write("\n".join(list(lexicons("words").keys())))
-		vocab.seek(0)
+		lexicons.dump_dict(name="words", outFile=wordsTemp)
 
-		srilmOpts = f"-subset -prune-lowprobs -unk -tolower -order {n}"
-		cmd = f'change-lm-vocab -vocab {vocab.name} -lm {arpaFile} -write-lm - {srilmOpts} |'
-		cmd +=  f'arpa2fst --disambig-symbol=#0 --read-symbol-table={words.name} - {outFile}'
+		cmd =  f'arpa2fst --disambig-symbol=#0 --read-symbol-table={wordsTemp.name} {arpaFile} {outFile}'
 		
-		out, err, _ = run_shell_command(cmd, stderr=subprocess.PIPE)
+		out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
 		
-		if (not os.path.isfile(outFile)) or os.path.getsize(outFile) < 100:
+		if cod != 0:
 			print(err.decode())
-			if os.path.isfile(outFile):
-				os.remove(outFile)
-			raise KaldiProcessError("Transform ARPA model to FST model defeated.")
+			raise KaldiProcessError("Failed to transform ARPA model to FST format.")
 		else:
 			return os.path.abspath(outFile)
 	
 	finally:
-		words.close()
-		vocab.close()
+		wordsTemp.close()
 
 def fst_is_stochastic(fstFile):
 	'''
@@ -1540,8 +1581,8 @@ def compose_LG(Lfile, Gfile, outFile="LG.fst"):
 	Compose L and G to LG
 
 	Args:
-		<Lfile>: L.fst file.
-		<Gfile>: G.fst file.
+		<Lfile>: L.fst file path.
+		<Gfile>: G.fst file path.
 		<outFile>: output LG.fst file.
 	Return:
 	    An absolute file path.
@@ -1554,12 +1595,12 @@ def compose_LG(Lfile, Gfile, outFile="LG.fst"):
 			raise WrongPath(f"No such file:{fileName}.")
 	if not outFile.rstrip().endswith(".fst"):
 		outFile += ".fst"
-	make_dependent_dirs(outFile)
+	make_dependent_dirs(outFile, pathIsFile=True)
 
 	cmd = f'fsttablecompose {Lfile} {Gfile} | fstdeterminizestar --use-log=true | fstminimizeencoded | fstpushspecial > {outFile}'
-	out, err, _ = run_shell_command(cmd, stderr=subprocess.PIPE)
+	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
 
-	if (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
+	if cod != 0:
 		print(err.decode())
 		if os.path.isfile(outFile):
 			os.remove(outFile)
@@ -1573,59 +1614,69 @@ def compose_CLG(lexicons, tree, LGfile, outFile="CLG.fst"):
 
 	Args:
 		<lexicons>: LexiconBank object.
-		<tree>: DecisionTree object.
+		<tree>: file path or DecisionTree object.
 		<LGfile>: LG.fst file.
 		<outFile>: output CLG.fst file.
 	Return:
 	    CLG file path and ilabel file path.
 	'''
 	assert isinstance(lexicons, LexiconBank), "<lexicon> should be a LexiconBank object."
-	assert type_name(tree) == "DecisionTree", "<tree> should be a DecisionTree object."
 	assert isinstance(LGfile, str), "<LGfile> should be a name-like string."
 	
 	if not os.path.isfile(LGfile):
 		raise WrongPath(f"No such file:{LGfile}.")
-	
 	if not outFile.rstrip().endswith('.fst'):
 		outFile += ".fst"
 	make_dependent_dirs(outFile)
 	iLabelFile = outFile[0:-4] + ".ilabels"
 
-	disambig = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix=".int")
+	if isinstance(tree, str):
+		assert os.path.isfile(tree), f"No such file: {tree}."
+		cmd = f"tree-info {tree}"
+		out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		if cod != 0:
+			print(err.decode())
+		else:
+			out = out.decode().strip().split("\n")
+			contextWidth = out[1].split()[-1]
+			centralPosition = out[2].split()[-1]
+	else:
+		assert type_name(tree) == "DecisionTree", f"<tree> should be tree file or exkaldi DecisionTree object but got: {type_name(tree)}."
+		contextWidth = tree.contextWidth
+		centralPosition = tree.centralPosition
+
+	disambigTemp = tempfile.NamedTemporaryFile("w+", encoding='utf-8', suffix="_disambig.int")
 	try:
-		lexicons.dump_dict("disambig", disambig, True)
-		cmd = f'fstcomposecontext --context-size={tree.contextWidth} --central-position={tree.centralPosition}'
-		cmd += f' --read-disambig-syms={disambig.name} {iLabelFile} {LGfile} |'
+		lexicons.dump_dict("disambig", disambigTemp, True)
+		cmd = f'fstcomposecontext --context-size={contextWidth} --central-position={centralPosition}'
+		cmd += f' --read-disambig-syms={disambigTemp.name} {iLabelFile} {LGfile} |'
 		cmd += f' fstarcsort --sort_type=ilabel > {outFile}'
 		
-		out, err, _ = run_shell_command(cmd, stderr=subprocess.PIPE)
+		out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
 
-		if (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
+		if cod != 0:
 			print(err.decode())
-			if os.path.isfile(outFile):
-				os.remove(outFile)
 			raise KaldiProcessError("Failed to generate CLG.fst file.")
 		else:
 			return os.path.abspath(outFile), os.path.abspath(iLabelFile)
 	
 	finally:
-		disambig.close()
+		disambigTemp.close()
 
 def compose_HCLG(hmm, tree, CLGfile, iLabelFile, outFile="HCLG.fst", transScale=1.0, loopScale=0.1, removeOOVFile=None):	
 	'''
 	Compose HCLG file.
 
 	Args:
-		<hmm>: HMM object.
-		<tree>: DecisionTree object.
+		<hmm>: HMM object or file path.
+		<tree>: DecisionTree object or file path.
 		<CLGfile>: CLG.fst file path.
 		<iLabelFile>: ilabel file path.
 		<outFile>: output HCLG.fst file path.
 		<transScale>: transform scale.
 		<loopScale>: self loop scale.
-		<removeOOVFile>: .
 	Return:
-	    the absolute path of HCLG file.
+	    Absolute path of HCLG file.
 	'''
 	for fileName in [CLGfile, iLabelFile]:
 		assert isinstance(fileName, str), f"Expected a name-like string but got {fileName}."
@@ -1641,26 +1692,42 @@ def compose_HCLG(hmm, tree, CLGfile, iLabelFile, outFile="HCLG.fst", transScale=
 		outFile += ".fst"
 	make_dependent_dirs(outFile)
 
-	disambigTID = tempfile.NamedTemporaryFile('wb+', suffix='.fst')
-	Ha = tempfile.NamedTemporaryFile('wb+', suffix='.fst')
-	HCLGa = tempfile.NamedTemporaryFile("wb+", suffix='.fst')
-	treeTemp = tempfile.NamedTemporaryFile('wb+')
-	model = tempfile.NamedTemporaryFile('wb+')
+	disambigTID = tempfile.NamedTemporaryFile('wb+', suffix='_disambigTID.fst')
+	Ha = tempfile.NamedTemporaryFile('wb+', suffix='_Ha.fst')
+	HCLGa = tempfile.NamedTemporaryFile("wb+", suffix='_HCLGa.fst')
+	treeTemp = tempfile.NamedTemporaryFile('wb+', suffix='.tree')
+	modelTemp = tempfile.NamedTemporaryFile('wb+', suffix='.mdl')
 
 	try:
-		treeTemp.write(tree.data)
-		treeTemp.seek(0)
-		model.write(hmm.data)
-		model.seek(0)
+		if isinstance(hmm, str):
+			assert os.path.isfile(hmm), f"No such file: {hmm}."
+			hmmFile = hmm
+		else:
+			assert type_name(hmm) in ["MonophoneHMM","TriphoneHMM"], f"<hmm> should be file or exkaldi HMM object but got: {type_name(hmm)}."
+			modelTemp.write(hmm.data)
+			modelTemp.seek(0)
+			hmmFile = modelTemp.name
+
+		if isinstance(tree, str):
+			assert os.path.isfile(tree), f"No such file: {tree}."
+			treeFile = tree
+		else:
+			assert type_name(tree) == "DecisionTree", f"<tree> should be file or exkaldi DecisionTree object but got: {type_name(tree)}."
+			treeTemp.write(tree.data)
+			treeTemp.seek(0)
+			treeFile = treeTemp.name
 
 		cmd1 = f"make-h-transducer --disambig-syms-out={disambigTID.name} --transition-scale={transScale} "
-		cmd1 += f"{iLabelFile} {treeTemp.name} {model.name} > {Ha.name}"
+		cmd1 += f"{iLabelFile} {treeFile} {hmmFile} > {Ha.name}"
 
-		out1, err1, _ = run_shell_command(cmd1, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		out1, err1, cod1 = run_shell_command(cmd1, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-		if os.path.getsize(Ha.name) == 0:
+		if cod1 != 0:
 			print(err1.decode())
-			raise KaldiProcessError("Failed to make HCLG.fst.")
+			raise KaldiProcessError("Failed to make make H transducer.")
+		
+		disambigTID.seek(0)
+		Ha.seek(0)
 
 		if not (removeOOVFile is None):
 			clg = f"fstrmsymbols --remove-arcs=true --apply-to-output=true {removeOOVFile} {CLGfile}|"
@@ -1670,49 +1737,78 @@ def compose_HCLG(hmm, tree, CLGfile, iLabelFile, outFile="HCLG.fst", transScale=
 		cmd2 = f'fsttablecompose {Ha.name} \"{clg}\" | fstdeterminizestar --use-log=true | '
 		cmd2 += f'fstrmsymbols {disambigTID.name} | fstrmepslocal | fstminimizeencoded > {HCLGa.name}'
 
-		out2, err2, _ = run_shell_command(cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		out2, err2, cod2 = run_shell_command(cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-		if os.path.getsize(HCLGa.name) == 0:
+		if cod2 != 0:
 			print(err2.decode())
-			raise KaldiProcessError("Failed to make HCLG.fst.")
+			raise KaldiProcessError("Failed to make HCLGa.fst.")
 		
-		cmd3 = f'add-self-loops --self-loop-scale={loopScale} --reorder=true {model.name} {HCLGa.name} | fstconvert --fst_type=const > {outFile}'
-		out3, err3, _ = run_shell_command(cmd3, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		HCLGa.seek(0)
 
-		if (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
+		cmd3 = f'add-self-loops --self-loop-scale={loopScale} --reorder=true {hmmFile} {HCLGa.name} | fstconvert --fst_type=const > {outFile}'
+		out3, err3, cod3 = run_shell_command(cmd3, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+		if cod3 != 0:
 			print(err3.decode())
-			if os.path.isfile(outFile):
-				os.remove(outFile)
 			raise KaldiProcessError("Failed to generate HCLG.fst.")
+		else:
+			return os.path.abspath(outFile)	
 
 	finally:
 		disambigTID.close()
 		Ha.close()
 		HCLGa.close()
+		treeTemp.close()
+		modelTemp.close()
 
-	return os.path.abspath(outFile)	
+def make_graph(lexicons, arpaFile, hmm, tree, tempDir, order=3, useSilprobLexicon=False, useSilprob=0.5, 
+				useDisambigLexicon=False, useLFile=None, outFile="HCLG.fst", transScale=1.0, loopScale=0.1, removeOOVFile=None):
+	'''
+	Make HCLG decode graph.
 
-def make_graph(lexicons, arpaFile, hmm, tree, n=3, useSilprob=False, silProb=0.5, 
-				useDisambig=False, outFile="HCLG.fst", transScale=1.0, loopScale=0.1, removeOOVFile=None):
+	Args:
+		<lexicons>: exkaldi lexicon bank object.
+		<arpaFile>: arpa file path.
+		<hmm>: file path or exkaldi HMM object.
+		<tree>: file path or exkaldi DecisionTree object.
+		<tempDir>: a directory to storage intermidiate files.
+		<LFile>: If it is None, make L.fst.
+				else, do not make a new one and use this.
 	
-	L = tempfile.NamedTemporaryFile("wb+", suffix=".fst")
-	G = tempfile.NamedTemporaryFile("wb+", suffix=".fst")
-	LG = tempfile.NamedTemporaryFile("wb+", suffix=".fst")
-	CLG = tempfile.NamedTemporaryFile("wb+", suffix=".fst")
+	Return:
+		absolute path of HCLG file.
+	'''
+	assert isinstance(tempDir,str), "<tempDir> should be directory name."
+	make_dependent_dirs(tempDir, pathIsFile=False)
 
-	try:
-		LFile = make_L(lexicons, L.name, useSilprob=False, silProb=0.5, useDisambig=False)
 
-		GFile = make_G(lexicons, arpaFile, G.name, n=n)
+	if useLFile is None:
+		if useDisambig:
+			useLFile = os.path.join(tempDir, "L_disambig.fst")
+		else:
+			useLFile = os.path.join(tempDir, "L.fst")
+		useLFile = make_L(lexicons, useLFile, useSilprobLexicon, useSilprob, useDisambigLexicon)
+		print(f"Make L done: {useLFile}.")
+	else:
+		print(f"Skip making L. Use: {useLFile}.")
 
-		LGFile = compose_LG(L.name, G.name, LG.name)
+	GFile = os.path.join(tempDir, "G.fst")
+	GFile = make_G(lexicons, arpaFile, GFile, order=order)
+	print(f"Make G done: {GFile}.")
 
-		CLGFile, ilabelFile = compose_CLG(lexicons, tree, LG.name, CLG.name)
+	LGFile = os.path.join(tempDir, "LG.fst")
+	LGFile = compose_LG(useLFile, GFile, LGFile)
+	print(f"Compose LG done: {LGFile}.")
 
-		compose_HCLG(lexicons, tree, CLG.name, ilabelFile, outFile, transScale, loopScale, removeOOVFile)
+	CLGFile = os.path.join(tempDir, "CLG.fst")
+	CLGFile, ilabelFile = compose_CLG(lexicons, tree, LGFile, CLGFile)
+	print(f"Compose CLG done: {CLGFile}.")
+	print(f"Ilabel info: {ilabelFile}.")
+
+	HCLGFile = os.path.join(tempDir, "HCLG.fst")
+	HCLGFile = compose_HCLG(hmm, tree, CLGFile, ilabelFile, HCLGFile, transScale, loopScale, removeOOVFile)
+	print(f"Make HCLG done: {HCLGFile}.")
+
+	return HCLGFile
 	
-	finally:
-		L.close()
-		G.close()
-		LG.close()
-		CLG.close()
+

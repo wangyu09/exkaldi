@@ -83,13 +83,22 @@ def make_dependent_dirs(path, pathIsFile=True):
 	assert isinstance(path, str), "<path> should be a string."
 	path = os.path.abspath(path.strip())
 
-	dirPath = os.path.dirname(path) if pathIsFile else path
+	if pathIsFile:
+		if os.path.isdir(path):
+			raise WrongPath(f"<path> is specified as file but it has existed as directory: {path}. You can remove it then try again.")
+		else:
+			dirPath = os.path.dirname(path)
+	else:
+		if os.path.isfile(path):
+			raise WrongPath(f"<path> is specified as directory but it has existed as file: {path}. You can remove it then try again.")
+		else:
+			dirPath = path
 	
 	if not os.path.isdir(dirPath):
 		try:
 			os.makedirs(dirPath)
 		except Exception as e:
-			print(f"Failed to make directory:{dirPath}.")
+			print(f"Failed to make directory: {dirPath}.")
 			raise e
 
 def write_log(message, mode="a", logFile=None):

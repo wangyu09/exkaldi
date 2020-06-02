@@ -30,8 +30,9 @@ import shutil
 from glob import glob
 
 from exkaldi.version import WrongPath, WrongOperation, UnsupportedType
-from exkaldi.utils.utils import make_dependent_dirs, type_name, run_shell_command
+from exkaldi.utils.utils import make_dependent_dirs, type_name, run_shell_command, flatten
 from exkaldi.core.load import load_feat
+from collections import namedtuple, Iterable
 
 class Supporter:
 	'''
@@ -693,3 +694,102 @@ def log_softmax(data, axis=1):
 	dataExpSumLog = np.log(dataExpSum) + maxValue.reshape(dataExpSum.shape)
 	
 	return data - dataExpSumLog.reshape(dataShape)
+
+def accuracy(ref, hyp, ignore=None, mode='all'):
+	'''
+	Score one-2-one matching score between two items.
+
+	Args:
+		<ref>, <hyp>: iterable objects like list, tuple or NumPy array. It will be flattened before scoring.
+		<ignore>: Ignoring specific symbols.
+		<model>: If <mode> is "all", compute one-one matching score. For example, <ref> is (1,2,3,4), and <hyp> is (1,2,2,4), the score will be 0.75.
+				 If <mode> is "present", only the members of <hyp> which appeared in <ref> will be scored no matter which position it is. 
+	Return:
+		a namedtuple object of score information.
+	'''
+	assert type_name(ref)!="Transcription" and type_name(hyp) != "Transcription", "Exkaldi Transcription objects are unsupported in this function."
+
+	assert mode in ['all','present'], 'Expected <mode> to be "present" or "all".'
+
+	x = flatten(ref)
+	x = list( filter(lambda i:i!=ignore, x) ) 
+	y = flatten(hyp)
+	y = list( filter(lambda i:i!=ignore, y) ) 
+
+	if mode == 'all':
+		i = 0
+		score = 0
+		while True:
+			if i >= len(x) or i >= len(y):
+				break
+			elif x[i] == y[i]:
+				score += 1
+			i += 1
+		if i < len(x) or i < len(y):
+			raise WrongOperation('<ref> and <hyp> have different length to score.')
+		else:
+			if len(x) == 0:
+				accuracy = 1.0
+			else:
+				accuracy = score/len(x)
+
+			return namedtuple("Score",["accuracy", "items", "rightItems"])(
+						accuracy, len(x), score
+					)
+	else:
+		x = sorted(x)
+		score = 0
+		for i in y:
+			if i in x:
+				score += 1
+		if len(y) == 0:
+			if len(x) == 0:
+				accuracy = 1.0
+			else:
+				accuracy = 0.0
+		else:
+			accuracy = score/len(y)
+		
+		return namedtuple("Score", ["accuracy", "items", "rightItems"])(
+					accuracy, len(y), score
+				)
+
+def pure_edit_distance(ref, hyp, ignore=None):
+	'''
+	Compute edit-distance score.
+
+	Args:
+		<ref>, <hyp>: iterable objects like list, tuple or NumPy array. It will be flattened before scoring.
+		<ignore>: Ignoring specific symbols.	 
+	Return:
+		a namedtuple object including score information.	
+	'''
+	assert isinstance(ref, Iterable), "<ref> is not a iterable object."
+	assert isinstance(hyp, Iterable), "<hyp> is not a iterable object."
+	
+	x = flatten(ref)
+	x = list( filter(lambda i:i!=ignore, x) ) 
+	y = flatten(hyp)
+	y = list( filter(lambda i:i!=ignore, y) ) 
+
+	lenX = len(x)
+	lenY = len(y)
+
+	mapping = np.zeros((lenX+1,lenY+1))
+
+	for i in range(lenX+1):
+		mapping[i][0] = i
+	for j in range(lenY+1):
+		mapping[0][j] = j
+	for i in range(1,lenX+1):
+		for j in range(1,lenY+1):
+			if x[i-1] == y[j-1]:
+				delta = 0
+			else:
+				delta = 1       
+			mapping[i][j] = min(mapping[i-1][j-1]+delta, min(mapping[i-1][j]+1, mapping[i][j-1]+1))
+	
+	score = int(mapping[lenX][lenY])
+	return namedtuple("Score",["editDistance", "items"])(
+				score, len(x)
+			)

@@ -54,6 +54,10 @@ class ListTable(dict):
 	def name(self):
 		return self.__name
 
+	@property
+	def data(self):
+		return dict(self)
+
 	def rename(self, name):
 		'''
 		Rename.
@@ -108,6 +112,8 @@ class ListTable(dict):
 			make_dependent_dirs(fileName, pathIsFile=True)
 			with open(fileName, "w", encoding="utf-8") as fw:
 				fw.write(results)
+			
+			return os.path.abspath(fileName)
 
 	def load(self, fileName):
 		'''
@@ -145,14 +151,15 @@ class ListTable(dict):
 
 		return ListTable(items, name=self.name)
 	
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset table.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
 			<nTail>: If nHead=0 and nTail > 0, extract N tail utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
+			<nRandom>: If nHead=0 and nTail=0 and nRandom > 0, randomly sample N utterances.
+			<chunks>: If all of nHead, nTail, nRandom are 0 and chunks > 1, split data into N chunks.
 			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new ListTable object or a list of new ListTable objects.
@@ -171,6 +178,12 @@ class ListTable(dict):
 			new = list(self.items())[-nTail:]
 			newName = f"subset({self.name},tail {nTail})"
 			return ListTable(new, newName)		
+
+		elif nRandom > 0:
+			assert isinstance(nRandom, int), f"Expected <nRandom> is an int number but got {nRandom}."
+			new = random.choices(list(self.items()), k=nRandom)
+			newName = f"subset({self.name},tail {nTail})"
+			return ListTable(new, newName)	
 
 		elif chunks > 1:
 			assert isinstance(chunks, int), f"Expected <chunks> is an int number but got {chunks}."
@@ -302,19 +315,20 @@ class ScriptTable(ListTable):
 
 		return ScriptTable(result, name=self.name)
 	
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset table.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
 			<nTail>: If nHead=0 and nTail > 0, extract N tail utterances.
-			<chunks>: If nHead == 0 and chunks > 1, split data into N chunks.
+			<nRandom>: If nHead=0 and nTail=0 and nRandom > 0, randomly sample N utterances.
+			<chunks>: If all of nHead, nTail, nRandom are 0 and chunks > 1, split data into N chunks.
 			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new ScriptTable object or a list of new ScriptTable objects.
 		''' 
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead,nTail,nRandom,chunks,uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -368,19 +382,20 @@ class Transcription(ListTable):
 
 		return Transcription(result, name=self.name)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset feature.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If it > 0, extract N tail utterances.
-			<chunks>: If nHead == 0, nTail == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0, nTail == 0, chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If nHead=0 and nTail > 0, extract N tail utterances.
+			<nRandom>: If nHead=0 and nTail=0 and nRandom > 0, randomly sample N utterances.
+			<chunks>: If all of nHead, nTail, nRandom are 0 and chunks > 1, split data into N chunks.
+			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new Transcription object or a list of new Transcription objects.
 		'''
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead,nTail,nRandom,chunks,uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -391,6 +406,37 @@ class Transcription(ListTable):
 
 		return result
 	
+	def convert(self, symbolTable, unkSymbol):
+		'''
+		Convert transcription between text format and int format.
+
+		Args:
+			<symbolTable>: exkaldi ListTable object.
+			<unkSymbol>: symbol of oov.
+		'''
+		assert type_name(symbolTable) == "ListTable", "<symbolTable> must be ListTable object."
+		
+		symbolTable = dict( (str(k),str(v)) for k,v in symbolTable.items() )
+		unkSymbol = str(unkSymbol)
+
+		trans = Transcription(name=f"convert({self.name})")
+
+		for utt, text in self.items():
+			assert isinstance(text, str), f"The value of Transcription table must be string but got {type_name(text)}."
+			text = text.split()
+			for index, word in enumerate(text):
+				try:
+					text[index] = str(symbolTable[word])
+				except KeyError:
+					try:
+						text[index] = str(symbolTable[unkSymbol])
+					except KeyError:
+						raise WrongDataFormat(f"Word symbol table miss unknown-map symbol: {unkSymbol}")
+		
+			trans[utt] = " ".join(text)
+	
+		return trans
+
 class Cost(ListTable):
 	'''
 	This is used to hold the AM or LM cost of N-Best. 
@@ -434,19 +480,20 @@ class Cost(ListTable):
 
 		return Cost(results, name=self.name)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,uttList=None):
 		'''
 		Subset feature.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If it > 0, extract N tail utterances.
-			<chunks>: If nHead == 0, nTail == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0, nTail == 0, chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If nHead=0 and nTail > 0, extract N tail utterances.
+			<nRandom>: If nHead=0 and nTail=0 and nRandom > 0, randomly sample N utterances.
+			<chunks>: If all of nHead, nTail, nRandom are 0 and chunks > 1, split data into N chunks.
+			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new Cost object or a list of new Cost objects.
 		'''
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead,nTail,nRandom,chunks,uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -538,19 +585,20 @@ class BytesDataIndex(ListTable):
 
 		return BytesDataIndex(result, name=self.name)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset feature.
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If it > 0, extract N tail utterances.
-			<chunks>: If nHead == 0, nTail == 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0, nTail == 0, chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<nTail>: If nHead=0 and nTail > 0, extract N tail utterances.
+			<nRandom>: If nHead=0 and nTail=0 and nRandom > 0, randomly sample N utterances.
+			<chunks>: If all of nHead, nTail, nRandom are 0 and chunks > 1, split data into N chunks.
+			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new BytesDataIndex object or a list of new BytesDataIndex objects.
 		'''
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead,nTail,nRandom,chunks,uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -1892,12 +1940,14 @@ class BytesAlignmentTrans(BytesData):
 				if aliType == "phoneID":
 					cmd = f"ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-"
 					result = transform(self.data, cmd)
-					return NumpyAlignmentPhone(result, self.name).sort(by="utt")
+					newName = f"to_phone({self.name})"
+					return NumpyAlignmentPhone(result, newName).sort(by="utt")
 
 				elif aliType == "pdfID":
 					cmd = f"ali-to-pdf {hmmFileName} ark:- ark,t:-"
 					result = transform(self.data, cmd)
-					return NumpyAlignmentPdf(result, self.name).sort(by="utt")
+					newName = f"to_pdf({self.name})"
+					return NumpyAlignmentPdf(result, newName).sort(by="utt")
 				else:
 					raise WrongOperation(f"<target> should be 'trainsitionID', 'phoneID' or 'pdfID' but got {aliType}.")
 			finally:
@@ -3267,6 +3317,17 @@ class NumpyAlignment(NumpyData):
 		result = super().map(func)
 		return NumpyAlignment(data=result.data, name=result.name)	
 
+	@property
+	def classes(self):
+		'''
+		Return numbers of classes: max value of alignment + 1 .
+		'''
+		maxValue = []
+		for mat in self.arrays:
+			maxValue.append( np.max(mat) )
+		
+		return int(np.max(maxValue)) + 1
+			
 class NumpyAlignmentTrans(NumpyAlignment):
 	'''
 	Hold the alignment(transition ID) with Numpy format.
@@ -3294,19 +3355,27 @@ class NumpyAlignmentTrans(NumpyAlignment):
 
 		ExkaldiInfo.vertify_kaldi_existed()
 		
-		temp = []
-		for utt,matrix in self.data.items():
-			new = utt + " ".join(map(str,matrix.tolist()))
-			temp.append( new )
-		temp = ("\n".join(temp)).encode()
-
+		dataIndex = BytesDataIndex(name=self.name)
 		cmd = 'copy-int-vector ark:- ark:-'
-		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=temp)
-		if (isinstance(cod,int) and cod != 0) or out == b'':
-			print(err.decode())
-			raise KaldiProcessError('Failed to transform alignment to bytes formation.')
-		else:
-			return BytesAlignmentTrans(out, self.name)		
+		start_index = 0
+		results = []
+		for utt,matrix in self.data.items():
+			rows = len(matrix)
+			new = utt + " ".join(map(str,matrix.tolist()))
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=new)
+			
+			if (isinstance(cod,int) and cod != 0) or out == b'':
+				print(err.decode())
+				raise KaldiProcessError('Failed to transform alignment to bytes formation.')
+
+			data_size = len(out)
+			dataIndex[utt] = dataIndex.spec(rows, start_index, data_size)
+			start_index += data_size
+
+			results.append(out)
+
+		data = b"".join(results)
+		return BytesAlignmentTrans(data=data, name=self.name, indexTable=dataIndex)
 
 	def to_dtype(self, dtype):
 		'''
@@ -3508,7 +3577,7 @@ class NumpyAlignmentTrans(NumpyAlignment):
 		result = super().map(func)
 		return NumpyAlignmentTrans(data=result.data, name=result.name)	
 
-class NumpyAlignmentPhone(NumpyAchievement):
+class NumpyAlignmentPhone(NumpyAlignment):
 	'''
 	Hold the alignment(phone ID) with Numpy format.
 	'''
@@ -3623,7 +3692,7 @@ class NumpyAlignmentPhone(NumpyAchievement):
 		result = super().map(func)
 		return NumpyAlignmentPhone(data=result.data, name=result.name)
 
-class NumpyAlignmentPdf(NumpyAchievement):
+class NumpyAlignmentPdf(NumpyAlignment):
 	'''
 	Hold the alignment(pdf ID) with Numpy format.
 	'''
