@@ -2,7 +2,7 @@
 ExKaldi automatic speech recognition toolkit is designed to build an interface between Kaldi and Python. 
 Differing from other kaldi wrappers, exkaldi have these features:
 
-1. Integrated APIs to train a ASR systems, including training HMM-GMM acoustic model, training HMM-DNN acoustic model, training and quering a N-grams language model, decoding and scoring.
+1. Integrated APIs to build a ASR systems, including training HMM-GMM acoustic model, training HMM-DNN acoustic model, training and quering a N-grams language model, decoding and scoring.
 
 2. Exkaldi C++ library was designed to support, such as ctc decoding for End-to-End. 
 
@@ -26,18 +26,24 @@ less kaldi/src/INSTALL
 ```
 pip install exkaldi
 ```
-but we recommand you can clone the ExKaldi source code from our github project, then make it a pypi package and install it.
+But we recommand you can clone the ExKaldi source code from our github project, then install it.
 ```
 git clone https://github.com/wangyu09/exkaldi.git
 cd exkaldi
 bash quick_install.sh
 ```
 
+3. Check if it is installed correctly.
+```
+python -c "import exkaldi"
+```
+
+
 ## Tutorial
 
 We prepared some tutorial to show how to use Exkaldi APIs in exkaldi/examples directory. 
 
-### 1. [config exkaldi](www.baidu.com)
+### 1. [config exkaldi](github.com/wangyu09/exkaldi/blob/master/examples/01_config_exkaldi.ipynb)
 
 ### 2. process acoustic feature
 
