@@ -24,7 +24,7 @@ less kaldi/src/INSTALL
 
 2. You can install ExKaldi toolkit from PyPi library.
 ```
-pip install exkaldi
+pip install exkaldi ( It is unavaliable now, please use the follow method.)
 ```
 But we recommand you can clone the ExKaldi source code from our github project, then install it.
 ```
@@ -44,8 +44,8 @@ python -c "import exkaldi"
 We prepared some tutorial to show how to use Exkaldi APIs in exkaldi/examples directory. 
 
 #### 1. [config exkaldi](examples/01_config_exkaldi.ipynb)
-#### 2. [process acoustic feature](examples/02_feature_processing.ipynb)
-#### 3. [prepare lexicon group](examples/03_prepare_lexicons.ipynb)
+#### 2. [extract and process acoustic feature](examples/02_feature_processing.ipynb)
+#### 3. [prepare lexicons](examples/03_prepare_lexicons.ipynb)
 #### 4. [train and query a N-grams language model](examples/04_train_and_query_language_model.ipynb)
 #### 5. [train monophone HMM-GMM](examples/05_train_mono_HMM-GMM.ipynb)
 #### 6. [train decision tree](examples/06_train_decision_tree.ipynb)
