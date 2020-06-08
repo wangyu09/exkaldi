@@ -1,6 +1,7 @@
 from setuptools import setup,find_packages
 import glob
 import os
+from exkaldi.version import version as ExkaldiInfo
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -10,7 +11,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="exkaldi",
-    version="1.0.1",
+    version=ExkaldiInfo.version,
     author="Wang Yu",
     author_email="wangyu@alps-lab.org",
     description="ExKaldi Automatic Speech Recognition Toolkit",

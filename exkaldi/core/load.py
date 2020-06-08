@@ -27,8 +27,8 @@ from io import BytesIO
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, UnsupportedType, ShellProcessError, KaldiProcessError
 from exkaldi.utils.utils import run_shell_command, type_name
-from exkaldi.core.achivements import BytesData, BytesFeature, BytesCMVNStatistics, BytesProbability, BytesAlignmentTrans
-from exkaldi.core.achivements import NumpyData, NumpyFeature, NumpyCMVNStatistics, NumpyProbability, NumpyAlignmentTrans
+from exkaldi.core.achivements import BytesMatrix, BytesFeature, BytesCMVNStatistics, BytesProbability, BytesAlignmentTrans
+from exkaldi.core.achivements import NumpyMatrix, NumpyFeature, NumpyCMVNStatistics, NumpyProbability, NumpyAlignmentTrans
 from exkaldi.core.achivements import NumpyAlignment, NumpyAlignmentPhone, NumpyAlignmentPdf
 from exkaldi.core.achivements import Transcription
 
@@ -59,8 +59,8 @@ def __read_data_from_file(fileName, useSuffix=None):
 	else:
 		raise UnsupportedType(f'Expected <fileName> is file name-like string but got a {type_name(fileName)}.')
 
-	allData_bytes = BytesData()
-	allData_numpy = NumpyData()
+	allData_bytes = BytesMatrix()
+	allData_numpy = NumpyMatrix()
 
 	def loadNpyFile(fileName):
 		try:
@@ -75,7 +75,7 @@ def __read_data_from_file(fileName, useSuffix=None):
 		except:
 			raise UnsupportedType(f'Expected "npy" data with exkaldi format but got {fileName}.')
 		else:
-			return NumpyData(data)
+			return NumpyMatrix(data)
 	
 	def loadArkScpFile(fileName, suffix):
 		ExkaldiInfo.vertify_kaldi_existed()
@@ -93,7 +93,7 @@ def __read_data_from_file(fileName, useSuffix=None):
 		else:
 			#if sys.getsizeof(out) > 10000000000:
 			#    print('Warning: Data is extramely large. It could not be used correctly sometimes.') 
-			return BytesData(out)
+			return BytesMatrix(out)
 
 	for fileName in allFiles:
 		sfx = fileName[-3:].lower()
@@ -151,7 +151,7 @@ def load_feat(target, name="feat", useSuffix=None):
 
 	elif isinstance(target, str):
 		result = __read_data_from_file(target, useSuffix)
-		if isinstance(result, BytesData):
+		if isinstance(result, BytesMatrix):
 			return BytesFeature(result.data, name)
 		else:
 			return NumpyFeature(result.data, name)	
@@ -189,7 +189,7 @@ def load_cmvn(target, name="cmvn", useSuffix=None):
 
 	elif isinstance(target, str):
 		result = __read_data_from_file(target, useSuffix)
-		if isinstance(result, BytesData):
+		if isinstance(result, BytesMatrix):
 			return BytesCMVNStatistics(result.data, name)
 		else:
 			return NumpyCMVNStatistics(result.data, name)	
@@ -227,7 +227,7 @@ def load_prob(target, name="prob", useSuffix=None):
 
 	elif isinstance(target, str):
 		result = __read_data_from_file(target, useSuffix)
-		if isinstance(result, BytesData):
+		if isinstance(result, BytesMatrix):
 			return BytesProbability(result.data, name)
 		else:
 			return NumpyProbability(result.data, name)	

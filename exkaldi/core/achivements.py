@@ -30,13 +30,16 @@ from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, UnsupportedType, ShellProcessError, KaldiProcessError
 from exkaldi.utils.utils import type_name, run_shell_command, make_dependent_dirs
 
-''' Kaldi script-file table'''
+''' ListTable class group ''' 
+
+''' Designed for Kaldi text format achivement table(not data achivements), and script-file table'''
+## Base Class
 class ListTable(dict):
 	'''
 	This is a subclass of Python dict and used to hold all kaldi liast format tables such as scp-files, utt2spk file, transcription file and so on. 
 	'''
 	def __init__(self, data={}, name="table"):
-		assert isinstance(name, str) and len(name) >0, "Name is not a string avaliable."
+		assert isinstance(name, str) and len(name)>0, "Name is not a string avaliable."
 		self.__name = name
 		super(ListTable, self).__init__(data)
 
@@ -65,7 +68,7 @@ class ListTable(dict):
 		Args:
 			<name>: a string.
 		'''
-		assert isinstance(name, str) and len(name) >0, "Name is not a string avaliable."
+		assert isinstance(name, str) and len(name)>0, "Name is not a string avaliable."
 		self.__name = name
 
 	def sort(self, reverse=False):
@@ -73,12 +76,12 @@ class ListTable(dict):
 		Sort by utterance ID.
 
 		Args:
-			<reverse>: If reverse, sort in descending order.
+			<reverse>: If reverse, sort by key in descending order.
 		Return:
 			A new ListTable object.
 		''' 
 		if self.is_void:
-			raise WrongOperation("No data to sort.")
+			raise WrongOperation("Table is void.")
 
 		items = sorted(self.items(), key=lambda x:x[0], reverse=reverse)
 		
@@ -86,19 +89,22 @@ class ListTable(dict):
 
 	def save(self, fileName=None):
 		'''
-		Save as text formation.
+		Save as text.
 
 		Args:
-			<fileName>: If None, return a string of text formation.
+			<fileName>: If None, return a string composed by all keys and values.
+		
+		Return:
+			abspath of file or the contents of ListTable.
 		'''
-		def concat(utterance):
+		def concat(item):
 			try:
-				return f"{utterance[0]} {utterance[1]}"
+				return f"{item[0]} {item[1]}"
 			except Exception:
-				print(f"Utterance ID: {utterance[0]}")
-				raise WrongDataFormat(f"Wrong key and value format: {type_name(utterance[0])} and {type_name(utterance[1])}. ")
+				print(f"Utterance ID: {item[0]}")
+				raise WrongDataFormat(f"Wrong key and value format: {type_name(item[0])} and {type_name(item[1])}. ")
 
-		results = "\n".join( map(concat, self.items()) )
+		results = "\n".join( map(concat, self.items()) ) + "\n"
 
 		if fileName is None:
 			return results
@@ -107,6 +113,7 @@ class ListTable(dict):
 			fileName.seek(0)
 			fileName.write(results)
 			fileName.seek(0)
+			return None
 		else:
 			assert isinstance(fileName, str) and len(fileName) > 0, "File name is unavaliable."
 			make_dependent_dirs(fileName, pathIsFile=True)
@@ -117,10 +124,13 @@ class ListTable(dict):
 
 	def load(self, fileName):
 		'''
-		Load a list table from file. If utt is existed, it will be overlaped.
+		Load a list table from file. If key has been existed, value will be overlaped.
 
 		Args:
 			<fileName>: the txt file path.
+		
+		Return:
+			self.
 		'''
 		assert isinstance(fileName, str) and len(fileName) > 0, "File name is unavaliable."
 		if not os.path.isfile(fileName):
@@ -133,7 +143,7 @@ class ListTable(dict):
 			if len(le) < 2:
 				print(f"Line Number:{index}")
 				print(f"Line Content:{line}")
-				raise WrongDataFormat("Missing entire uttID and utterance information.")
+				raise WrongDataFormat("Missing entire key and value information.")
 			else:
 				self[le[0]] = le[1]
 		
@@ -182,7 +192,7 @@ class ListTable(dict):
 		elif nRandom > 0:
 			assert isinstance(nRandom, int), f"Expected <nRandom> is an int number but got {nRandom}."
 			new = random.choices(list(self.items()), k=nRandom)
-			newName = f"subset({self.name},tail {nTail})"
+			newName = f"subset({self.name},random {nRandom})"
 			return ListTable(new, newName)	
 
 		elif chunks > 1:
@@ -231,11 +241,11 @@ class ListTable(dict):
 			return ListTable(newDict, newName)
 		
 		else:
-			raise WrongOperation('Expected <nHead> is larger than "0", or <chunks> is larger than "1", or <uttList> is not None.')
+			raise WrongOperation('Expected <nHead> > 0 or <nTail> > 0 or <nRandom> > 0 or <chunks> > 1 or <uttList> is not None.')
 
 	def __add__(self, other):
 		'''
-		Integrate two ListTable objects. If utt is existed in both two objects, the former will be retained.
+		Integrate two ListTable objects. If key existed in both two objects, the former will be retained.
 
 		Args:
 			<other>: another ListTable object.
@@ -255,7 +265,7 @@ class ListTable(dict):
 		'''
 		Exchange the position of key and value. 
 
-		Key and Value must be one-one matching, or Error will be raised.
+		Key and value must be one-one matching, or Error will be raised.
 		'''
 		newname = f"reverse({self.name})"
 		new = ListTable(name=newname)
@@ -270,21 +280,20 @@ class ListTable(dict):
 		
 		return new
 
+## Subclass: for script file
 class ScriptTable(ListTable):
 	'''
 	This is used to hold kaldi script-file tables. 
 	'''
 	def __init__(self, data={}, name="scpTable"):
-		assert isinstance(name, str) and len(name) >0, "Name is not a string avaliable."
-		self.__name = name
-		super(ScriptTable, self).__init__(data)
+		super(ScriptTable, self).__init__(data, name)
 	
 	def sort(self, reverse=False):
 		'''
 		Sort by utterance ID.
 
 		Args:
-			<reverse>: If reverse, sort in descending order.
+			<reverse>: If reverse, sort by utt-ID in descending order.
 		Return:
 			A new ScriptTable object.
 		''' 
@@ -321,10 +330,10 @@ class ScriptTable(ListTable):
 		
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If nHead=0 and nTail > 0, extract N tail utterances.
-			<nRandom>: If nHead=0 and nTail=0 and nRandom > 0, randomly sample N utterances.
+			<nTail>: If nHead is 0 and nTail > 0, extract N tail utterances.
+			<nRandom>: If nHead is 0 and nTail is 0 and nRandom > 0, randomly sample N utterances.
 			<chunks>: If all of nHead, nTail, nRandom are 0 and chunks > 1, split data into N chunks.
-			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
+			<uttList>: If nHead, nTail, nRandom are 0 and chunks is 1 and uttList != None, pick out these utterances whose ID in uttList.
 		Return:
 			a new ScriptTable object or a list of new ScriptTable objects.
 		''' 
@@ -339,6 +348,7 @@ class ScriptTable(ListTable):
 
 		return result
 
+## Subclass: for transcription, both ref and hyp
 class Transcription(ListTable):
 	'''
 	This is used to hold transcription text, such as decoding n-best. 
@@ -360,7 +370,7 @@ class Transcription(ListTable):
 
 	def __add__(self, other):
 		'''
-		Integrate two transcription objects. If utt is existed in both two objects, the former will be retained.
+		Integrate two transcription objects. If utt-ID existed in both two objects, the former will be retained.
 
 		Args:
 			<other>: another Transcription object.
@@ -373,7 +383,7 @@ class Transcription(ListTable):
 
 	def shuffle(self):
 		'''
-		Random shuffle the script table.
+		Random shuffle the transcription.
 
 		Return:
 			A new Transcription object.
@@ -389,7 +399,7 @@ class Transcription(ListTable):
 		Args:
 			<nHead>: If it > 0, extract N head utterances.
 			<nTail>: If nHead=0 and nTail > 0, extract N tail utterances.
-			<nRandom>: If nHead=0 and nTail=0 and nRandom > 0, randomly sample N utterances.
+			<nRandom>: If nHead and nTail are 0 and nRandom > 0, randomly sample N utterances.
 			<chunks>: If all of nHead, nTail, nRandom are 0 and chunks > 1, split data into N chunks.
 			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
 		Return:
@@ -437,6 +447,7 @@ class Transcription(ListTable):
 	
 		return trans
 
+## Subclass: for LM and AM score
 class Cost(ListTable):
 	'''
 	This is used to hold the AM or LM cost of N-Best. 
@@ -504,11 +515,12 @@ class Cost(ListTable):
 
 		return result
 
+## Subclass: record pointer position to read bytes data
 class BytesDataIndex(ListTable):
 	'''
 	For accelerate to find utterance and reduce Memory cost of intermidiate operation.
 	This is used to hold utterance index information of bytes data. It likes the script-file of a feature binary achivements in Kaldi.
-	Every BytesData object will carry with one BytesDataIndex object.
+	Every BytesMatrix object will carry with one BytesDataIndex object.
 	{ "utt": namedtuple(frames, startIndex, dataSize) }
 	'''	
 	def __init__(self, data={}, name="index"):
@@ -542,7 +554,7 @@ class BytesDataIndex(ListTable):
 			A new BytesDataIndex object.
 		''' 
 		if self.is_void:
-			raise WrongOperation('No data to sort.')
+			raise WrongOperation('Table is void.')
 		assert by in ["utt","frames", "startIndex"], "We only support sorting by 'name' or 'frames' or 'startIndex'."
 
 		if by == "utt":
@@ -609,8 +621,10 @@ class BytesDataIndex(ListTable):
 
 		return result
 
-''' Kaldi archive table (Bytes Format) '''
 
+'''BytesAchivement class group'''
+'''Designed for binary objects in kaldi, such as Kaldi binary archivement table (in Bytes Format), lattice, HMM-GMM, decision tree and so on'''
+## Base class
 class BytesAchievement:
 
 	def __init__(self, data=b'', name=None):
@@ -649,37 +663,38 @@ class BytesAchievement:
 		assert isinstance(newName, str) and len(newName) > 0, "New name must be a string avaliable."
 		self.__name = newName
 
-class BytesData(BytesAchievement):
+## Base class: for Matrix Data achivements
+class BytesMatrix(BytesAchievement):
 	'''
-	A base class of bytes feature, cmvn statistics, post probability data.  
+	A base class of bytes feature, cmvn statistics, post probability data.
 	'''
 	def __init__(self, data=b'', name="data", indexTable=None):
-		if isinstance(data, BytesData):
+		if isinstance(data, BytesMatrix):
 			data = data.data
-		elif isinstance(data, NumpyData):
+		elif isinstance(data, NumpyMatrix):
 			data = (data.to_bytes()).data
 		elif isinstance(data, bytes):
 			pass
 		else:
-			raise UnsupportedType(f"Expected exkaldi BytesData, NumpyData or Python bytes object but got {type_name(data)}.")
+			raise UnsupportedType(f"Expected exkaldi BytesMatrix, NumpyMatrix or Python bytes object but got {type_name(data)}.")
 		super().__init__(data, name)
 
 		# <indexTable> is used to map the index of every utterance if bytes data.
 		if indexTable is None:
-			self._dataIndex = self._generate_index_table()
+			self.__generate_index_table()
 		else:
 			assert isinstance(indexTable, BytesDataIndex), f"<indexTable> should be a BytesDataIndex object bur got {type_name(indexTable)}."
-			self._dataIndex = indexTable
+			self.__dataIndex = indexTable
 
-	def _generate_index_table(self):
+	def __generate_index_table(self):
 		'''
 		Genrate the index table.
 		'''
 		if self.is_void:
 			return None
 		else:
-			# Index table will have the same name with BytesData object.
-			newDataIndex = BytesDataIndex(name=self.name)
+			# Index table will have the same name with BytesMatrix object.
+			self.__dataIndex = BytesDataIndex(name=self.name)
 			start_index = 0
 			with BytesIO(self.data) as sp:
 				while True:
@@ -692,10 +707,8 @@ class BytesData(BytesAchievement):
 						sampleSize = 4
 					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
 
-					newDataIndex[utt] = newDataIndex.spec(rows, start_index, oneRecordLen)
+					self.__dataIndex[utt] = newDataIndex.spec(rows, start_index, oneRecordLen)
 					start_index += oneRecordLen
-			
-			return newDataIndex
 
 	def __read_one_record(self, fp):
 		'''
@@ -744,7 +757,7 @@ class BytesData(BytesAchievement):
 			A BytesDataIndex object.
 		'''
 		# Return deepcopied dict object.
-		return copy.deepcopy(self._dataIndex)
+		return copy.deepcopy(self.__dataIndex)
 
 	@property
 	def dtype(self):
@@ -774,7 +787,7 @@ class BytesData(BytesAchievement):
 			<dtype>: a string of "float", "float32" or "float64". IF "float", it will be treated as "float32".
 		
 		Return:
-			A new BytesData object.
+			A new BytesMatrix object.
 		'''
 		assert isinstance(dtype, str) and (dtype in ["float", "float32", "float64"]), f"Expected <dtype> is string from 'float', 'float32' or 'float64' but got '{dtype}'."
 
@@ -818,7 +831,7 @@ class BytesData(BytesAchievement):
 					
 			result = b''.join(result)
 
-			return BytesData(result, name=self.name, indexTable=newDataIndex)
+			return BytesMatrix(result, name=self.name, indexTable=newDataIndex)
 
 	@property
 	def dim(self):
@@ -848,7 +861,7 @@ class BytesData(BytesAchievement):
 		if self.is_void:
 			return []
 		else:
-			return list(self._dataIndex.keys())
+			return list(self.__dataIndex.keys())
 			
 	def check_format(self):
 		'''
@@ -891,7 +904,7 @@ class BytesData(BytesAchievement):
 					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
 
 					# Renew the index table.
-					self._dataIndex[utt] = self._dataIndex.spec(rows, start_index, oneRecordLen)
+					self.__dataIndex[utt] = self.__dataIndex.spec(rows, start_index, oneRecordLen)
 					start_index += oneRecordLen				
 					
 			return True
@@ -901,16 +914,17 @@ class BytesData(BytesAchievement):
 	@property
 	def lens(self):
 		'''
-		Get the frames of all utterances.
+		Get the numbers of utterances.
+		If you want to get the frames of each utterance, try:
+						obj.utt_index 
+		attribute.
 		
 		Return:
-			a tuple: (the numbers of all utterances, the utterance ID and frames of each utterance).
-			If there is not any data, return (0, None).
+			a int value.
 		'''
-		lengths = (0, None)
+		lengths = 0
 		if not self.is_void:
-			_lens = dict( (utt, indexInfo.frames ) for utt, indexInfo in self._dataIndex.items() )
-			lengths = (len(_lens), _lens)
+			lengths = len(self.utt_index)
 		
 		return lengths
 
@@ -990,7 +1004,7 @@ class BytesData(BytesAchievement):
 		Transform bytes data to numpy data.
 		
 		Return:
-			a NumpyData object sorted by utterance ID.
+			a NumpyMatrix object sorted by utterance ID.
 		'''
 		newDict = {}
 		if not self.is_void:
@@ -1010,23 +1024,23 @@ class BytesData(BytesAchievement):
 					else:
 						newDict[utt] = np.reshape(newMatrix, (rows,cols))
 
-		return NumpyData(newDict, name=self.name)
+		return NumpyMatrix(newDict, name=self.name)
 
 	def __add__(self, other):
 		'''
 		The Plus operation between two objects.
 
 		Args:
-			<other>: a BytesData or NumpyData object.
+			<other>: a BytesMatrix or NumpyMatrix object.
 		Return:
-			a new BytesData object.
+			a new BytesMatrix object.
 		''' 
-		if isinstance(other, BytesData):
+		if isinstance(other, BytesMatrix):
 			pass
-		elif type_name(other) == "NumpyData":
+		elif type_name(other) == "NumpyMatrix":
 			other = other.to_bytes()
 		else:
-			raise UnsupportedType(f"Expected exkaldi BytesData or NumpyData object but got {type_name(other)}.")
+			raise UnsupportedType(f"Expected exkaldi BytesMatrix or NumpyMatrix object but got {type_name(other)}.")
 		
 		if self.is_void:
 			return copy.deepcopy(other)
@@ -1070,19 +1084,22 @@ class BytesData(BytesAchievement):
 					newData.append(data)
 
 		newName = f"plus({self.name},{other.name})"
-		return BytesData(b''.join([self.data, *newData]), name=newName, indexTable=newDataIndex)
+		return BytesMatrix(b''.join([self.data, *newData]), name=newName, indexTable=newDataIndex)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
-			a new BytesData object or a list of new BytesData objects.
+			a new BytesMatrix object or a list of new BytesMatrix objects.
 		''' 
 		if self.is_void:
 			raise WrongOperation("Cannot subset a void data.")
@@ -1105,7 +1122,7 @@ class BytesData(BytesAchievement):
 				sp.seek(0)
 				data = sp.read(totalSize)
 	
-			return BytesData(data, name=newName, indexTable=newDataIndex)
+			return BytesMatrix(data, name=newName, indexTable=newDataIndex)
 
 		elif nTail > 0:
 			assert isinstance(nTail, int), f"Expected <nTail> is an int number but got {nTail}."			
@@ -1125,7 +1142,25 @@ class BytesData(BytesAchievement):
 				sp.seek(start_index)
 				data = sp.read(totalSize)
 	
-			return BytesData(data, name=newName, indexTable=newDataIndex)
+			return BytesMatrix(data, name=newName, indexTable=newDataIndex)
+
+		elif nRandom > 0:
+			assert isinstance(nRandom, int), f"Expected <nRandom> is an int number but got {nRandom}."
+			randomNRecord = random.choices(list(self.utt_index.items()), k=nRandom)
+			newName = f"subset({self.name},random {nRandom})"
+
+			newDataIndex = BytesDataIndex(name=newName)
+			start_index = 0
+			newData = []
+			with BytesIO(self.data) as sp:
+				for utt, indexInfo in randomNRecord:
+					sp.seek(indexInfo.startIndex)
+					newData.append( sp.read(indexInfo.dataSize) )
+
+					newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, start_index, indexInfo.dataSize)
+					start_index += indexInfo.dataSize
+
+			return BytesMatrix(b"".join(newData), name=newName, indexTable=newDataIndex)
 
 		elif chunks > 1:
 			assert isinstance(chunks, int), f"Expected <chunks> is an int number but got {chunks}."
@@ -1157,7 +1192,7 @@ class BytesData(BytesAchievement):
 						chunkLen += indexInfo.dataSize
 					chunkData = sp.read(chunkLen)
 					
-					datas.append(BytesData(chunkData, name=newName, indexTable=newDataIndex))
+					datas.append( BytesMatrix(chunkData, name=newName, indexTable=newDataIndex) )
 			return datas
 
 		elif uttList != None:
@@ -1184,9 +1219,10 @@ class BytesData(BytesAchievement):
 						newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, start_index, indexInfo.dataSize)
 						start_index += indexInfo.dataSize
 
-			return BytesData(b''.join(newData), name=newName, indexTable=newDataIndex)
+			return BytesMatrix(b''.join(newData), name=newName, indexTable=newDataIndex)
+		
 		else:
-			raise WrongOperation('Expected <nHead> is larger than "0", or <chunks> is larger than "1", or <uttList> is not None.')
+			raise WrongOperation('Expected one of <nHead>, <nTail>, <nRandom>, <chunks> or <uttList> is avaliable but all got the default value.')
 
 	def __call__(self, utt):
 		'''
@@ -1195,7 +1231,7 @@ class BytesData(BytesAchievement):
 		Args:
 			<utt>: a string.
 		Return:
-			If existed, return a new BytesData object.
+			If existed, return a new BytesMatrix object.
 			Or return None.
 		''' 
 		assert isinstance(utt, str), "utterance ID should be a name-like string."
@@ -1215,7 +1251,7 @@ class BytesData(BytesAchievement):
 					data = sp.read( indexInfo.dataSize )
 
 					newDataIndex[utt] =	indexInfo._replace(startIndex=0)
-					result = BytesData(data, name=newName, indexTable=newDataIndex)
+					result = BytesMatrix(data, name=newName, indexTable=newDataIndex)
 				
 				return result
 
@@ -1227,7 +1263,7 @@ class BytesData(BytesAchievement):
 			<by>: "frames" or "utt"
 			<reverse>: If reverse, sort in descending order.
 		Return:
-			A new BytesData object.
+			A new BytesMatrix object.
 		''' 
 		assert by in ["utt", "frames"], f"<by> should be 'utt' or 'frames'."
 
@@ -1270,21 +1306,21 @@ class BytesData(BytesAchievement):
 					temp.close()
 		
 			else:
-				chunkdata = []
+				newData = []
 				start_index = 0
 				for utt, indexInfo in newDataIndex.items():
 					sp.seek( indexInfo.startIndex )
-					chunkdata.append( sp.read(indexInfo.dataSize) )
+					newData.append( sp.read(indexInfo.dataSize) )
 
 					newDataIndex[utt] = indexInfo._replace(startIndex=start_index)
 					start_index += indexInfo.dataSize
 
-				newData = b"".join(chunkdata)
-				del chunkdata
+				newData = b"".join(newData)
 
-		return BytesData(newData, name=self.name, indexTable=newDataIndex)			
-				
-class BytesFeature(BytesData):
+		return BytesMatrix(newData, name=self.name, indexTable=newDataIndex)			
+
+## Subclass: for acoustic feature (in binary format)		
+class BytesFeature(BytesMatrix):
 	'''
 	Hold the feature with kaldi binary format.
 	'''
@@ -1331,7 +1367,7 @@ class BytesFeature(BytesData):
 
 	def splice(self, left=1, right=None):
 		'''
-		Splice front-behind N frames to generate new feature data.
+		Splice front-behind N frames to generate new feature.
 
 		Args:
 			<left>: the left N-frames to splice.
@@ -1352,12 +1388,12 @@ class BytesFeature(BytesData):
 		cmd = f"splice-feats --left-context={left} --right-context={right} ark:- ark:-"
 		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
 
-		if (isinstance(cod, int) and cod != 0) or out == b'':
+		if cod != 0 or out == b'':
 			print(err.decode())
 			raise KaldiProcessError("Failed to splice left-right frames.")
 		else:
 			newName = f"splice({self.name},{left},{right})"
-			# New index table will be generated.
+			# New index table will be generated later.
 			return BytesFeature(out, name=newName, indexTable=None)
 
 	def select(self, dims, retain=False):
@@ -1434,28 +1470,28 @@ class BytesFeature(BytesData):
 		cmdS = f'select-feats {selectFlag} ark:- ark:-'
 		outS, errS, codS = run_shell_command(cmdS, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
 		
-		if (isinstance(codS, int) and codS != 0) or outS == b'':
+		if codS != 0 or outS == b'':
 			print(errS.decode())
 			raise KaldiProcessError("Failed to select data.")
 		else:
 			newName = f"select({self.name},{dims})"
-			# New index table will be generated.
+			# New index table will be generated later.
 			selectedResult = BytesFeature(outS, name=newName, indexTable=None)
 
 		if retain:
 			if retainFlag == "":
 				newName = f"select({self.name}, void)"
-				# New index table will be generated.
+				# New index table will be generated later.
 				retainedResult = BytesFeature(name=newName, indexTable=None)
 			else: 
 				cmdR = f"select-feats {retainFlag} ark:- ark:-"
 				outR, errR, codR = run_shell_command(cmdR, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
-				if (isinstance(codR, int) and codR != 0) or outR == b'':
+				if codR != 0 or outR == b'':
 					print(errR.decode())
 					raise KaldiProcessError("Failed to select retained data.")
 				else:
 					newName = f"select({self.name},not {dims})"
-					# New index table will be generated.
+					# New index table will be generated later.
 					retainedResult = BytesFeature(outR, name=newName, indexTable=None)
 		
 			return selectedResult, retainedResult
@@ -1463,19 +1499,22 @@ class BytesFeature(BytesData):
 		else:
 			return selectedResult
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
 			a new BytesFeature object or a list of new BytesFeature objects.
 		''' 
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -1494,13 +1533,9 @@ class BytesFeature(BytesData):
 			<uttID>: a string.
 		Return:
 			If existed, return a new BytesFeature object.
-			Or return None.
 		''' 
 		result = super().__call__(uttID)
-		if result is None:
-			return None
-		else:
-			return BytesFeature(result.data, result.name, result.utt_index)
+		return BytesFeature(result.data, result.name, result.utt_index)
 
 	def add_delta(self, order=2):
 		'''
@@ -1519,12 +1554,12 @@ class BytesFeature(BytesData):
 
 		cmd = f"add-deltas --delta-order={order} ark:- ark:-"
 		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
-		if (isinstance(cod, int) and cod != 0) or out == b'':
+		if cod != 0 or out == b'':
 			print(err.decode())
 			raise KaldiProcessError('Failed to add delta feature.')
 		else:
 			newName = f"delta({self.name},{order})"
-			# New index table need to be generated.
+			# New index table need to be generated later.
 			return BytesFeature(data=out, name=newName, indexTable=None)
 
 	def paste(self, others):
@@ -1541,21 +1576,21 @@ class BytesFeature(BytesData):
 		if self.is_void:
 			raise WrongOperation("Cannot operate a void feature data.")
 		
-		selfData = tempfile.NamedTemporaryFile("wb+")
+		selfData = tempfile.NamedTemporaryFile("wb+", suffix="_feat.ark")
 		otherData = []
 		otherName = []
 		try:
 			if isinstance(others, BytesFeature):
-				temp = tempfile.NamedTemporaryFile("wb+")
-				temp.write(others.sort(by="utt").data)
-				otherData.append(temp)
-				otherName.append(others.name)
+				temp = tempfile.NamedTemporaryFile("wb+", suffix="_feat.ark")
+				temp.write( others.sort(by="utt").data )
+				otherData.append( temp )
+				otherName.append( others.name )
 
 			elif isinstance(others, NumpyFeature):
-				temp = tempfile.NamedTemporaryFile("wb+")
-				temp.write(others.sort(by="utt").to_bytes().data)
-				otherData.append(temp)
-				otherName.append(others.name)
+				temp = tempfile.NamedTemporaryFile("wb+", suffix="_feat.ark")
+				temp.write( others.sort(by="utt").to_bytes().data )
+				otherData.append( temp )
+				otherName.append( others.name )
 
 			elif isinstance(others,(list,tuple)):
 				for ot in others:
@@ -1565,22 +1600,22 @@ class BytesFeature(BytesData):
 						da = ot.sort(by="utt").to_bytes().data
 					else:
 						raise UnsupportedType(f"Expected exkaldi feature object but got {type_name(ot)}.")
-					temp = tempfile.NamedTemporaryFile("wb+")
-					temp.write(da)
-					otherData.append(temp)
-					otherName.append(ot.name)		
+					temp = tempfile.NamedTemporaryFile("wb+", suffix="_feat.ark")
+					temp.write( da )
+					otherData.append( temp )
+					otherName.append( ot.name )		
 			else:
-				raise UnsupportedType(f"Expected exkaldi feature object but got {type_name(others)}.")
+				raise UnsupportedType(f"Expected exkaldi feature objects but got {type_name(others)}.")
 			
-			selfData.write(self.sort(by="utt").data)
+			selfData.write( self.sort(by="utt").data )
 			cmd = f"paste-feats ark:{selfData.name} "
 			for ot in otherData:
-				cmd += f"ark:{ot.name} "
+				cmd += f"ark:{ ot.name } "
 			cmd += "ark:-"
 			
 			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-			if (isinstance(cod, int) and cod != 0) or out == b'':
+			if cod != 0 or out == b'':
 				print(err.decode())
 				raise KaldiProcessError("Failed to paste feature.")
 			else:
@@ -1588,8 +1623,9 @@ class BytesFeature(BytesData):
 				for on in otherName:
 					newName += f",{on}"
 				newName += ")"
-				# New index table need to be generated.
+				# New index table need to be generated later.
 				return BytesFeature(out, name=newName, indexTable=None)
+
 		finally:
 			selfData.close()
 			for ot in otherData:
@@ -1608,7 +1644,8 @@ class BytesFeature(BytesData):
 		result = super().sort(by, reverse)
 		return BytesFeature(result.data, name=result.name, indexTable=result.utt_index)
 
-class BytesCMVNStatistics(BytesData):
+## Subclass: for CMVN statistics (in binary format)
+class BytesCMVNStatistics(BytesMatrix):
 	'''
 	Hold the CMVN statistics with kaldi binary format.
 	'''
@@ -1654,19 +1691,22 @@ class BytesCMVNStatistics(BytesData):
 
 		return BytesCMVNStatistics(result.data, name=result.name, indexTable=result.utt_index)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
 			a new BytesCMVNStatistics object or a list of new BytesCMVNStatistics objects.
 		''' 
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -1685,13 +1725,9 @@ class BytesCMVNStatistics(BytesData):
 			<uttID>: a string.
 		Return:
 			If existed, return a new BytesCMVNStatistics object.
-			Or return None.
 		''' 
 		result = super().__call__(uttID)
-		if result is None:
-			return None
-		else:
-			return BytesCMVNStatistics(result.data, result.name, result.utt_index)
+		return BytesCMVNStatistics(result.data, result.name, result.utt_index)
 
 	def sort(self, by="utt", reverse=False):
 		'''
@@ -1706,7 +1742,8 @@ class BytesCMVNStatistics(BytesData):
 		result = super().sort(by, reverse)
 		return BytesCMVNStatistics(result.data, name=result.name, indexTable=result.utt_index)
 
-class BytesProbability(BytesData):
+## Subclass: for probability of neural network output (in binary format)
+class BytesProbability(BytesMatrix):
 	'''
 	Hold the probalility with kaldi binary format.
 	'''
@@ -1752,19 +1789,22 @@ class BytesProbability(BytesData):
 
 		return BytesProbability(result.data, result.name, result.utt_index)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
 			a new BytesProbability object or a list of new BytesProbability objects.
 		''' 
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -1783,13 +1823,9 @@ class BytesProbability(BytesData):
 			<uttID>: a string.
 		Return:
 			If existed, return a new BytesProbability object.
-			Or return None.
 		''' 
 		result = super().__call__(uttID)
-		if result is None:
-			return None
-		else:
-			return BytesProbability(result.data, result.name, result.utt_index)
+		return BytesProbability(result.data, result.name, result.utt_index)
 
 	def sort(self, by="utt", reverse=False):
 		'''
@@ -1804,59 +1840,81 @@ class BytesProbability(BytesData):
 		result = super().sort(by, reverse)
 		return BytesProbability(result.data, name=result.name, indexTable=result.utt_index)
 
-class BytesAlignmentTrans(BytesData):
+## Base class: for Vector Data achivements
+class BytesVector(BytesAchievement):
 	'''
-	Hold the alignment(transition ID) with kaldi binary format.
+	A base class to hold kaldi vector data such as alignment.  
 	'''
-	def __init__(self, data=b"", name="transitionID", indexTable=None):
-		if isinstance(data, BytesProbability):
+	def __init__(self, data=b'', name="data", indexTable=None):
+		if isinstance(data, BytesVector):
 			data = data.data
-		elif isinstance(data, NumpyProbability):
+		elif isinstance(data, NumpyVector):
 			data = (data.to_bytes()).data
 		elif isinstance(data, bytes):
 			pass
 		else:
-			raise UnsupportedType(f"Expected BytesAlignment, NumpyAlignment or Python bytes object but got {type_name(data)}.")		
-		
-		super().__init__(data, name, indexTable)
+			raise UnsupportedType(f"Expected exkaldi BytesVector, NumpyVector or Python bytes object but got {type_name(data)}.")
+		super().__init__(data, name)
 
-	def _generate_index_table(self):
+		# <indexTable> is used to map the index of every utterance if bytes data.
+		if indexTable is None:
+			self.__generate_index_table()
+		else:
+			assert isinstance(indexTable, BytesDataIndex), f"<indexTable> should be a BytesDataIndex object bur got {type_name(indexTable)}."
+			self.__dataIndex = indexTable	
+
+	def __read_one_record(self, fp):
+		'''
+		Read a utterance.
+		'''
+		utt = ''
+		while True:
+			char = fp.read(1).decode()
+			if (char == '') or (char == ' '):break
+			utt += char
+		utt = utt.strip()
+		if utt == '':
+			if fp.read() == b'':
+				return (None, None, None, None)
+			else:
+				fp.close()
+				raise WrongDataFormat("Miss utterance ID before utterance.")
+		binarySymbol = fp.read(2).decode()
+		if binarySymbol == '\0B':
+			dataSize = fp.read(1).decode()
+			if dataSize != '\4':
+				fp.close()
+				raise WrongDataFormat(f"We only support read int vector, size is 4 but got {dataSize}.")
+			frames = int(np.frombuffer(fp.read(4), dtype='int32', count=1)[0])
+			if frames == 0:
+				buf = b""
+			else:
+				buf = fp.read(frames * 5)
+		else:
+			fp.close()
+			raise WrongDataFormat("Miss binary symbol before utterance. We do not support read kaldi achivements with text format.")
+		
+		return (utt, 4, frames, buf)
+
+	def __generate_index_table(self):
 		'''
 		Genrate the index table.
 		'''
 		if self.is_void:
 			return None
 		else:
-			# Index table will have the same name with BytesData object.
-			newDataIndex = BytesDataIndex(name=self.name)
-
-			cmd = "copy-int-vector ark:- ark,t:-"
-			out, err, cod = run_shell_command(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,inputs=self.data)
-
-			if cod != 0:
-				print(err.decode())
-				raise KaldiProcessError("Failed to vertify alignment data.")
-
-			utterances =[] 
-			with BytesIO(out) as sp:
-				utterances.extend(sp.readlines())
-			
+			# Index table will have the same name with BytesMatrix object.
+			self.__dataIndex = BytesDataIndex(name=self.name)
 			start_index = 0
-			for utt in utterances:
-				cmd = "copy-int-vector ark:- ark:-"
-				out, err, cod = run_shell_command(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,inputs=utt)
-				if cod != 0:
-					print(err.decode())
-					raise KaldiProcessError("Failed to vertify alignment data.")
-				else:
-					utt = utt.strip().split()
-					uttID = utt[0].decode()
-					rows = len(utt) - 1 
-					oneRecordLen = len(out)
-					newDataIndex[uttID] = newDataIndex.spec(rows, start_index, oneRecordLen)
-					start_index += oneRecordLen
+			with BytesIO(self.data) as sp:
+				while True:
+					(utt, dataSize, frames, buf) = self.__read_one_record(sp)
+					if utt is None:
+						break
+					oneRecordLen = len(utt) + 8 + frames * 5
 
-			return newDataIndex
+					self.__dataIndex[utt] = self.__dataIndex.spec(frames, start_index, oneRecordLen)
+					start_index += oneRecordLen
 
 	@property
 	def utt_index(self):
@@ -1867,14 +1925,11 @@ class BytesAlignmentTrans(BytesData):
 			A BytesDataIndex object.
 		'''
 		# Return deepcopied dict object.
-		return copy.deepcopy(self._dataIndex)
+		return copy.deepcopy(self.__dataIndex)
 
 	@property
 	def dtype(self):
-		raise WrongOperation("<BytesAlignmentTrans> is unsupported to check dtype.")
-
-	def to_dtype(self, dtype):
-		raise WrongOperation("<BytesAlignmentTrans> is unsupported to change dtype.")
+		return "int32"
 
 	@property
 	def dim(self):
@@ -1883,120 +1938,63 @@ class BytesAlignmentTrans(BytesData):
 		else:
 			return 0
 
-	def check_format(self):
-		raise WrongOperation("<BytesAlignmentTrans> is unsupported to check format.")
-
-	def to_numpy(self, aliType="transitionID", hmm=None):
+	def to_numpy(self):
 		'''
-		Transform alignment to numpy formation.
-
-		Args:
-			<aliType>: If it is "transitionID", transform to transition IDs.
-					  If it is "phoneID", transform to phone IDs.
-					  If it is "pdfID", transform to pdf IDs.
-		Return:
-			a NumpyAlignmentTrans or NumpyAlignmentPhone or NumpyAlignmentPdf object.
-		'''
-		if self.is_void:
-			return NumpyAlignmentTrans({}, self.name)
-
-		ExkaldiInfo.vertify_kaldi_existed()
-
-		def transform(data, cmd):
-			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=data)
-			if (isinstance(cod,int) and cod != 0) or out == b'':
-				print(err.decode())
-				raise KaldiProcessError('Failed to transform alignment.')
-			else:
-				result = {}
-				sp = BytesIO(out)
-				for line in sp.readlines():
-					line = line.decode()
-					line = line.strip().split()
-					utt = line[0]
-					matrix = np.array(line[1:], dtype=np.int32)
-					result[utt] = matrix
-				return result
-
-		if aliType == "transitionID":
-			cmd = "copy-int-vector ark:- ark,t:-"
-			result = transform(self.data, cmd)
-			return NumpyAlignmentTrans(result, self.name).sort(by="utt")
+		Transform bytes data to numpy data.
 		
-		else:
-			assert hmm is not None, "Expected HMM model."
-			temp = tempfile.NamedTemporaryFile("wb+")
-			try:
-				if type_name(hmm) in ("HMM", "MonophoneHMM", "TriphoneHMM"):
-					temp.write(hmm.data)
-					hmmFileName = temp.name
-				elif isinstance(hmm, str):
-					if not os.path.isfile(hmm):
-						raise WrongPath(f"No such file:{hmm}.")
-					hmmFileName = hmm
-				else:
-					raise UnsupportedType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
+		Return:
+			a NumpyVector object sorted by utterance ID.
+		'''
+		newDict = {}
+		if not self.is_void:
+			sortedIndex = self.utt_index.sort(by="utt", reverse=False)
+			with BytesIO(self.data) as sp:
+				for utt, indexInfo in sortedIndex.items():
+					sp.seek(indexInfo.startIndex)
+					(utt, dataSize, frames, buf) = self.__read_one_record(sp)
+					vector = np.frombuffer(buf, dtype=[("size","int8"),("value","int32")], count=frames)
+					vector = vector[:]["value"]
+				newDict[utt] = vector
 
-				if aliType == "phoneID":
-					cmd = f"ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-"
-					result = transform(self.data, cmd)
-					newName = f"to_phone({self.name})"
-					return NumpyAlignmentPhone(result, newName).sort(by="utt")
-
-				elif aliType == "pdfID":
-					cmd = f"ali-to-pdf {hmmFileName} ark:- ark,t:-"
-					result = transform(self.data, cmd)
-					newName = f"to_pdf({self.name})"
-					return NumpyAlignmentPdf(result, newName).sort(by="utt")
-				else:
-					raise WrongOperation(f"<target> should be 'trainsitionID', 'phoneID' or 'pdfID' but got {aliType}.")
-			finally:
-				temp.close()
-
+		return NumpyVector(newDict, name=self.name)
+	
 	def save(self, fileName, chunks=1):
 		'''
-		Save bytes alignment to file.
+		Save bytes data to file.
 
 		Args:
-			<fileName>: file name. Defaultly suffix ".ali" will be add to the name.
+			<fileName>: file name.
 			<chunks>: If larger than 1, data will be saved to mutiple files averagely.
 		
 		Return:
-			The path of saved files.
+			the path of saved files.
 		'''
-		ExkaldiInfo.vertify_kaldi_existed()
-		assert isinstance(fileName, str), "file name should be a string."
-		assert isinstance(chunks, int) and chunks > 0, "<chunks> should be a positive int value."
-
 		if self.is_void:
 			raise WrongOperation('No data to save.')
 
-		#if sys.getsizeof(self)/chunks > 10000000000:
-		#   print("Warning: Data size is extremely large. Try to save it with a long time.")
+		make_dependent_dirs(path=fileName, pathIsFile=True)
 
 		def save_chunk_data(chunkData, fileName):
-
-			cmd = f"copy-int-vector ark:- ark:{fileName}"
-			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=chunkData)
-
-			if (isinstance(cod,int) and cod != 0) or (not os.path.isfile(fileName)) or (os.path.getsize(fileName)) == 0:
-				print(err.decode())
-				if os.path.isfile(fileName):
-					os.remove(fileName)
-				raise KaldiProcessError('Failed to save alignment.')
-			else:
+			if isinstance(fileName, str):
+				with open(fileName, "wb") as fw:
+					fw.write(chunkData)
 				return os.path.abspath(fileName)
+			elif isinstance(fileName, tempfile._TemporaryFileWrapper):
+				fileName.read()
+				fileName.seek(0)
+				fileName.write(chunkData)
+				fileName.seek(0)
+				return None
+			else:
+				raise UnsupportedType(f"<fileName> should be a string but got: {type_name(fileName)}.")
 
 		if chunks == 1:
-			if not fileName.rstrip().endswith(".ali"):
-				fileName += ".ali"
-			savedFilesName = save_chunk_data(self.data, fileName)
+			savedFilesName = save_chunk_data(self.data, fileName)	
+		
 		else:
-			if fileName.rstrip().endswith(".ali"):
-				fileName = fileName.rstrip()[:-4]
-
-			utts = [ indexInfo.dataSize for indexInfo in self.utt_index.values() ]
-			allLens = len(utts)
+			assert isinstance(fileName, str), "Only support save data by spliting chunks into normal files."
+			uttLens = [ value.dataSize for value in self.utt_index.values() ]
+			allLens = len(uttLens)
 			chunkUtts = allLens//chunks
 			if chunkUtts == 0:
 				chunks = allLens
@@ -2007,20 +2005,15 @@ class BytesAlignmentTrans(BytesData):
 				t = allLens - chunkUtts * chunks
 
 			savedFilesName = []
-			start = 0
+
 			with BytesIO(self.data) as sp:
 				for i in range(chunks):
 					if i < t:
-						chunkLen = chunkUtts + 1
+						chunkLen = sum( uttLens[i*(chunkUtts+1) : (i+1)*(chunkUtts+1)] )
 					else:
-						chunkLen = chunkUtts
-					chunkData = utts[ start:start+chunkLen ]
-					start += chunkLen
-
-					chunkDataSize = sum(chunkData)
-					chunkData = sp.read(chunkDataSize)
-		
-					savedFilesName.append(save_chunk_data(chunkData, fileName + f"_ck{i}.ali"))
+						chunkLen = sum( uttLens[i*chunkUtts : (i+1)*chunkUtts] )
+					chunkData = sp.read(chunkLen)
+					savedFilesName.append( save_chunk_data(chunkData, fileName + f'_ck{i}') )
 
 		return savedFilesName
 
@@ -2029,16 +2022,16 @@ class BytesAlignmentTrans(BytesData):
 		The Plus operation between two objects.
 
 		Args:
-			<other>: a BytesAlignmentTrans or NumpyAlignmentTrans object.
+			<other>: a BytesVector or NumpyVector object.
 		Return:
-			a new BytesAlignmentTrans object.
+			a new BytesVector object.
 		''' 
-		if isinstance(other, BytesAlignmentTrans):
+		if isinstance(other, BytesVector):
 			pass
-		elif type_name(other) == "NumpyAlignmentTrans":
+		elif type_name(other) == "NumpyVector":
 			other = other.to_bytes()
 		else:
-			raise UnsupportedType(f"Expected exkaldi BytesAlignmentTrans or NumpyAlignmentTrans object but got {type_name(other)}.")
+			raise UnsupportedType(f"Expected exkaldi BytesVector or NumpyVector object but got {type_name(other)}.")
 		
 		if self.is_void:
 			return copy.deepcopy(other)
@@ -2064,7 +2057,373 @@ class BytesAlignmentTrans(BytesData):
 					newData.append(data)
 
 		newName = f"plus({self.name},{other.name})"
-		return BytesAlignmentTrans(b''.join([self.data, *newData]), name=newName, indexTable=newDataIndex)
+		return BytesVector(b''.join([self.data, *newData]), name=newName, indexTable=newDataIndex)
+
+	def __call__(self, utt):
+		'''
+		Pick out the specified utterance.
+		
+		Args:
+			<utt>: a string.
+		Return:
+			If existed, return a new BytesVector object.
+		''' 
+		assert isinstance(utt, str), "utterance ID should be a name-like string."
+		utt = utt.strip()
+
+		if self.is_void:
+			raise WrongOperation("Cannot get any data from a void object.")
+		else:
+			if utt not in self.utts:
+				raise WrongOperation(f"No such utterance:{utt}.")
+			else:
+				indexInfo = self.utt_index[utt]
+				newName = f"pick({self.name},{utt})"
+				newDataIndex = BytesDataIndex(name=newName)
+				with BytesIO(self.data) as sp:
+					sp.seek( indexInfo.startIndex )
+					data = sp.read( indexInfo.dataSize )
+
+					newDataIndex[utt] =	indexInfo._replace(startIndex=0)
+					result = BytesVector(data, name=newName, indexTable=newDataIndex)
+				
+				return result
+
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
+		'''
+		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
+		
+		Args:
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
+		Return:
+			a new BytesVector object or a list of new BytesVector objects.
+		''' 
+		if self.is_void:
+			raise WrongOperation("Cannot subset a void data.")
+
+		if nHead > 0:
+			assert isinstance(nHead, int), f"Expected <nHead> is an int number but got {nHead}."			
+			newName = f"subset({self.name},head {nHead})"
+
+			newDataIndex = BytesDataIndex(name=newName)
+			totalSize = 0
+			
+			for utt, indexInfo in self.utt_index.items():
+				newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, totalSize, indexInfo.dataSize)
+				totalSize += indexInfo.dataSize
+				nHead -= 1
+				if nHead <= 0:
+					break
+			
+			with BytesIO(self.data) as sp:
+				sp.seek(0)
+				data = sp.read(totalSize)
+	
+			return BytesMatrix(data, name=newName, indexTable=newDataIndex)
+
+		elif nTail > 0:
+			assert isinstance(nTail, int), f"Expected <nTail> is an int number but got {nTail}."			
+			newName = f"subset({self.name},tail {nTail})"
+
+			newDataIndex = BytesDataIndex(name=newName)
+
+			tailNRecord = list(self.utt_index.items())[-nTail:]
+			start_index = tailNRecord[0][1].startIndex
+
+			totalSize = 0
+			for utt, indexInfo in tailNRecord:
+				newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, totalSize, indexInfo.dataSize)
+				totalSize += indexInfo.dataSize
+
+			with BytesIO(self.data) as sp:
+				sp.seek(start_index)
+				data = sp.read(totalSize)
+	
+			return BytesMatrix(data, name=newName, indexTable=newDataIndex)
+
+		elif nRandom > 0:
+			assert isinstance(nRandom, int), f"Expected <nRandom> is an int number but got {nRandom}."
+			randomNRecord = random.choices(list(self.utt_index.items()), k=nRandom)
+			newName = f"subset({self.name},random {nRandom})"
+
+			newDataIndex = BytesDataIndex(name=newName)
+			start_index = 0
+			newData = []
+			with BytesIO(self.data) as sp:
+				for utt, indexInfo in randomNRecord:
+					sp.seek(indexInfo.startIndex)
+					newData.append( sp.read(indexInfo.dataSize) )
+
+					newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, start_index, indexInfo.dataSize)
+					start_index += indexInfo.dataSize
+
+			return BytesVector(b"".join(newData), name=newName, indexTable=newDataIndex)
+
+		elif chunks > 1:
+			assert isinstance(chunks, int), f"Expected <chunks> is an int number but got {chunks}."
+
+			uttLens = list(self.utt_index.items())
+			allLens = len(uttLens)
+			chunkUtts = allLens//chunks
+			if chunkUtts == 0:
+				chunks = allLens
+				chunkUtts = 1
+				t = 0
+				print(f"Warning: utterances is fewer than <chunks> so only {chunks} files will be saved.")
+			else:
+				t = allLens - chunkUtts * chunks
+			
+			datas = []
+			with BytesIO(self.data) as sp:                          
+				sp.seek(0)
+				for i in range(chunks):
+					newName = f"subset({self.name},chunk {chunks}-{i})"
+					newDataIndex = BytesDataIndex(name=newName)
+					if i < t:
+						chunkItems = uttLens[i*(chunkUtts+1) : (i+1)*(chunkUtts+1)]
+					else:
+						chunkItems = uttLens[i*chunkUtts : (i+1)*chunkUtts]
+					chunkLen = 0
+					for utt, indexInfo in chunkItems:
+						newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, chunkLen, indexInfo.dataSize)
+						chunkLen += indexInfo.dataSize
+					chunkData = sp.read(chunkLen)
+					
+					datas.append(BytesMatrix(chunkData, name=newName, indexTable=newDataIndex))
+			return datas
+
+		elif uttList != None:
+			if isinstance(uttList, str):
+				newName = f"subset({self.name},uttList 1)"
+				uttList = [uttList,]
+			elif isinstance(uttList, (list,tuple)):
+				newName = f"subset({self.name},uttList {len(uttList)})"
+				pass
+			else:
+				raise UnsupportedType(f"Expected <uttList> is string, list or tuple but got {type_name(uttList)}.")
+
+			newData = []
+			dataIndex = self.utt_index
+			newDataIndex = BytesDataIndex(name=newName)
+			start_index = 0
+			with BytesIO(self.data) as sp:
+				for utt in uttList:
+					if utt in self.utts:
+						indexInfo = dataIndex[utt]
+						sp.seek(indexInfo.startIndex)
+						newData.append(sp.read(indexInfo.dataSize))
+
+						newDataIndex[utt] = newDataIndex.spec(indexInfo.frames, start_index, indexInfo.dataSize)
+						start_index += indexInfo.dataSize
+
+			return BytesMatrix(b''.join(newData), name=newName, indexTable=newDataIndex)
+		
+		else:
+			raise WrongOperation('Expected one of <nHead> <nTail> <nRandom> <chunks> is or <uttList> is avaliable but all got default value.')
+
+	def sort(self, by="utt", reverse=False):
+		'''
+		Sort utterances by frames length or uttID
+
+		Args:
+			<by>: "frames" or "utt"
+			<reverse>: If reverse, sort in descending order.
+		Return:
+			A new BytesMatrix object.
+		''' 
+		assert by in ["utt", "frames"], f"<by> should be 'utt' or 'frames'."
+
+		newDataIndex = self.utt_index.sort(by=by, reverse=reverse)
+		ordered = True
+		for i, j in zip(self.utt_index.items(), newDataIndex.items()):
+			if i != j:
+				ordered = False
+				break
+		if ordered:
+			return copy.deepcopy(self)
+
+		with BytesIO(self.data) as sp:
+			if sys.getsizeof(self.data) > 1e-8:
+				## If the data size is extremely large, divide it into N chunks and save it to intermidiate file.
+				temp = tempfile.NamedTemporaryFile("wb+")
+				try:
+					chunkdata = []
+					chunkSize = 50
+					count = 0
+					start_index = 0
+					for utt, indexInfo in newDataIndex.items():
+						newDataIndex[utt] = indexInfo._replace(startIndex=start_index)
+						start_index += indexInfo.dataSize
+
+						sp.seek( indexInfo.startIndex )
+						chunkdata.append( sp.read(indexInfo.dataSize) )
+						count += 1
+						if count >= chunkSize:
+							temp.write( b"".join(chunkdata) )
+							del chunkdata
+							chunkdata = []
+							count = 0
+					if len(chunkdata) > 0:
+						temp.write( b"".join(chunkdata) )
+						del chunkdata
+					temp.seek(0)
+					newData = temp.read()
+				finally:
+					temp.close()
+		
+			else:
+				newData = []
+				start_index = 0
+				for utt, indexInfo in newDataIndex.items():
+					sp.seek( indexInfo.startIndex )
+					newData.append( sp.read(indexInfo.dataSize) )
+
+					newDataIndex[utt] = indexInfo._replace(startIndex=start_index)
+					start_index += indexInfo.dataSize
+
+				newData = b"".join(newData)
+
+		return BytesVector(newData, name=self.name, indexTable=newDataIndex)	
+
+## Subclass: for transition-ID alignment
+class BytesAlignmentTrans(BytesVector):
+	'''
+	Hold the alignment(transition ID) with kaldi binary format.
+	'''
+	def __init__(self, data=b"", name="transitionID", indexTable=None):
+		if isinstance(data, BytesAlignmentTrans):
+			data = data.data
+		elif isinstance(data, NumpyAlignmentTrans):
+			data = (data.to_bytes()).data
+		elif isinstance(data, bytes):
+			pass
+		else:
+			raise UnsupportedType(f"Expected BytesAlignmentTrans, NumpyAlignmentTrans or Python bytes object but got {type_name(data)}.")		
+		
+		super().__init__(data, name, indexTable)
+
+	def to_numpy(self, aliType="transitionID", hmm=None):
+		'''
+		Transform alignment to numpy formation.
+
+		Args:
+			<aliType>: If it is "transitionID", transform to transition IDs.
+					  If it is "phoneID", transform to phone IDs.
+					  If it is "pdfID", transform to pdf IDs.
+			<hmm>: None, or hmm file or exkaldi HMM object.
+
+		Return:
+			a NumpyAlignmentTrans or NumpyAlignmentPhone or NumpyAlignmentPdf object.
+		'''
+		if self.is_void:
+			return NumpyAlignmentTrans({}, self.name)
+
+		def transform(data, cmd):
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=data)
+			if (isinstance(cod,int) and cod != 0) or out == b'':
+				print(err.decode())
+				raise KaldiProcessError('Failed to transform alignment.')
+			else:
+				result = {}
+				sp = BytesIO(out)
+				for line in sp.readlines():
+					line = line.decode()
+					line = line.strip().split()
+					utt = line[0]
+					matrix = np.array(line[1:], dtype=np.int32)
+					result[utt] = matrix
+				return result
+
+		if aliType == "transitionID":
+			result = super().to_numpy()
+			return NumpyAlignmentTrans(result.data, self.name).sort(by="utt")
+		
+		else:
+			ExkaldiInfo.vertify_kaldi_existed()
+			assert hmm is not None, "Expected HMM model."
+			temp = tempfile.NamedTemporaryFile("wb+", suffix="_hmm.mdl")
+			try:
+				if type_name(hmm) in ("BaseHMM", "MonophoneHMM", "TriphoneHMM"):
+					temp.write(hmm.data)
+					hmmFileName = temp.name
+				elif isinstance(hmm, str):
+					if not os.path.isfile(hmm):
+						raise WrongPath(f"No such file:{hmm}.")
+					hmmFileName = hmm
+				else:
+					raise UnsupportedType(f"<hmm> should be a filePath or exkaldi HMM object but got {type_name(hmm)}.") 
+
+				if aliType == "phoneID":
+					cmd = f"ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-"
+					result = transform(self.data, cmd)
+					newName = f"to_phone({self.name})"
+					return NumpyAlignmentPhone(result, newName).sort(by="utt")
+
+				elif aliType == "pdfID":
+					cmd = f"ali-to-pdf {hmmFileName} ark:- ark,t:-"
+					result = transform(self.data, cmd)
+					newName = f"to_pdf({self.name})"
+					return NumpyAlignmentPdf(result, newName).sort(by="utt")
+				else:
+					raise WrongOperation(f"<target> should be 'trainsitionID', 'phoneID' or 'pdfID' but got {aliType}.")
+			
+			finally:
+				temp.close()
+
+	def save(self, fileName, chunks=1):
+		'''
+		Save bytes data to file.
+
+		Args:
+			<fileName>: file name.
+			<chunks>: If larger than 1, data will be saved to mutiple files averagely.
+		
+		Return:
+			the path of saved files.
+		'''
+		if chunks == 1:
+			if isinstance(fileName,str) and (not fileName.rstrip().endswith(".ali")):	
+				fileName += ".ali"
+			return super().save(fileName, 1)
+		else:
+			if isinstance(fileName,str):
+				fileName = fileName.rstrip()
+				if fileName.endswith(".ali"):
+					fileName = fileName[0:-4]
+				savedFiles = super().save(fileName, chunks)
+				for index,filePath in enumerate(savedFiles):
+					newFileName = filePath + ".ali"
+					os.rename(filePath, newFileName)
+					savedFiles[index] = newFileName
+				return savedFiles
+			else:
+				raise UnsupportedType("Only can save data by spliting chunks in normal files.")
+
+	def __add__(self, other):
+		'''
+		The Plus operation between two objects.
+
+		Args:
+			<other>: a BytesAlignmentTrans or NumpyAlignmentTrans object.
+		Return:
+			a new BytesAlignmentTrans object.
+		''' 
+		if isinstance(other, BytesAlignmentTrans):
+			pass
+		elif type_name(other) == "NumpyAlignmentTrans":
+			other = other.to_bytes()
+		else:
+			raise UnsupportedType(f"Expected exkaldi BytesAlignmentTrans or NumpyAlignmentTrans object but got {type_name(other)}.")
+		
+		result = super().__add__(other)
+
+		return BytesAlignmentTrans(result.data, result.name, result.utt_index)
 
 	def __call__(self, uttID):
 		'''
@@ -2074,27 +2433,26 @@ class BytesAlignmentTrans(BytesData):
 			<uttID>: a string.
 		Return:
 			If existed, return a new BytesAlignmentTrans object.
-			Or return None.
 		''' 
 		result = super().__call__(uttID)
-		if result is None:
-			return None
-		else:
-			return BytesAlignmentTrans(result.data, result.name, result.utt_index)
+		return BytesAlignmentTrans(result.data, result.name, result.utt_index)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
 			a new BytesAlignmentTrans object or a list of new BytesAlignmentTrans objects.
 		''' 
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -2113,13 +2471,14 @@ class BytesAlignmentTrans(BytesData):
 			<by>: "frame" or "utt"
 			<reverse>: If reverse, sort in descending order.
 		Return:
-			A new BytesProbability object.
+			A new BytesAlignmentTrans object.
 		''' 
 		result = super().sort(by, reverse)
 		return BytesAlignmentTrans(result.data, name=result.name, indexTable=result.utt_index)
 
-''' Kaldi archive table (Numpy Format) '''
-
+'''NumpyAchivement class group'''
+'''Designed for Kaldi binary archivement table (in Numpy Format)'''
+## Base Class
 class NumpyAchievement:
 
 	def __init__(self, data={}, name=None):
@@ -2137,6 +2496,12 @@ class NumpyAchievement:
 	def data(self):
 		return self.__data
 
+	def reset_data(self, newData):
+		if newData is not None:
+			assert isinstance(newData,dict), f"Expected Python dict object, but got {type_name(newData)}."
+		del self.__data
+		self.__data = newData
+
 	@property
 	def is_void(self):
 		if self.__data is None or len(self.__data) == 0:
@@ -2152,17 +2517,18 @@ class NumpyAchievement:
 		assert isinstance(newName,str) and len(newName) > 0, "new name must be a string avaliable."
 		self.__name = newName
 
-class NumpyData(NumpyAchievement):
+## Base Class: for Matrix Data Achivements 
+class NumpyMatrix(NumpyAchievement):
 
 	def __init__(self, data={}, name=None):
-		if isinstance(data, NumpyData):
+		if isinstance(data, NumpyMatrix):
 			data = data.data
-		elif isinstance(data, BytesData):
+		elif isinstance(data, BytesMatrix):
 			data = (data.to_Numpy()).data
 		elif isinstance(data, dict):
 			pass
 		else:
-			raise UnsupportedType(f"Expected NumpyData, BytesData or Python dict object but got {type_name(data)}.")
+			raise UnsupportedType(f"Expected NumpyMatrix, BytesMatrix or Python dict object but got {type_name(data)}.")
 		super().__init__(data, name)
 
 	@property
@@ -2180,7 +2546,7 @@ class NumpyData(NumpyAchievement):
 		'''
 		Return an iterable object of (utt, matrix).
 		'''
-		return self.data.items()
+		return list(self.data.items())
 
 	@property
 	def dtype(self):
@@ -2188,7 +2554,7 @@ class NumpyData(NumpyAchievement):
 		Get the data type of Numpy data.
 		
 		Return:
-			A string, 'float32', 'float64', or 'int32'.
+			A string, 'float32', 'float64'.
 		'''  
 		_dtype = None
 		if not self.is_void:
@@ -2220,23 +2586,20 @@ class NumpyData(NumpyAchievement):
 
 		Args:
 			<dtype>: a string of "float", "float32" or "float64". IF "float", it will be treated as "float32".
-					or a string of "int", "int32" or "int64". IF "int", it will be treated as "int32".
 		Return:
-			A new BytesData object.
+			A new NumpyMatrix object.
 		'''
 		if self.is_void or self.dtype == dtype:
 			newData = copy.deepcopy(self.data)
 		else:
-			assert dtype in ['int','int32','int64','float','float32','float64'], f'Expected <dtype> is "int", "int32", "int64", "float", "float32" or "float64" but got {dtype}.'
-			if dtype == 'int':
-				dtype = 'int32'
-			elif dtype == 'float': 
+			assert dtype in ['float','float32','float64'], f'Expected <dtype> is "float", "float32" or "float64" but got {dtype}.'
+			if dtype == 'float': 
 				dtype = 'float32'
 			newData = {}
 			for utt in self.utts:
 				newData[utt] = np.array(self.data[utt], dtype=dtype)
 		
-		return NumpyData(newData, name=self.name)
+		return NumpyMatrix(newData, name=self.name)
 
 	@property
 	def utts(self):
@@ -2285,17 +2648,13 @@ class NumpyData(NumpyAchievement):
 		Transform numpy data to bytes data.
 		
 		Return:
-			a BytesData object.
+			a BytesMatrix object.
 		'''
 		#totalSize = 0
 		#for u in self.keys():
 		#    totalSize += sys.getsizeof(self[u])
 		#if totalSize > 10000000000:
-		#    print('Warning: Data is extramely large. Try to transform it but it maybe result in MemoryError.')
-
-		if self.dim == 0:
-			raise WrongOperation("1-dimension data cannot be changed into bytes object.")
-		
+		#    print('Warning: Data is extramely large. Try to transform it but it maybe result in MemoryError.')		
 		self.check_format()
 
 		newDataIndex = BytesDataIndex(name=self.name)
@@ -2324,7 +2683,7 @@ class NumpyData(NumpyAchievement):
 
 			newData.append(data)
 
-		return BytesData(b''.join(newData), self.name, newDataIndex)
+		return BytesMatrix(b''.join(newData), self.name, newDataIndex)
 
 	def save(self, fileName, chunks=1):
 		'''
@@ -2335,7 +2694,8 @@ class NumpyData(NumpyAchievement):
 			<chunks>: If larger than 1, data will be saved to mutiple files averagely.		
 		Return:
 			the path of saved files.
-		'''      
+		'''
+		assert isinstance(fileName, str) and len(fileName) > 0, f"<fileName> should be a string but got {type_name(fileName)}."
 		if self.is_void:
 			raise WrongOperation('No data to save.')
 
@@ -2379,16 +2739,16 @@ class NumpyData(NumpyAchievement):
 		The Plus operation between two objects.
 
 		Args:
-			<other>: a BytesData or NumpyData object.
+			<other>: a BytesMatrix or NumpyMatrix object.
 		Return:
-			a new NumpyData object.
+			a new NumpyMatrix object.
 		''' 
-		if isinstance(other, NumpyData):
+		if isinstance(other, NumpyMatrix):
 			pass
-		elif isinstance(other, BytesData):
+		elif isinstance(other, BytesMatrix):
 			other = other.to_numpy()
 		else:
-			raise UnsupportedType(f"Expected exkaldi BytesData or NumpyData object but got {type_name(other)}.")
+			raise UnsupportedType(f"Expected exkaldi BytesMatrix or NumpyMatrix object but got {type_name(other)}.")
 
 		if self.is_void:
 			return copy.deepcopy(other)
@@ -2404,7 +2764,7 @@ class NumpyData(NumpyAchievement):
 				temp[utt] = other.data[utt]
 
 		newName = f"plus({self.name},{other.name})"
-		return NumpyData(temp, newName)
+		return NumpyMatrix(temp, newName)
 
 	def __call__(self, uttID):
 		'''
@@ -2413,8 +2773,7 @@ class NumpyData(NumpyAchievement):
 		Args:
 			<uttID>: a string.
 		Return:
-			If existed, return a new NumpyData object.
-			Or return None.
+			If existed, return a new NumpyMatrix object.
 		''' 
 		assert isinstance(uttID, str), "utterance ID should be a name-like string."
 		uttID = uttID.strip()
@@ -2426,36 +2785,35 @@ class NumpyData(NumpyAchievement):
 				raise WrongOperation(f"No such utterance:{uttID}.")
 			else:
 				newName = f"pick({self.name},{uttID})"
-				return NumpyData({uttID:self.data[uttID]}, newName)
+				return NumpyMatrix({uttID:self.data[uttID]}, newName)
 
 	@property
 	def lens(self):
 		'''
-		Get the frames of all utterances.
+		Get the numbers of utterances.
 		
 		Return:
-			a tuple: (the numbers of all utterances, the utterance ID and frames of each utterance).
-			If there is not any data, return (0, None).
+			a int value.
 		'''
 		if self.is_void:
-			return (0, None)
+			return 0
 		else:
-			_lens = {}
-			for utt, matrix in self.data.items():
-				_lens[utt] = len(matrix)
-			return (len(_lens) ,_lens)
+			return len(self.data)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
-			a new NumpyData object or a list of new NumpyData objects.
+			a new NumpyMatrix object or a list of new NumpyMatrix objects.
 		''' 
 		if self.is_void:
 			raise WrongOperation("Cannot subset a void data.")
@@ -2466,7 +2824,7 @@ class NumpyData(NumpyAchievement):
 			for utt in self.utts[0:nHead]:
 				newDict[utt]=self.data[utt]
 			newName = f"subset({self.name},head {nHead})"
-			return NumpyData(newDict, newName)
+			return NumpyMatrix(newDict, newName)
 
 		elif nTail > 0:
 			assert isinstance(nTail, int), f"Expected <nTail> is an int number but got {nTail}."
@@ -2474,7 +2832,13 @@ class NumpyData(NumpyAchievement):
 			for utt in self.utts[-nTail:]:
 				newDict[utt]=self.data[utt]
 			newName = f"subset({self.name},tail {nTail})"
-			return NumpyData(newDict, newName)
+			return NumpyMatrix(newDict, newName)
+
+		elif nRandom > 0:
+			assert isinstance(nRandom, int), f"Expected <nRandom> is an int number but got {nRandom}."
+			newDict = dict(random.choices(self.items, k=nRandom))
+			newName = f"subset({self.name},tail {nRandom})"
+			return NumpyMatrix(newDict, newName)
 
 		elif chunks > 1:
 			assert isinstance(chunks, int), f"Expected <chunks> is an int number but got {chunks}."
@@ -2499,7 +2863,7 @@ class NumpyData(NumpyAchievement):
 					for utt in chunkUttList:
 						temp[utt]=self.data[utt]
 					newName = f"subset({self.name},chunk {chunks}-{i})"
-					datas.append( NumpyData(temp, newName) )
+					datas.append( NumpyMatrix(temp, newName) )
 			return datas
 
 		elif uttList != None:
@@ -2521,36 +2885,34 @@ class NumpyData(NumpyAchievement):
 				else:
 					#print('Subset Warning: no data for utt {}'.format(utt))
 					continue
-			return NumpyData(newDict, newName)
+			return NumpyMatrix(newDict, newName)
 		
 		else:
-			raise WrongOperation('Expected <nHead> is larger than "0", or <chunks> is larger than "1", or <uttList> is not None.')
+			raise WrongOperation('Expected one of <nHead>, <nTail>, <nRandom> or <chunks> is avaliable but all got default value.')
 
 	def sort(self, by='frames', reverse=False):
 		'''
-		Sort utterances by frames length or uttID
+		Sort utterances by frames length or uttID.
 
 		Args:
 			<by>: "frames" or "utt"
 			<reverse>: If reverse, sort in descending order.
 		Return:
-			A new NumpyData object.
+			A new NumpyMatrix object.
 		''' 
 		if self.is_void:
 			raise WrongOperation('No data to sort.')
 		assert by in ["utt","frames"], "We only support sorting by 'name' or 'frames'."
 
-		items = self.data.items()
-
 		if by == "utt":
-			items = sorted(items, key=lambda x:x[0], reverse=reverse)
+			items = sorted(self.items, key=lambda x:x[0], reverse=reverse)
 		else:
-			items = sorted(items, key=lambda x:len(x[1]), reverse=reverse)
+			items = sorted(self.items, key=lambda x:len(x[1]), reverse=reverse)
 		
 		newData = dict(items)
 		
 		newName = "sort({},{})".format(self.name, by)
-		return NumpyData(newData, newName)
+		return NumpyMatrix(newData, newName)
 
 	def map(self, func):
 		'''
@@ -2560,15 +2922,16 @@ class NumpyData(NumpyAchievement):
 			<func>: callable function object.
 		
 		Return:
-			A new NumpyData object.
+			A new NumpyMatrix object.
 		'''
 		assert callable(func), "<func> is not callable."
 
 		new = dict(map( lambda x:(x[0],func(x[1])), self.data.items() ))
 
-		return NumpyData(new, name=f"mapped({self.name})")
+		return NumpyMatrix(new, name=f"mapped({self.name})")
 
-class NumpyFeature(NumpyData):
+## Subclass: for acoustic feature
+class NumpyFeature(NumpyMatrix):
 	'''
 	Hold the feature with Numpy format.
 	'''
@@ -2636,13 +2999,9 @@ class NumpyFeature(NumpyData):
 			<uttID>: a string.
 		Return:
 			If existed, return a new NumpyFeature object.
-			Or return None.
 		''' 
 		result = super().__call__(uttID)
-		if result is None:
-			return None
-		else:
-			return NumpyFeature(result.data, result.name)
+		return NumpyFeature(result.data, result.name)
 
 	def splice(self, left=4, right=None):
 		'''
@@ -2655,7 +3014,7 @@ class NumpyFeature(NumpyData):
 			a new NumpyFeature object whose dim became original-dim * (1 + left + right).
 		''' 
 		assert isinstance(left,int) and left >= 0, 'Expected <left> is non-negative int value.'
-		if right == None:
+		if right is None:
 			right = left
 		else:
 			assert isinstance(right,int) and right >= 0, 'Expected <right> is non-negative int value.'
@@ -2765,19 +3124,22 @@ class NumpyFeature(NumpyData):
 		else:
 			return NumpyFeature(seleDict, newNameSele)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyFeature object or a list of new NumpyFeature objects.
 		''' 
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -2949,7 +3311,8 @@ class NumpyFeature(NumpyData):
 		result = super().map(func)
 		return NumpyFeature(data=result.data, name=result.name)	
 
-class NumpyCMVNStatistics(NumpyData):
+## Subclass: for CMVN statistics
+class NumpyCMVNStatistics(NumpyMatrix):
 	'''
 	Hold the CMVN statistics with Numpy format.
 	'''
@@ -3009,19 +3372,22 @@ class NumpyCMVNStatistics(NumpyData):
 
 		return NumpyCMVNStatistics(result.data, result.name)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyCMVNStatistics object or a list of new NumpyCMVNStatistics objects.
 		''' 
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -3054,13 +3420,9 @@ class NumpyCMVNStatistics(NumpyData):
 			<uttID>: a string.
 		Return:
 			If existed, return a new NumpyFeature object.
-			Or return None.
 		''' 
 		result = super().__call__(uttID)
-		if result is None:
-			return None
-		else:
-			return NumpyCMVNStatistics(result.data, result.name)
+		return NumpyCMVNStatistics(result.data, result.name)
 
 	def map(self, func):
 		'''
@@ -3075,11 +3437,12 @@ class NumpyCMVNStatistics(NumpyData):
 		result = super().map(func)
 		return NumpyCMVNStatistics(data=result.data, name=result.name)	
 
-class NumpyProbability(NumpyData):
+## Subclass: for probability of neural network output
+class NumpyProbability(NumpyMatrix):
 	'''
 	Hold the probability with Numpy format.
 	'''
-	def __init__(self, data={}, name="postprob"):
+	def __init__(self, data={}, name="prob"):
 		if isinstance(data, BytesProbability):
 			data = (data.to_numpy()).data
 		elif isinstance(data, NumpyProbability):
@@ -3135,19 +3498,22 @@ class NumpyProbability(NumpyData):
 
 		return NumpyProbability(result.data, result.name)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyProbability object or a list of new NumpyProbability objects.
 		''' 
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -3166,8 +3532,8 @@ class NumpyProbability(NumpyData):
 			<by>: "frame" or "utt"
 			<reverse>: If reverse, sort in descending order.
 		Return:
-			A new NumpyCMVNStatistics object.
-		''' 			
+			A new NumpyProbability object.
+		'''	
 		result = super().sort(by,reverse)
 
 		return NumpyProbability(result.data, result.name)
@@ -3179,14 +3545,10 @@ class NumpyProbability(NumpyData):
 		Args:
 			<uttID>: a string.
 		Return:
-			If existed, return a new NumpyFeature object.
-			Or return None.
+			If existed, return a new NumpyProbability object.
 		''' 
 		result = super().__call__(uttID)
-		if result is None:
-			return None
-		else:
-			return NumpyProbability(result.data, result.name)
+		return NumpyProbability(result.data, result.name)
 
 	def map(self, func):
 		'''
@@ -3201,19 +3563,27 @@ class NumpyProbability(NumpyData):
 		result = super().map(func)
 		return NumpyProbability(data=result.data, name=result.name)	
 
-class NumpyAlignment(NumpyData):
+## Base Class: for Vector Data Achivements
+class NumpyVector(NumpyMatrix):
 	'''
-	Hold the alignment with Numpy format.
+	Hold the kaldi vector data with Numpy format.
 	'''
 	def __init__(self, data={}, name="ali"):
-		if isinstance(data, NumpyAlignment):
+		if isinstance(data, NumpyVector):
 			data = data.data
 		elif isinstance(data, dict):
 			pass
 		else:
-			raise UnsupportedType(f"Expected NumpyAlignment or Python dict object but got {type_name(data)}.")		
+			raise UnsupportedType(f"Expected NumpyVector or Python dict object but got {type_name(data)}.")		
 		super().__init__(data, name)
-	
+
+	@property
+	def dim(self):
+		if self.is_void:
+			return None
+		else:
+			return 0
+
 	def to_dtype(self, dtype):
 		'''
 		Transform data type.
@@ -3221,56 +3591,112 @@ class NumpyAlignment(NumpyData):
 		Args:
 			<dtype>: a string of "int", "int32" or "int64". IF "int", it will be treated as "int32".
 		Return:
-			A new NumpyAlignment object.
+			A new NumpyMatrix object.
 		'''
-		assert dtype in ["int", "int32", "int64"], '<dtype> must be a string of "int", "int32" or "int64".'
+		if self.is_void or self.dtype == dtype:
+			newData = copy.deepcopy(self.data)
+		else:
+			assert dtype in ['int','int32','int64'], f'Expected <dtype> is "int", "int32" or "int64" but got {dtype}.'
+			if dtype == 'int': 
+				dtype = 'int32'
+			newData = {}
+			for utt in self.utts:
+				newData[utt] = np.array(self.data[utt], dtype=dtype)
+		
+		return NumpyMatrix(newData, name=self.name)
 
-		result = super().to_dtype(dtype)
-
-		return NumpyAlignment(result.data, result.name)
+	def check_format(self):
+		'''
+		Check if data has right kaldi formation.
+		
+		Return:
+			If data is void, return False.
+			If data has right formation, return True, or raise Error.
+		'''
+		if not self.is_void:
+			_dim = 'unknown'
+			for utt in self.utts:
+				if not isinstance(utt,str):
+					raise WrongDataFormat(f'Expected utterance ID is a string but got {type_name(utt)}.')
+				if not isinstance(self.data[utt],np.ndarray):
+					raise WrongDataFormat(f'Expected value is NumPy ndarray but got {type_name(self.data[utt])}.')
+				vector = self.data[utt]
+				assert len(vector.shape) == 1, f"Vector should be 1-dim data but got {vector.shape}."
+				assert vector.dtype == "int32", f"Only support int data format but got {vector.dtype}."
+			return True
+		else:
+			return False
 
 	def to_bytes(self):
-		
-		raise WrongOperation("Transforming to bytes is unavaliable")
-	
+		'''
+		Transform vector to bytes formation.
+
+		Return:
+			a BytesVector object.
+		'''
+		self.check_format()
+
+		newDataIndex = BytesDataIndex(name=self.name)
+		newData = []
+		start_index = 0
+		for utt, vector in self.items:
+			oneRecord = []
+			oneRecord.append( ( utt + ' ' + '\0B' + '\4' ).encode() )
+			oneRecord.append( struct.pack(np.dtype('int32').char, vector.shape[0]) ) 
+			for f, v in vector:
+				oneRecord.append( '\4'.encode() + struct.pack(np.dtype('int32').char, v) )
+			oneRecord = b"".join(oneRecord)
+			newData.append( oneRecord )
+
+			oneRecordLen = len(oneRecord)
+			newDataIndex[utt] = newDataIndex.spec(vector.shape[0], start_index, oneRecordLen)
+			start_index += oneRecordLen
+
+		return BytesVector(b''.join(newData), self.name, newDataIndex)
+
 	def __add__(self, other):
 		'''
-		Plus operation between two post probability objects.
+		Plus operation between two vector objects.
 
 		Args:
-			<other>: a NumpyProbability or BytesProbability object.
+			<other>: a BytesVector or NumpyVector object.
 		Return:
-			a NumpyProbability object.
+			a NumpyVector object.
 		'''	
-		if isinstance(other, NumpyAlignment):
+		if isinstance(other, NumpyVector):
 			pass
+		elif isinstance(other, BytesVector):
+			other = other.to_numpy()
 		else:
-			raise UnsupportedType(f'Excepted a NumpyAlignment object but got {type_name(other)}.')
+			raise UnsupportedType(f'Excepted a BytesVector or NumpyVector object but got {type_name(other)}.')
 		
 		result = super().__add__(other)
 
-		return NumpyAlignment(result.data, result.name)
+		return NumpyVector(result.data, result.name)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
-			a new NumpyAlignment object or a list of new NumpyAlignment objects.
+			a new NumpyVector object or a list of new NumpyVector objects.
 		''' 
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = NumpyAlignment( temp.data, temp.name )
+				result[index] = NumpyVector( temp.data, temp.name )
 		else:
-			result = NumpyAlignment( result.data,result.name )
+			result = NumpyVector( result.data,result.name )
 
 		return result
 
@@ -3282,11 +3708,11 @@ class NumpyAlignment(NumpyData):
 			<by>: "frame" or "utt"
 			<reverse>: If reverse, sort in descending order.
 		Return:
-			A new NumpyAlignment object.
-		''' 			
+			A new NumpyVector object.
+		'''	
 		result = super().sort(by,reverse)
 
-		return NumpyAlignment(result.data, result.name)
+		return NumpyVector(result.data, result.name)
 
 	def __call__(self, uttID):
 		'''
@@ -3295,14 +3721,10 @@ class NumpyAlignment(NumpyData):
 		Args:
 			<uttID>: a string.
 		Return:
-			If existed, return a new NumpyFeature object.
-			Or return None.
+			If existed, return a new NumpyVector object.
 		''' 
 		result = super().__call__(uttID)
-		if result is None:
-			return None
-		else:
-			return NumpyAlignment(result.data, result.name)
+		return NumpyVector(result.data, result.name)	
 
 	def map(self, func):
 		'''
@@ -3312,23 +3734,13 @@ class NumpyAlignment(NumpyData):
 			<func>: callable function object.
 		
 		Return:
-			A new NumpyAlignment object.
+			A new NumpyVector object.
 		'''
 		result = super().map(func)
-		return NumpyAlignment(data=result.data, name=result.name)	
+		return NumpyVector(data=result.data, name=result.name)			
 
-	@property
-	def classes(self):
-		'''
-		Return numbers of classes: max value of alignment + 1 .
-		'''
-		maxValue = []
-		for mat in self.arrays:
-			maxValue.append( np.max(mat) )
-		
-		return int(np.max(maxValue)) + 1
-			
-class NumpyAlignmentTrans(NumpyAlignment):
+## Subclass: for transition-ID alignment 			
+class NumpyAlignmentTrans(NumpyVector):
 	'''
 	Hold the alignment(transition ID) with Numpy format.
 	'''
@@ -3352,30 +3764,9 @@ class NumpyAlignmentTrans(NumpyAlignment):
 		'''
 		if self.is_void:
 			return BytesAlignmentTrans(b"", self.name)
-
-		ExkaldiInfo.vertify_kaldi_existed()
-		
-		dataIndex = BytesDataIndex(name=self.name)
-		cmd = 'copy-int-vector ark:- ark:-'
-		start_index = 0
-		results = []
-		for utt,matrix in self.data.items():
-			rows = len(matrix)
-			new = utt + " ".join(map(str,matrix.tolist()))
-			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=new)
-			
-			if (isinstance(cod,int) and cod != 0) or out == b'':
-				print(err.decode())
-				raise KaldiProcessError('Failed to transform alignment to bytes formation.')
-
-			data_size = len(out)
-			dataIndex[utt] = dataIndex.spec(rows, start_index, data_size)
-			start_index += data_size
-
-			results.append(out)
-
-		data = b"".join(results)
-		return BytesAlignmentTrans(data=data, name=self.name, indexTable=dataIndex)
+		else:
+			result = super(NumpyAlignmentTrans, self.to_dtype("int32")).to_bytes()
+			return BytesAlignmentTrans(data=result.data, name=self.name, indexTable=result.utt_index)
 
 	def to_dtype(self, dtype):
 		'''
@@ -3411,19 +3802,22 @@ class NumpyAlignmentTrans(NumpyAlignment):
 		results = super().__add__(other)
 		return NumpyAlignmentTrans(results.data, results.name)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyAlignmentTrans object or a list of new NumpyAlignmentTrans objects.
 		''' 
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -3477,7 +3871,7 @@ class NumpyAlignmentTrans(NumpyAlignment):
 					raise WrongPath(f"No such file:{hmm}.")
 				hmmFileName = model
 			else:
-				raise UnsupportedType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
+				raise UnsupportedType(f"<hmm> should be a filePath or exkaldi HMM object. but got {type_name(hmm)}.") 
 
 			cmd = f'copy-int-vector ark:- ark:- | ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-'
 			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=temp)
@@ -3527,7 +3921,7 @@ class NumpyAlignmentTrans(NumpyAlignment):
 					raise WrongPath(f"No such file:{hmm}.")
 				hmmFileName = model
 			else:
-				raise UnsupportedType(f"<hmm> should be a filePath or exkaldi HMM and its sub-class object. but got {type_name(hmm)}.") 
+				raise UnsupportedType(f"<hmm> should be a filePath or exkaldi HMM object. but got {type_name(hmm)}.") 
 
 			cmd = f'copy-int-vector ark:- ark:- | ali-to-phones --per-frame=true {hmmFileName} ark:- ark,t:-'
 			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=temp)
@@ -3555,14 +3949,10 @@ class NumpyAlignmentTrans(NumpyAlignment):
 		Args:
 			<uttID>: a string.
 		Return:
-			If existed, return a new NumpyFeature object.
-			Or return None.
+			If existed, return a new NumpyAlignmentTrans object.
 		''' 
 		result = super().__call__(uttID)
-		if result is None:
-			return None
-		else:
-			return NumpyAlignmentTrans(result.data, result.name)
+		return NumpyAlignmentTrans(result.data, result.name)
 
 	def map(self, func):
 		'''
@@ -3577,6 +3967,191 @@ class NumpyAlignmentTrans(NumpyAlignment):
 		result = super().map(func)
 		return NumpyAlignmentTrans(data=result.data, name=result.name)	
 
+	def cut(self, maxFrames):
+		'''
+		Cut long utterance to mutiple shorter ones. 
+
+		Args:
+			<maxFrames>: a positive int value. Cut a utterance by the thresold value of 1.25*maxFrames into a maxFrames part and a rest part.
+						If the rest part is still longer than 1.25*maxFrames, continue to cut it. 
+		Return:
+			A new NumpyAlignmentTrans object.
+		''' 
+		if self.is_void:
+			raise WrongOperation('No data to cut.')
+
+		assert isinstance(maxFrames ,int) and maxFrames > 0, f"Expected <maxFrames> is positive int number but got {maxFrames}."
+
+		newData = {}
+		cutThreshold = maxFrames + maxFrames//4
+
+		for utt,vector in self.items:
+			if len(vector) <= cutThreshold:
+				newData[utt] = vector
+			else:
+				i = 0 
+				while True:
+					newData[utt+"_"+str(i)] = vector[i*maxFrames:(i+1)*maxFrames]
+					i += 1
+					if len(vector[i*maxFrames:]) <= cutThreshold:
+						break
+				if len(vector[i*maxFrames:]) != 0:
+					newData[utt+"_"+str(i)] = vector[i*maxFrames:]
+		
+		newName = f"cut({self.name},{maxFrames})"
+		return NumpyAlignmentTrans(newData, newName)
+
+## Subclass: for user customized alignment 
+class NumpyAlignment(NumpyVector):
+	'''
+	Hold the alignment with Numpy format.
+	'''
+	def __init__(self, data={}, name="ali"):
+		if isinstance(data, NumpyAlignment):
+			data = data.data
+		elif isinstance(data, dict):
+			pass
+		else:
+			raise UnsupportedType(f"Expected NumpyAlignment or Python dict object but got {type_name(data)}.")		
+		super().__init__(data, name)
+	
+	def to_dtype(self, dtype):
+		'''
+		Transform data type.
+
+		Args:
+			<dtype>: a string of "int", "int32" or "int64". IF "int", it will be treated as "int32".
+		Return:
+			A new NumpyAlignment object.
+		'''
+		assert dtype in ["int", "int32", "int64"], '<dtype> must be a string of "int", "int32" or "int64".'
+
+		result = super().to_dtype(dtype)
+
+		return NumpyAlignment(result.data, result.name)
+
+	def to_bytes(self):
+		
+		raise WrongOperation("Transforming to bytes is unavaliable")
+	
+	def __add__(self, other):
+		'''
+		Plus operation between two alignment objects.
+
+		Args:
+			<other>: a NumpyAlignment object.
+		Return:
+			a NumpyAlignment object.
+		'''	
+		if isinstance(other, NumpyAlignment):
+			pass
+		else:
+			raise UnsupportedType(f'Excepted a NumpyAlignment object but got {type_name(other)}.')
+		
+		result = super().__add__(other)
+		return NumpyAlignment(result.data, result.name)
+
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
+		'''
+		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
+		
+		Args:
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
+		Return:
+			a new NumpyAlignment object or a list of new NumpyAlignment objects.
+		''' 
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
+
+		if isinstance(result, list):
+			for index in range(len(result)):
+				temp = result[index]
+				result[index] = NumpyAlignment( temp.data, temp.name )
+		else:
+			result = NumpyAlignment( result.data,result.name )
+
+		return result
+
+	def sort(self, by='frame', reverse=False):
+		'''
+		Sort utterances by frames length or uttID
+
+		Args:
+			<by>: "frame" or "utt"
+			<reverse>: If reverse, sort in descending order.
+		Return:
+			A new NumpyAlignment object.
+		''' 			
+		result = super().sort(by,reverse)
+
+		return NumpyAlignment(result.data, result.name)
+
+	def __call__(self, uttID):
+		'''
+		Pick out the specified utterance.
+		
+		Args:
+			<uttID>: a string.
+		Return:
+			If existed, return a new NumpyAlignment object.
+			Or return None.
+		''' 
+		result = super().__call__(uttID)
+		return NumpyAlignment(result.data, result.name)
+
+	def map(self, func):
+		'''
+		Map all arrays to a function.
+
+		Args:
+			<func>: callable function object.
+		
+		Return:
+			A new NumpyAlignment object.
+		'''
+		result = super().map(func)
+		return NumpyAlignment(data=result.data, name=result.name)	
+
+	def cut(self, maxFrames):
+		'''
+		Cut long utterance to mutiple shorter ones. 
+
+		Args:
+			<maxFrames>: a positive int value. Cut a utterance by the thresold value of 1.25*maxFrames into a maxFrames part and a rest part.
+						If the rest part is still longer than 1.25*maxFrames, continue to cut it. 
+		Return:
+			A new NumpyAlignment object.
+		''' 
+		if self.is_void:
+			raise WrongOperation('No data to cut.')
+
+		assert isinstance(maxFrames ,int) and maxFrames > 0, f"Expected <maxFrames> is positive int number but got {maxFrames}."
+
+		newData = {}
+		cutThreshold = maxFrames + maxFrames//4
+
+		for utt,vector in self.items:
+			if len(vector) <= cutThreshold:
+				newData[utt] = vector
+			else:
+				i = 0 
+				while True:
+					newData[utt+"_"+str(i)] = vector[i*maxFrames:(i+1)*maxFrames]
+					i += 1
+					if len(vector[i*maxFrames:]) <= cutThreshold:
+						break
+				if len(vector[i*maxFrames:]) != 0:
+					newData[utt+"_"+str(i)] = vector[i*maxFrames:]
+		
+		newName = f"cut({self.name},{maxFrames})"
+		return NumpyAlignment(newData, newName)
+
+## Subclass: for phone-ID alignment 
 class NumpyAlignmentPhone(NumpyAlignment):
 	'''
 	Hold the alignment(phone ID) with Numpy format.
@@ -3589,6 +4164,21 @@ class NumpyAlignmentPhone(NumpyAlignment):
 		else:
 			raise UnsupportedType(f"Expected NumpyAlignmentPhone or Python dict object but got {type_name(data)}.")		
 		super().__init__(data, name)
+
+	def to_dtype(self, dtype):
+		'''
+		Transform data type.
+
+		Args:
+			<dtype>: a string of "int", "int32" or "int64". IF "int", it will be treated as "int32".
+		Return:
+			A new NumpyAlignmentPhone object.
+		'''
+		assert dtype in ["int", "int32", "int64"], '<dtype> must be a string of "int", "int32" or "int64".'
+
+		result = super().to_dtype(dtype)
+
+		return NumpyAlignmentPhone(result.data, result.name)
 
 	def __add__(self, other):
 		'''
@@ -3607,19 +4197,22 @@ class NumpyAlignmentPhone(NumpyAlignment):
 		results = super().__add__(other)
 		return NumpyAlignmentPhone(results.data, results.name)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyAlignmentPhone object or a list of new NumpyAlignmentPhone objects.
 		''' 
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -3638,13 +4231,9 @@ class NumpyAlignmentPhone(NumpyAlignment):
 			<uttID>: a string.
 		Return:
 			If existed, return a new NumpyAlignmentPhone object.
-			Or return None.
 		''' 
 		result = super().__call__(uttID)
-		if result is None:
-			return None
-		else:
-			return NumpyAlignmentPhone(result.data, result.name)
+		return NumpyAlignmentPhone(result.data, result.name)
 
 	def sort(self, by='frame', reverse=False):
 		'''
@@ -3657,25 +4246,6 @@ class NumpyAlignmentPhone(NumpyAlignment):
 			A new NumpyAlignmentPhone object.
 		''' 			
 		result = super().sort(by, reverse)
-
-		return NumpyAlignmentPhone(result.data, result.name)
-
-	def to_bytes(self):
-		
-		raise WrongOperation("Transforming to bytes is unavaliable")
-
-	def to_dtype(self, dtype):
-		'''
-		Transform data type.
-
-		Args:
-			<dtype>: a string of "int", "int32" or "int64". IF "int", it will be treated as "int32".
-		Return:
-			A new NumpyAlignmentPhone object.
-		'''
-		assert dtype in ["int", "int32", "int64"], '<dtype> must be a string of "int", "int32" or "int64".'
-
-		result = super().to_dtype(dtype)
 
 		return NumpyAlignmentPhone(result.data, result.name)
 
@@ -3692,6 +4262,20 @@ class NumpyAlignmentPhone(NumpyAlignment):
 		result = super().map(func)
 		return NumpyAlignmentPhone(data=result.data, name=result.name)
 
+	def cut(self, maxFrames):
+		'''
+		Cut long utterance to mutiple shorter ones. 
+
+		Args:
+			<maxFrames>: a positive int value. Cut a utterance by the thresold value of 1.25*maxFrames into a maxFrames part and a rest part.
+						If the rest part is still longer than 1.25*maxFrames, continue to cut it. 
+		Return:
+			A new NumpyAlignmentPhone object.
+		''' 
+		resutl = super().cut(maxFrames)
+		return NumpyAlignmentPhone(result.data, result.name)
+
+## Subclass: for pdf-ID alignment 
 class NumpyAlignmentPdf(NumpyAlignment):
 	'''
 	Hold the alignment(pdf ID) with Numpy format.
@@ -3704,6 +4288,21 @@ class NumpyAlignmentPdf(NumpyAlignment):
 		else:
 			raise UnsupportedType(f"Expected NumpyAlignmentPdf or Python dict object but got {type_name(data)}.")		
 		super(NumpyAlignmentPdf, self).__init__(data, name)
+
+	def to_dtype(self, dtype):
+		'''
+		Transform data type.
+
+		Args:
+			<dtype>: a string of "int", "int32" or "int64". IF "int", it will be treated as "int32".
+		Return:
+			A new NumpyAlignmentPdf object.
+		'''
+		assert dtype in ["int", "int32", "int64"], '<dtype> must be a string of "int", "int32" or "int64".'
+
+		result = super().to_dtype(dtype)
+
+		return NumpyAlignmentPdf(result.data, result.name)
 
 	def __add__(self, other):
 		'''
@@ -3722,19 +4321,22 @@ class NumpyAlignmentPdf(NumpyAlignment):
 		results = super().__add__(other)
 		return NumpyAlignmentPdf(results.data, results.name)
 
-	def subset(self, nHead=0, nTail=0, chunks=1, uttList=None):
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
 		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
 		
 		Args:
-			<nHead>: If it > 0, extract N head utterances.
-			<nTail>: If <nHead>==0 and it > 0, extract N tail utterances.
-			<chunks>: If <nHead>==0, <nTail>==0, and <chunks> > 1, split data into N chunks.
-			<uttList>: If <nHead>==0, <nTail>==0, <chunks>==1, and <uttList> != None, pick out these utterances whose ID in uttList.
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
 			a new NumpyAlignmentPdf object or a list of new NumpyAlignmentPdf objects.
 		''' 
-		result = super().subset(nHead, nTail, chunks, uttList)
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
@@ -3775,25 +4377,6 @@ class NumpyAlignmentPdf(NumpyAlignment):
 
 		return NumpyAlignmentPdf(result.data, result.name)
 
-	def to_bytes(self):
-		
-		raise WrongOperation("Transforming to bytes is unavaliable")
-
-	def to_dtype(self, dtype):
-		'''
-		Transform data type.
-
-		Args:
-			<dtype>: a string of "int", "int32" or "int64". IF "int", it will be treated as "int32".
-		Return:
-			A new NumpyAlignmentPdf object.
-		'''
-		assert dtype in ["int", "int32", "int64"], '<dtype> must be a string of "int", "int32" or "int64".'
-
-		result = super().to_dtype(dtype)
-
-		return NumpyAlignmentPdf(result.data, result.name)
-
 	def map(self, func):
 		'''
 		Map all arrays to a function.
@@ -3806,3 +4389,16 @@ class NumpyAlignmentPdf(NumpyAlignment):
 		'''
 		result = super().map(func)
 		return NumpyAlignmentPdf(data=result.data, name=result.name)
+	
+	def cut(self, maxFrames):
+		'''
+		Cut long utterance to mutiple shorter ones. 
+
+		Args:
+			<maxFrames>: a positive int value. Cut a utterance by the thresold value of 1.25*maxFrames into a maxFrames part and a rest part.
+						If the rest part is still longer than 1.25*maxFrames, continue to cut it. 
+		Return:
+			A new NumpyAlignmentPdf object.
+		''' 
+		resutl = super().cut(maxFrames)
+		return NumpyAlignmentPdf(result.data, result.name)

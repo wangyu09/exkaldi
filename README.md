@@ -24,7 +24,7 @@ less kaldi/src/INSTALL
 
 2. You can install ExKaldi toolkit from PyPi library.
 ```
-pip install exkaldi ( It is unavaliable now, please use the follow method.)
+pip install exkaldi
 ```
 But we recommand you can clone the ExKaldi source code from our github project, then install it.
 ```

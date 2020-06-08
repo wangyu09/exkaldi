@@ -55,8 +55,8 @@ def use_cmvn(feat, cmvn, utt2spk=None, std=False):
 	else:
 		raise UnsupportedType(f"Expected exkaldi CMVN statistics but got {type_name(cmvn)}.")
 
-	cmvnTemp = tempfile.NamedTemporaryFile('wb+', suffix='.ark')
-	utt2spkTemp = tempfile.NamedTemporaryFile('w+', encoding="utf-8")
+	cmvnTemp = tempfile.NamedTemporaryFile('wb+', suffix='_cmvn.ark')
+	utt2spkTemp = tempfile.NamedTemporaryFile('w+', suffix="_utt2spk",encoding="utf-8")
 	try:
 		cmvnTemp.write(cmvn.data)
 		cmvnTemp.seek(0)

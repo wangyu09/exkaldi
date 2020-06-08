@@ -8,7 +8,3 @@ from exkaldi import lm
 from exkaldi import hmm
 
 #from exkaldi import audio
-#from exkaldi import config
-
-
-#from exkaldi import nn
