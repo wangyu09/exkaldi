@@ -707,7 +707,7 @@ class BytesMatrix(BytesAchievement):
 						sampleSize = 4
 					oneRecordLen = len(utt) + 16 + rows * cols * sampleSize
 
-					self.__dataIndex[utt] = newDataIndex.spec(rows, start_index, oneRecordLen)
+					self.__dataIndex[utt] = self.__dataIndex.spec(rows, start_index, oneRecordLen)
 					start_index += oneRecordLen
 
 	def __read_one_record(self, fp):
@@ -1926,6 +1926,13 @@ class BytesVector(BytesAchievement):
 		'''
 		# Return deepcopied dict object.
 		return copy.deepcopy(self.__dataIndex)
+
+	@property
+	def utts(self):
+		if self.is_void:
+			return []
+		else:
+			return list(self.utt_index.keys())
 
 	@property
 	def dtype(self):
