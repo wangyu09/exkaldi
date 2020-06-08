@@ -1,7 +1,7 @@
 from setuptools import setup,find_packages
 import glob
 import os
-from exkaldi.version import version as ExkaldiInfo
+import subprocess
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -9,9 +9,19 @@ with open("README.md", "r", encoding="utf-8") as fh:
 #with open("requirement.txt") as fr:
 #    requirement = fr.readlines()
 
+def read_version_info():
+    cmd = 'cd exkaldi && python -c "import version; print(version.version.version)"'
+    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = p.communicate()
+    if p.returncode != 0:
+        print(err.decode())
+        raise Exception("Detect version error.")
+    else:
+        return out.decode().strip().split("\n")[-1].strip()
+
 setup(
     name="exkaldi",
-    version=ExkaldiInfo.version,
+    version=read_version_info(),
     author="Wang Yu",
     author_email="wangyu@alps-lab.org",
     description="ExKaldi Automatic Speech Recognition Toolkit",
