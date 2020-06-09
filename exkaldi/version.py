@@ -36,10 +36,11 @@ class UnsupportedKaldiVersion(Exception): pass
 
 _MAJOR_VERSION = '1'
 _MINOR_VERSION = '1'
+_PATCH_VERSION = '1'
 
 _EXPECTED_KALDI_VERSION = "5.5"
 
-class ExKaldi( namedtuple("ExKaldi",["version","major","minor"]) ):
+class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 
 	def initialize(self):
 		'''
@@ -288,7 +289,8 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor"]) ):
 			self.__ENV['PATH'] = systemPATH
 
 version = ExKaldi(
-            '.'.join([_MAJOR_VERSION,_MINOR_VERSION]),
+            '.'.join([_MAJOR_VERSION,_MINOR_VERSION,_PATCH_VERSION]),
             _MAJOR_VERSION,
             _MINOR_VERSION,
+			_PATCH_VERSION,
         ).initialize()
