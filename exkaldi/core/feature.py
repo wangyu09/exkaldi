@@ -48,7 +48,7 @@ def __compute_feature(wavFile, kaldiTool, useSuffix=None, name="feat"):
 					raise WrongPath(f"No such file:{wavFile}.")
 				else:
 					allFiles = out.decode().strip().split('\n')
-		elif isinstance(wavFile, SriptTable):
+		elif isinstance(wavFile, ScriptTable):
 			wavFile = wavFile.sort()
 			wavFile.save(wavFileTemp)
 			allFiles = [wavFileTemp.name,]

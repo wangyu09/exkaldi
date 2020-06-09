@@ -24,7 +24,7 @@ import copy
 import time, datetime
 from collections import namedtuple
 
-from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, BytesAlignmentTrans
+from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, BytesAlignmentTrans, NumpyAlignmentTrans
 from exkaldi.core.load import load_ali
 from exkaldi.utils import run_shell_command, check_config, make_dependent_dirs, type_name
 from exkaldi.version import version as ExkaldiInfo

@@ -4279,7 +4279,7 @@ class NumpyAlignmentPhone(NumpyAlignment):
 		Return:
 			A new NumpyAlignmentPhone object.
 		''' 
-		resutl = super().cut(maxFrames)
+		result = super().cut(maxFrames)
 		return NumpyAlignmentPhone(result.data, result.name)
 
 ## Subclass: for pdf-ID alignment 
@@ -4407,5 +4407,5 @@ class NumpyAlignmentPdf(NumpyAlignment):
 		Return:
 			A new NumpyAlignmentPdf object.
 		''' 
-		resutl = super().cut(maxFrames)
+		result = super().cut(maxFrames)
 		return NumpyAlignmentPdf(result.data, result.name)
