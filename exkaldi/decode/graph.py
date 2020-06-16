@@ -1153,6 +1153,21 @@ class LexiconBank:
 		
 		self.__dictionaries["words"] = temp
 
+	def add_extra_question(self, question):
+		'''
+		Add one piece of extra question to extraQuestions lexicon.
+
+		Args:
+			<question>: a list or tuple of phones.
+		'''
+		assert isinstance(question, (list,tuple)), f"<question> should be list or tuple of questions but got: {type_name(question)}."
+
+		for phone in question:
+			assert isinstance(phone,str), f"Phone should be a string but got: {phone}."
+			if not phone in self.__dictionaries["silence_phones"] + self.__dictionaries["nonsilence_phones"]:
+				raise WrongDataFormat('Phoneme "{}" in extra questions is not existed in "phones".'.format(phone))
+		self.__dictionaries["extra_questions"].append( tuple(question) )
+
 	def update_prob(self,targetFile):
 		'''
 		Usage: lexobj.update_prob("lexiconp.txt")
@@ -1385,10 +1400,10 @@ class LexiconBank:
 		else:
 			raise UnsupportedType("<targetFile> is an unknown lexicon format.")
 
-def lexicon_bank(pronLexiconFile, silWords=["<sil>"], unkSymbol="unk", optionalSilPhone="<sil>", extraQuestions=[],
+def lexicon_bank(pronLexicon, silWords=["<sil>"], unkSymbol="unk", optionalSilPhone="<sil>", extraQuestions=[],
 					positionDependent=False, shareSilPdf=False, extraDisambigPhoneNumbers=1, extraDisambigWords=[]):
 		
-		return LexiconBank(pronLexiconFile, silWords, unkSymbol, optionalSilPhone, extraQuestions, 
+		return LexiconBank(pronLexicon, silWords, unkSymbol, optionalSilPhone, extraQuestions, 
 							positionDependent, shareSilPdf, extraDisambigPhoneNumbers, extraDisambigWords)
 
 def load_lex(target):
