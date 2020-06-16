@@ -1,4 +1,5 @@
-[![License]](https://github.com/wangyu09/exkaldi/blob/master/LICENSE)
+[![License](https://img.shields.io/hexpm/l/Apa)](https://github.com/wangyu09/exkaldi/blob/master/LICENSE)
+[![Developing](https://img.shields.io/badge/Debug-v--1.2.x-red)]
 ExKaldi: An advanced kaldi wrapper for Python
 ================================
 
@@ -16,7 +17,6 @@ Differing from other kaldi wrappers, exkaldi have these features:
 The goal of exkaldi is to help developer build a high-performance ASR system with Python language easily.
 
 ## Installation
---------------------------
 
 1. If you have not installed Kaldi ASR toolkit, clone the Kaldi ASR toolkit repository firstly.
 ```
@@ -47,13 +47,11 @@ python -c "import exkaldi"
 
 
 ## Tutorial
---------------------------
 
 In [exkaldi/tutorials](tutorials) directory, we prepared a simple tutorial to show how to use Exkaldi APIs to build a ASR system from the scratch.
 The data is from librispeech train_100_clean dataset. This tutorial includes, extracting and processing feature, training and querying a N-grams language model, training HMM-GMM acoustic model, decoding and scoring. This ASR symtem built here is just a dummy model, and we have done some normal experiments in [exkaldi/examples](examples). Check the source code to look more information about exkaldi APIs.
 
 ## Experiments
---------------------------
 
 We have done some experiments to test ExKaldi toolkit, and it achived a good performance.
 (We will upload the results of experiments little by little.)
@@ -62,4 +60,8 @@ We have done some experiments to test ExKaldi toolkit, and it achived a good per
 
 1, The perplexity of various language models.
 
-![TIMITperplexity](images/TIMITperplexity.png)
+||__2-grams__|__3-grams__|__4-grams__|
+|__kaldi baseline irstlm__|14.67|---|---|
+|__exkaldi srilm__|14.69|13.44|14.26|
+|__exkaldi kenlm__|14.64|13.07|13.20|
+
