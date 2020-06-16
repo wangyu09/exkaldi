@@ -1,4 +1,4 @@
-# ExKaldi: A kaldi wrapper for Python
+# ExKaldi: An advanced kaldi wrapper for Python
 ExKaldi automatic speech recognition toolkit is designed to build an interface between Kaldi and Python. 
 Differing from other kaldi wrappers, exkaldi have these features:
 
@@ -9,6 +9,8 @@ Differing from other kaldi wrappers, exkaldi have these features:
 3. Use KenLm as languange model backend.
 
 4. Support communication between local host and linux server (The ideal environment of Exkaldi is linux server).
+
+The goal of exkaldi is to help developer build a high-performance ASR system with Python language easily.
 
 ## Installation
 1. If you have not installed Kaldi ASR toolkit, clone the Kaldi ASR toolkit repository firstly.
@@ -41,19 +43,15 @@ python -c "import exkaldi"
 
 ## Tutorial
 
-We prepared some tutorial to show how to use Exkaldi APIs in exkaldi/examples directory. 
+In [exkaldi/tutorials](tutorials) directory, we prepared a simple tutorial to show how to use Exkaldi APIs to build a ASR system from the scratch.
+The data is from librispeech train_100_clean dataset. This tutorial includes, extracting and processing feature, training and querying a N-grams language model, training HMM-GMM acoustic model, decoding and scoring. This ASR symtem built here is just a dummy model, and we have done some normal experiments in [exkaldi/examples](examples). Check the source code to look more information about exkaldi APIs.
 
-#### 1. [config exkaldi](examples/01_config_exkaldi.ipynb)
-#### 2. [extract and process acoustic feature](examples/02_feature_processing.ipynb)
-#### 3. [prepare lexicons](examples/03_prepare_lexicons.ipynb)
-#### 4. [train and query a N-grams language model](examples/04_train_and_query_language_model.ipynb)
-#### 5. [train monophone HMM-GMM](examples/05_train_mono_HMM-GMM.ipynb)
-#### 6. [train decision tree](examples/06_train_decision_tree.ipynb)
-#### 7. [train triphone HMM-GMM (train delta)](07_train_triphone_HMM-GMM_delta.ipynb)
-#### 8. [make HCLG decoding graph](examples/08_make_HCLG_decode_graph.ipynb)
-#### 9. [decode based on HMM-GMM and HCLG](examples/09_decode_back_HMM-GMM_and_WFST.ipynb)
-#### 10. [process lattice and score](examples/10_process_lattice_and_score.ipynb)
-#### 11. [train DNN acoustic model with Tensorflow 2.x](examples/11_train_DNN_acoustic_model_with_tensorflow.ipynb)
-#### 12. [decode based on HMM-DNN and HCLG](examples/12_decode_back_HMM-DNN_and_WFST.ipynb)
+## experiments
 
-Cehck the source code to look more information about exkaldi APIs.
+We have done some experiments to test ExKaldi toolkit, and it achived a good performance.
+(We will upload the results of experiments little by little.)
+
+### TIMIT
+
+1, The perplexity of various language models.
+![TIMITperplexity](images/TIMITperplexity.png)
