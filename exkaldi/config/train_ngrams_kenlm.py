@@ -1,0 +1,17 @@
+config = {  
+            "--interpolate_unigrams":[False,bool,1,int],
+            "--skip_symbols":[False,bool],
+            "--temp_prefix":["/tmp/",str],
+            "-T":["/tmp/",str],
+            "--memory":["80%",str],
+            "-S":["80%",str],
+            "--minimum_block":["8K",str],
+            "--sort_block":["64M",str],
+            "--block_count":[2, int],
+            "--vocab_pad":[0,int],
+            "--verbose_header":[False,bool],
+            "--renumber":[False,bool],
+            "--collapse_values":[False,bool],
+            "--prune":["0",str],
+            "--discount_fallback":[False,bool,0.5,float],
+        }
