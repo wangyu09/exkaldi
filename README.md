@@ -1,6 +1,6 @@
 [![License](https://img.shields.io/hexpm/l/Apa)](https://github.com/wangyu09/exkaldi/blob/master/LICENSE)
-[![Developing](https://img.shields.io/badge/Debug-v--1.2.x-red)]
-ExKaldi: An advanced kaldi wrapper for Python
+![Developing](https://img.shields.io/badge/Debug-v--1.2.x-red)
+ExKaldi: An advance kaldi wrapper for Python
 ================================
 
 ExKaldi automatic speech recognition toolkit is designed to build an interface between Kaldi and Python. 
@@ -60,8 +60,11 @@ We have done some experiments to test ExKaldi toolkit, and it achived a good per
 
 1, The perplexity of various language models.
 
+****
+
 ||__2-grams__|__3-grams__|__4-grams__|
 |__kaldi baseline irstlm__|14.67|---|---|
 |__exkaldi srilm__|14.69|13.44|14.26|
 |__exkaldi kenlm__|14.64|13.07|13.20|
 
+****
