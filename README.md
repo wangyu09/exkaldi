@@ -1,4 +1,4 @@
-# ExKaldi: An advanced kaldi wrapper for Python
+[![License]](https://github.com/wangyu09/exkaldi/blob/master/LICENSE) ExKaldi: An advanced kaldi wrapper for Python
 ExKaldi automatic speech recognition toolkit is designed to build an interface between Kaldi and Python. 
 Differing from other kaldi wrappers, exkaldi have these features:
 
@@ -46,12 +46,13 @@ python -c "import exkaldi"
 In [exkaldi/tutorials](tutorials) directory, we prepared a simple tutorial to show how to use Exkaldi APIs to build a ASR system from the scratch.
 The data is from librispeech train_100_clean dataset. This tutorial includes, extracting and processing feature, training and querying a N-grams language model, training HMM-GMM acoustic model, decoding and scoring. This ASR symtem built here is just a dummy model, and we have done some normal experiments in [exkaldi/examples](examples). Check the source code to look more information about exkaldi APIs.
 
-## experiments
+## Experiments
 
 We have done some experiments to test ExKaldi toolkit, and it achived a good performance.
 (We will upload the results of experiments little by little.)
 
-### TIMIT
+##### TIMIT
 
 1, The perplexity of various language models.
+
 ![TIMITperplexity](images/TIMITperplexity.png)
