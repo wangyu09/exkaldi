@@ -447,13 +447,23 @@ class Transcription(ListTable):
 	
 		return trans
 
-## Subclass: for LM and AM score
-class Cost(ListTable):
+	def sentence_length(self):
+		'''
+		Count the length of each sentence.
+		'''
+		result = Metric(name=f"sentence_length({self.name})")
+		for uttID, txt in self.items():
+			assert isinstance(txt,str),f"Transcription should be string but got: {type_name(txt)}."
+			result[uttID] = txt.strip().count(" ") + 1
+		return result
+
+## Subclass: for variable scores
+class Metric(ListTable):
 	'''
-	This is used to hold the AM or LM cost of N-Best. 
+	This is used to hold the Metrics, such as AM or LM scores. 
 	'''
-	def __init__(self, data={}, name="cost"):
-		super(Cost, self).__init__(data, name=name)
+	def __init__(self, data={}, name="metric"):
+		super(Metric, self).__init__(data, name=name)
 
 	def sort(self, reverse=False):
 		'''
@@ -462,34 +472,34 @@ class Cost(ListTable):
 		Args:
 			<reverse>: If reverse, sort in descending order.
 		Return:
-			A new Cost object.
+			A new Metric object.
 		''' 
 		results = super().sort(reverse=reverse)
-		return Cost(results, name=self.name)
+		return Metric(results, name=self.name)
 	
 	def __add__(self, other):
 		'''
-		Integrate two Cost objects. If utt is existed in both two objects, the former will be retained.
+		Integrate two Metric objects. If utt is existed in both two objects, the former will be retained.
 
 		Args:
-			<other>: another Cost object.
+			<other>: another Metric object.
 		Return:
-			A new Cost object.
+			A new Metric object.
 		'''
-		assert isinstance(other, Cost), f"Cannot add {type_name(other)}."
+		assert isinstance(other, Metric), f"Cannot add {type_name(other)}."
 		result = super().__add__(other)
-		return Cost(result, name=result.name)
+		return Metric(result, name=result.name)
 
 	def shuffle(self):
 		'''
-		Random shuffle the Cost table.
+		Random shuffle the Metric table.
 
 		Return:
-			A new Cost object.
+			A new Metric object.
 		'''
 		results = super().shuffle()
 
-		return Cost(results, name=self.name)
+		return Metric(results, name=self.name)
 
 	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,uttList=None):
 		'''
@@ -502,18 +512,91 @@ class Cost(ListTable):
 			<chunks>: If all of nHead, nTail, nRandom are 0 and chunks > 1, split data into N chunks.
 			<uttList>: If nHead == 0 and chunks == 1 and uttList != None, pick out these utterances whose ID in uttList.
 		Return:
-			a new Cost object or a list of new Cost objects.
+			a new Metric object or a list of new Metric objects.
 		'''
 		result = super().subset(nHead,nTail,nRandom,chunks,uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = Cost(temp, temp.name)
+				result[index] = Metric(temp, temp.name)
 		else:
-			result = Cost(result, result.name)
+			result = Metric(result, result.name)
 
 		return result
+
+	def sum(self):
+		'''
+		The sum of all scores.
+		'''
+		return sum(self.values())
+
+	def mean(self, weights=None):
+		'''
+		The weighted average.
+
+		Args:
+			<weigts>: the weight of each utterance.
+		'''
+		if self.is_void:
+			return 0
+		
+		if weights is None:
+			return self.sum()/len(self)
+		else:
+			assert isinstance(weights,dict), f"<weights> should be a Python dict object but got: {type_name(weights)}."
+			numerator = 0
+			denominator = 1e-6
+			for key,value in self.items():
+				try:
+					W = weights[key]
+				except KeyError:
+					raise WrongOperation(f"Miss weight for: {key}.")
+				else:
+					assert isinstance(W, (int,float)), f"Weight shoule be a int or float value but got: {W}."
+				numerator += W*value
+				denominator += W
+			return numerator/denominator
+
+	def max(self):
+		'''
+		The maximum value.
+		'''
+		return max(self.values())
+	
+	def argmax(self):
+		'''
+		Get the uttID of the max score.
+		'''
+		return sorted(self.items(),key=lambda x:x[1], reverse=True)[0][0]
+
+	def min(self):
+		'''
+		The minimum value.
+		'''
+		return min(self.values())
+	
+	def argmin(self):
+		'''
+		Get the uttID of the min score.
+		'''
+		return sorted(self.items(),key=lambda x:x[1])[0][0]
+
+	def map(self, func):
+		'''
+		Map all arrays to a function.
+
+		Args:
+			<func>: callable function object.
+		
+		Return:
+			A new Metric object.
+		'''
+		assert callable(func), "<func> is not callable."
+
+		new = dict(map( lambda x:(x[0],func(x[1])), self.data.items()))
+
+		return Metric(new, name=f"mapped({self.name})")
 
 ## Subclass: record pointer position to read bytes data
 class BytesDataIndex(ListTable):
@@ -620,7 +703,6 @@ class BytesDataIndex(ListTable):
 			result = BytesDataIndex(result, result.name)
 
 		return result
-
 
 '''BytesAchivement class group'''
 '''Designed for binary objects in kaldi, such as Kaldi binary archivement table (in Bytes Format), lattice, HMM-GMM, decision tree and so on'''
@@ -1926,13 +2008,6 @@ class BytesVector(BytesAchievement):
 		'''
 		# Return deepcopied dict object.
 		return copy.deepcopy(self.__dataIndex)
-
-	@property
-	def utts(self):
-		if self.is_void:
-			return []
-		else:
-			return list(self.utt_index.keys())
 
 	@property
 	def dtype(self):
@@ -4279,7 +4354,7 @@ class NumpyAlignmentPhone(NumpyAlignment):
 		Return:
 			A new NumpyAlignmentPhone object.
 		''' 
-		result = super().cut(maxFrames)
+		resutl = super().cut(maxFrames)
 		return NumpyAlignmentPhone(result.data, result.name)
 
 ## Subclass: for pdf-ID alignment 
@@ -4407,5 +4482,5 @@ class NumpyAlignmentPdf(NumpyAlignment):
 		Return:
 			A new NumpyAlignmentPdf object.
 		''' 
-		result = super().cut(maxFrames)
+		resutl = super().cut(maxFrames)
 		return NumpyAlignmentPdf(result.data, result.name)

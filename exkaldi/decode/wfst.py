@@ -26,7 +26,7 @@ import numpy as np
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, KaldiProcessError, UnsupportedType
 from exkaldi.utils.utils import run_shell_command, make_dependent_dirs, type_name, check_config
-from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, NumpyAlignmentTrans, Cost
+from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, NumpyAlignmentTrans, Metric
 from exkaldi.nn.nn import log_softmax
 
 class Lattice(BytesAchievement):
@@ -247,7 +247,7 @@ class Lattice(BytesAchievement):
 			<requireCost>: If True, return acoustic model and language model cost simultaneously.
 
 		Return:
-			A list of exkaldi Transcription objects (and their Cost objects).
+			A list of exkaldi Transcription objects (and their Metric objects).
 		'''
 		assert isinstance(n, int) and n > 0, "Expected <n> is a positive int value."
 		assert isinstance(acwt, (int,float)) and acwt > 0, "Expected <acwt> is a positive int or float value."
@@ -353,7 +353,7 @@ class Lattice(BytesAchievement):
 				AMSCORE = []
 				for index, one in enumerate(lines_AM, start=1):
 					name = f"AM-{index}-best"
-					AMSCORE.append( Cost(one, name=name) )
+					AMSCORE.append( Metric(one, name=name) )
 				del lines_AM			
 
 				outCostFile_LM.seek(0)
@@ -362,7 +362,7 @@ class Lattice(BytesAchievement):
 				LMSCORE = []
 				for index, one in enumerate(lines_LM, start=1):
 					name = f"LM-{index}-best"
-					LMSCORE.append( Cost(one, name=name) )
+					LMSCORE.append( Metric(one, name=name) )
 				del lines_LM
 
 				finalResult = [NBEST,AMSCORE,LMSCORE]
