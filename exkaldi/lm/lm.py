@@ -25,25 +25,30 @@ import math
 import sys
 
 from exkaldi.utils.utils import check_config, make_dependent_dirs, type_name, run_shell_command
-from exkaldi.core.achivements import BytesAchievement
+from exkaldi.core.achivements import BytesAchievement, Metric
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, KaldiProcessError, ShellProcessError, KenlmProcessError, UnsupportedType, WrongOperation, WrongDataFormat
 
-def train_ngrams_srilm(lexicons, order, textFile, outFile, discount="kndiscount", config=None):
+def train_ngrams_srilm(lexicons, order, textFile, outFile, config=None):
 	'''
-	Usage:  obj = ngrams(3,"text.txt","lm.3g.gz","word.txt")
+	Train n-grams language model with Srilm tookit.
 
-	Generate ARPA n-grams language model. Return abspath of generated LM.
-	<order> is the orders of n-grams model. <textFile> is the text file. <outFile> is expected .gz file name of generated LM.
-	Notion that we will use srilm language model toolkit.
-	Some usual options can be assigned directly. If you want use more, set <config> = your-configure, but if you do this, these usual configures we provided will be ignored.
-	You can use .check_config("ngrams") function to get configure information that you can set.
-	Also you can run shell command "ngram-count -help" to look their meaning.    
+	Args:
+		<lexicons>: words.txt file path or Exkaldi LexiconBank object.
+		<order>: the maxinum order of n-grams.
+		<textFile>: text corpus file.
+		<outFile>: ARPA out file name.
+		<config>: configures, a Python dict object.
+
+	You can use .check_config("train_ngrams_srilm") function to get configure information that you can set.
+	Also you can run shell command "lmplz" to look their meaning.
 	'''
 	assert isinstance(order, int) and order > 0 and order < 10, "Expected <n> is a positive int value and it must be smaller than 10."
 	assert isinstance(textFile,str), "Expected <textFile> is name-like string."
 	assert isinstance(outFile,str), "Expected <outFile> is name-like string."
 	assert type_name(lexicons) == "LexiconBank", f"Expected <lexicons> is exkaldi LexiconBank object but got {type_name(lexicons)}."
+
+	ExkaldiInfo.prepare_srilm()
 
 	if not os.path.isfile(textFile):
 		raise WrongPath(f"No such file:{textFile}")
@@ -72,35 +77,32 @@ def train_ngrams_srilm(lexicons, order, textFile, outFile, discount="kndiscount"
 		wordlist.write( "\n".join(words) )
 		wordlist.seek(0)
 
-		cmd2 = f"ngram-count -text {textFile} -order {order}"
-
-		if config is None:  
-			config = {}
-			config["-limit-vocab -vocab"] = wordlist.name
-			config["-unk -map-unk"] = unkSymbol
-			assert discount in ["wbdiscount","kndiscount"], "Expected <discount> is wbdiscount or kndiscount."
-			config[f"-{discount}"] = True
-			config["-interpolate"] = True
-		else:
-			raise WrongOperation("<config> of train_ngrams function is unavaliable now.")
-
-		if check_config(name='train_ngrams_srilm', config=config):
-			for key in config.keys():
-				if config[key] is True:
-					cmd2 += " {}".format(key)
-				elif not (config[key] is False):
-					if key == "-unk -map-unk":
-						cmd2 += f' {key} "{config[key]}"'
+		#cmd2 = f"ngram-count -text {textFile} -order {order}"
+		extraConfig = " "
+		specifyDiscount = False
+		if config is not None:
+			if check_config(name='train_ngrams_srilm', config=config):
+				for key,value in config.items():
+					if isinstance(value,bool):
+						if value is True:
+							extraConfig += f"{key} "
+						if key.endswith("discount"):
+							specifyDiscount = True
 					else:
-						cmd2 += f' {key} {config[key]}'
+						extraConfig += f" {key} {value}"
+
+		cmd = f"ngram-count -text {textFile} -order {order} -limit-vocab -vocab {wordlist.name} -unk -map-unk {unkSymbol} "
+		if specifyDiscount is False:
+			cmd += "-kndiscount "
+		cmd += "-interpolate "
 
 		if not outFile.rstrip().endswith(".arpa"):
 			outFile += ".arpa"
 		make_dependent_dirs(outFile, pathIsFile=True)
 
-		cmd2 += f" -lm {outFile}"
+		cmd += f" -lm {outFile}"
 		
-		out, err, cod = run_shell_command(cmd2, stderr=subprocess.PIPE)
+		out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
 
 		if (isinstance(cod, int) and cod != 0) or (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
 			print(err.decode())
@@ -113,18 +115,19 @@ def train_ngrams_srilm(lexicons, order, textFile, outFile, discount="kndiscount"
 	finally:
 		wordlist.close()
 
-###
-# Memory Bug: 20200602
-###
-def train_ngrams_kenlm(lexicons, order, textFile, outFile):
+def train_ngrams_kenlm(lexicons, order, textFile, outFile, config=None):
 	'''
 	Train n-grams language model with KenLm tookit.
 
 	Args:
 		<lexicons>: words.txt file path or Exkaldi LexiconBank object.
 		<order>: the maxinum order of n-grams.
-		<textFile>: 
+		<textFile>: text corpus file.
+		<outFile>: ARPA out file name.
+		<config>: configures, a Python dict object.
 
+	You can use .check_config("train_ngrams_kenlm") function to get configure information that you can set.
+	Also you can run shell command "lmplz" to look their meaning.
 	'''
 	assert isinstance(order, int) and 0 < order <= 6, "We support maximum 6-grams LM in current version."
 
@@ -146,7 +149,22 @@ def train_ngrams_kenlm(lexicons, order, textFile, outFile):
 				spaceCount += line.count(" ")
 			if spaceCount < len(out)//2:
 				raise WrongDataFormat("The text file doesn't seem to be separated by spaces or extremely short.")
-	
+
+	extraConfig = " "
+	if config != None:
+		assert isinstance(config, dict), f"<config> should be dict object but got: {type_name(config)}."
+		if check_config(name='train_ngrams_kenlm', config=config):
+			if "--temp_prefix" in config.keys() and "-T" in config.keys():
+				raise WrongOperation(f'"--temp_prefix" and "-T" is the same configure so only one of them is expected.')
+			if "--memory" in config.keys() and "-S" in config.keys():
+				raise WrongOperation(f'"--memory" and "-S" is the same configure so only one of them is expected.')
+			for key,value in config.items():
+				if isinstance(value,bool):
+					if value is True:
+						extraConfig += f"{key} "
+				else:
+					extraConfig += f"{key} {value} "
+
 	assert isinstance(outFile, str), f"<outFile> should be a string."
 	if not outFile.rstrip().endswith(".arpa"):
 		outFile += ".arpa"
@@ -178,8 +196,9 @@ def train_ngrams_kenlm(lexicons, order, textFile, outFile):
 		words.write(ws)
 		words.seek(0)
 
-		cmd = os.path.join(sys.prefix,"exkaldisrc","tools","lmplz")
-		cmd += f" -o {order} --vocab_estimate {words_count} --text {textFile} --arpa {outFile} --limit_vocab_file {words.name}"
+		KenLMTool = os.path.join(sys.prefix, "exkaldisrc", "tools", "lmplz")
+
+		cmd = f"{KenLMTool}{extraConfig}-o {order} --vocab_estimate {words_count} --text {textFile} --arpa {outFile} --limit_vocab_file {words.name}"
 		out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
 
 		if (isinstance(cod, int) and cod != 0) or (not os.path.isfile(outFile)) or (os.path.getsize(outFile)==0):
@@ -255,13 +274,28 @@ class KenNGrams(BytesAchievement):
 		Score a sentence.
 
 		Args:
-			<sentence>: a string with out boundary symbols.
+			<sentence>: a string with out boundary symbols or exkaldi Transcription object.
 			<bos>: If True, add <s> to the head.
 			<eos>: If True, add </s> to the tail.
 		Return:
-			log value.
+			If <sentence> is string, return a float log-value.
+			Else, return an exkaldi Metric object.
 		'''
-		return self.__model.score(sentence, bos, eos)
+		def score_one(one, bos, eos):
+			if one.count(" ") < 1:
+				print(f"Warning: sentence doesn't seem to be separated by spaces or extremely short: {one}.")
+			return self.__model.score(one, bos, eos)
+		
+		if isinstance(sentence, str):
+			return score_one(sentence, bos, eos)
+		elif type_name(sentence) == "Transcription":
+			scores = {}
+			for uttID, txt in sentence.items():
+				assert isinstance(txt,str), f"Transcription should be string od words but got:{type_name(txt)} at utt-ID {uttID}."
+				scores[uttID] = score_one(txt, bos, eos )
+			return Metric(scores, name=f"LMscore({sentence.name})")
+		else:
+			raise UnsupportedType(f"<sentence> should be string or exkaldi Transcription object ut got: {type_name(sentence)}.")
 
 	def full_scores(self, sentence, bos=True, eos=True):
 		'''
@@ -281,9 +315,24 @@ class KenNGrams(BytesAchievement):
 		Compute perplexity of a sentence.
 
 		Args:
-			<sentence>: a sentence which has words-in blank and has not boundary.
+			<sentence>: a sentence which has words-in blank and has not boundary or exkaldi Transcription object.
 
 		Return:
-			perplexity value.
+			If <sentence> is string, return a perplexity value.
+			Else return an exkaldi Metric object.
 		'''
-		return self.__model.perplexity(sentence)
+		def perplexity_one(one):
+			if one.count(" ") < 1:
+				print(f"Warning: sentence doesn't seem to be separated by spaces or extremely short: {one}.")
+			return self.__model.perplexity(one)
+		
+		if isinstance(sentence, str):
+			return perplexity_one(sentence)
+		elif type_name(sentence) == "Transcription":
+			scores = {}
+			for uttID, txt in sentence.items():
+				assert isinstance(txt,str), f"Transcription should be string od words but got:{type_name(txt)} at utt-ID {uttID}."
+				scores[uttID] = perplexity_one(txt)
+			return Metric(scores, name=f"LMperplexity({sentence.name})")
+		else:
+			raise UnsupportedType(f"<sentence> should be string or exkaldi Transcription object ut got: {type_name(sentence)}.")
