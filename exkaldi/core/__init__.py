@@ -7,6 +7,7 @@ from exkaldi.core import load
 from exkaldi.core import others
 
 # Kaldi Script Table
+from exkaldi.core.achivements import ListTable
 from exkaldi.core.achivements import ScriptTable
 
 # Kaldi Achivement Table (Bytes Format)
@@ -36,6 +37,7 @@ from exkaldi.core.feature import compute_mfcc
 from exkaldi.core.feature import compute_fbank
 from exkaldi.core.feature import compute_plp
 from exkaldi.core.feature import compute_spectrogram
+from exkaldi.core.feature import transform_feat
 
 # Apply CMVN
 from exkaldi.core.cmvn import use_cmvn

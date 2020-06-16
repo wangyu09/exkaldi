@@ -48,7 +48,7 @@ def __compute_feature(wavFile, kaldiTool, useSuffix=None, name="feat"):
 					raise WrongPath(f"No such file:{wavFile}.")
 				else:
 					allFiles = out.decode().strip().split('\n')
-		elif isinstance(wavFile, ScriptTable):
+		elif isinstance(wavFile, SriptTable):
 			wavFile = wavFile.sort()
 			wavFile.save(wavFileTemp)
 			allFiles = [wavFileTemp.name,]
@@ -273,3 +273,41 @@ def compute_spectrogram(wavFile, rate=16000, frameWidth=25, frameShift=10,
 	
 	result = __compute_feature(wavFile, kaldiTool, useSuffix, name)
 	return result
+
+def transform_feat(feat, matrixFile):
+	'''
+	Transform feat by a transform matrix. Typically, LDA, MLLt matrixes.
+
+	Args:
+		<feat>: exkaldi feature object.
+		<matrixFile>: file name.
+	
+	Return:
+		a new exkaldi feature object.
+	'''
+	assert isinstance(matrixFile, str), f"<transformMatrix> should be a file path but got: {type_name(matrixFile)}."
+	if not os.path.isfile(matrixFile):
+		raise WrongPath(f"No such file: {matrixFile}.")
+
+	if type_name(feat) == "BytesFeature":
+		bytesFlag = True
+	elif type_name(feat) == "NumpyFeature":
+		bytesFlag = False
+		feat = feat.to_bytes()
+	else:
+		raise UnsupportedType(f"<feat> should exkaldi feature object but got: {type_name(feat)}.")
+
+	cmd = f'transform-feats {matrixFile} ark:- ark:-'
+
+	out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
+
+	if cod != 0 :
+		print(err.decode())
+		raise KaldiProcessError("Failed to transform feature.")
+	else:
+		newName = f"tansform({feat.name})"
+		newFeat = BytesFeature(out, name=newName)
+		if bytesFlag:
+			return newFeat
+		else:
+			return newFeat.to_numpy()
