@@ -193,7 +193,8 @@ def check_config(name, config=None):
 		<config>: a list object whose items are configure name and their configure values. If None, return the default configure.
 	
 	Return:
-		If <config> is None, return a list of default configure of <name>.
+		If <config> is None, return a dict object of example configure of <name>.
+			If the value is a tuple, it standards for mutiple types of value you can set.
 		Or return True or False.
 		Or None if <name> is unavaliable.
 	'''
@@ -208,7 +209,12 @@ def check_config(name, config=None):
 		c = module.config
 
 	if config is None:
-		return dict( (key, value[0]) for key, value in c.items() )
+		config = {}
+		for key,value in c.items():
+			value = tuple(value[i] for i in range(0,len(value),2))
+			value = value if len(value) > 1 else value[0]
+			config[key] = value
+		return config
 	else:
 		if not isinstance(config, dict):
 			raise WrongOperation(f"<config> has a wrong format. You can use check_config('{name}') to look expected configure format.")
@@ -216,11 +222,12 @@ def check_config(name, config=None):
 			if not k in c.keys():
 				raise WrongOperation(f"No such configure name: <{k}> in {name}.")
 			else:
-				proto = c[k][1]
-				if isinstance(config[k], bool):
-					raise WrongOperation(f"configure <{k}> is bool value '{config[k]}', but we expected str value like 'true' or 'false'.")
-				elif not isinstance(config[k], proto):
-					raise WrongDataFormat(f"configure <{k}> should be {proto} but got {type_name(config[k])}.")
+				protos = tuple( c[k][i] for i in range(1,len(c[k]),2) )
+				if not isinstance(config[k], protos):
+					if isinstance(config[k],bool):
+						raise WrongDataFormat(f"Configure <{k}> is bool value: {config[k]}, but we expected str value like 'true' or 'false'.")
+					else:
+						raise WrongDataFormat(f"Configure <{k}> should be in {protos} but got {type_name(config[k])}.")
 			return True
 
 def split_txt_file(filePath, chunks=2):
@@ -374,3 +381,24 @@ def flatten(item):
 			raise UnsupportedType(f"Expected list, tuple, set, str or Numpy array object but got {type_name(i)}.")
 
 	return new
+
+def list_files(fileName):
+	'''
+	List file paths.
+
+	Args:
+		<fileName>: a string.
+	
+	Return:
+		A list of file paths.
+	'''
+	assert isinstance(fileName, str), f"<fileName> should be string but got: {fileName}."
+
+	cmd = f"ls {fileName}"
+	out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE)
+
+	if len(out) == 0:
+		raise WrongPath(f"No such file: {fileName}.")
+	else:
+		out = out.decode().strip()
+		return out.split("\n")
