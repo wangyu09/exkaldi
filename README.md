@@ -59,7 +59,7 @@ We have done some experiments to test ExKaldi toolkit, and it achived a good per
 
 ##### TIMIT
 
-1, The perplexity of various language models.
+1, The perplexity of various language models. All these LMs are trained with TIMIT train transcription and tested with TIMIT test transcription. The score showed in the table is weighted average of all utterances and weights are the sentence length of each utterance.  
 
 |                           | __2-grams__  | __3-grams__ | __4-grams__ |
 | :-----------------------: | :----------: | :---------: | :---------: |
