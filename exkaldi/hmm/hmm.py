@@ -23,10 +23,12 @@ import tempfile
 import copy
 import time, datetime
 from collections import namedtuple
+import numpy as np
 
-from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, BytesAlignmentTrans, NumpyAlignmentTrans
+from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, BytesAlignmentTrans
 from exkaldi.core.load import load_ali
-from exkaldi.utils import run_shell_command, check_config, make_dependent_dirs, type_name
+from exkaldi.core.feature import transform_feat
+from exkaldi.utils import run_shell_command, check_config, make_dependent_dirs, type_name, list_files
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, KaldiProcessError, UnsupportedType, WrongOperation, WrongDataFormat
 
@@ -673,6 +675,26 @@ class BaseHMM(BytesAchievement):
 				values.append(value)
 			return namedtuple("ModelInfo",names)(*values)
 
+	def transform_gmm_means(self, matrixFile):
+		'''
+		Transform GMM means.
+
+		Args:
+			<matrixFile>: a trnsform matrix file.
+		'''
+		assert isinstance(matrixFile, str), f'<matrixFile> file name should be a string.'
+		if os.path.isfile(matrixFile):
+			raise WrongPath(f"No such file: {matrixFile}.")
+
+		cmd = f'gmm-transform-means {matrixFile} - -'
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
+
+		if cod != 0:
+			print(err.decode())
+			raise KaldiProcessError(f"Failed to transform GMM means.")
+		else:
+			self.reset_data(out)
+
 class MonophoneHMM(BaseHMM):
 
 	def __init__(self, lexicons=None, name="mono"):
@@ -846,7 +868,7 @@ class MonophoneHMM(BaseHMM):
 		print('\nDone to train the monophone model.')
 		print(f"Saved Final Model: {modelFile}")
 		print(f"Saved Alignment Model: {aliFile}")
-		endtime = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+		endtime = datetime.datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
 		print(f"End Time: {endtime}")
 
 class TriphoneHMM(BaseHMM):
@@ -895,8 +917,8 @@ class TriphoneHMM(BaseHMM):
 	def tree(self):
 		return self.__tree
 
-	def train(self, feat, transcription, LFile, tree, tempDir,
-				num_iters=40, max_iter_inc=30, totgauss=1000, realign_iter=None,
+	def train(self, feat, transcription, LFile, tree, tempDir, ldaMatFile=None,
+				num_iters=40, max_iter_inc=30, totgauss=1000, realign_iter=None, mllt_iter=None,
 				transitionScale=1.0, acousticScale=0.1, selfloopScale=0.1,
 				initial_beam=6, beam=10, retry_beam=40,
 				boost_silence=1.0, careful=False, power=0.25, minGaussianOccupancy=10, lexicons=None):
@@ -910,6 +932,7 @@ class TriphoneHMM(BaseHMM):
 			<LFile>: L.fst file path.
 			<tree>: file path or exkaldi DecisionTree object.
 			<tempDir>: A directory to save intermidiate files.
+			<ldaMatFile>: If not None, do lda_mllt training.
 			<num_iters>: Int value, the max iteration times.
 			<max_iter_inc>: Int value, increase numbers of gaussian functions when iter is smaller than <num_iters>.
 			<totgauss>: Int value, the rough target numbers of gaussian functions.
@@ -922,12 +945,19 @@ class TriphoneHMM(BaseHMM):
 		
 		if realign_iter is not None:
 			assert isinstance(realign_iter,(list,tuple)), "<realign_iter> should be a list or tuple of iter numbers."
+		if mllt_iter is not None:
+			assert isinstance(realign_iter,(list,tuple)), "<realign_iter> should be a list or tuple of iter numbers."
 
 		if lexicons is None:
 			assert self.lex is not None, "No <lexicons> avaliable defaultly, so provide it please."
 			lexicons = self.lex
 		else:
 			assert type_name(lexicons)=="LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
+
+		if ldaMatFile is not None:
+			assert isinstance(ldaMatFile,str), f"<ldaMatFile> should be file name but got: {ldaMatFile}."
+			if not os.path.isfile(ldaMatFile):
+				raise WrongPath(f"No such file: {ldaMatFile}.")
 
 		exNumgauss = self.info.gaussians
 		assert isinstance(totgauss,int) and totgauss >= exNumgauss, f"<totgauss> should be larger than current gaussians: {exNumgauss}."
@@ -959,6 +989,24 @@ class TriphoneHMM(BaseHMM):
 				ali = self.align(feat,trainGraphFile,transitionScale,acousticScale,selfloopScale,search_beam,retry_beam,boost_silence,careful,lexicons=lexicons)
 			else:
 				print("Skip aligning", end=" ")
+			
+			if ldaMatFile is not None:
+				if mllt_iter is None or (i in mllt_iter):
+					print(">> Accumulate MLLT statistics", end=" ")
+					accFile = os.path.join(tempDir, "mllt.acc")
+					accumulate_MLLT_stats(ali, lexicons, self, feat, outFile=accFile)
+					print(">> Estimate MLLT matrix", end=" ")
+					matFile = os.path.join(tempDir, "mllt.mat")
+					estimate_MLLT_matrix(accFile, outFile=matFile)
+					print(">> Transform GMM means", end=" ")
+					self.transform_gmm_means(matFile)
+					print(">> Compose new LDA-MLLT transform matrix", end=" ")
+					newTransMat = os.path.join(tempDir, "trans.mat")
+					compose_transform_matrixs(ldaMatFile, matFile, outFile=newTransMat)
+					print(">> Transform Feature", end=" ")
+					feat = transform_feat(feat, newTransMat)
+				else:
+					print(">> Skip tansform feature", end=" ")
 
 			print(">> Accumulate GMM statistics", end=" ")
 
@@ -987,7 +1035,10 @@ class TriphoneHMM(BaseHMM):
 		print('\nDone to train the triphone model.')
 		print(f"Saved Final Model: {modelFile}")
 		print(f"Saved Alignment Model: {aliFile}")
-		endtime = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+		if ldaMatFile is not None:
+			print(f"Saved Feature Transform Matrix: {newTransMat}")
+		print(f"Saved Alignment Model: {aliFile}")
+		endtime = datetime.datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
 		print(f"End Time: {endtime}")
 
 def load_tree(target, name="tree", lexicons=None):
@@ -1303,3 +1354,265 @@ def transcription_from_int(transcription, wordSymbolTable):
 		trans[utt] = " ".join(text)
 	
 	return trans
+
+def __accumulate_LDA_MLLT_stats(tool, alignment, lexicons, hmm, feat, outFile):
+	'''
+	Accumulate LDA or MLLT statistics.
+	'''
+	assert isinstance(outFile, str), f"<outFile> should be a file name but got: {outFile}."
+	make_dependent_dirs(outFile, pathIsFile=True)
+
+	modelTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
+	featTemp = tempfile.NamedTemporaryFile("wb+", suffix="_feat.ark")
+
+	try:
+		if type_name(alignment) == "str":
+			alignment = load_ali(alignment)
+
+		if type_name(alignment) == "BytesAlignmentTrans":
+			alignment = alignment.sort(by="utt")
+		elif type_name(alignment) == "NumpyAlignmentTrans":
+			alignment = alignment.sort(by="utt").to_bytes()
+		else:
+			raise UnsupportedType(f"<alignment> should be exkaldi transition alignment object or file path but got: {type_name(alignment)}.")
+
+		if type_name(hmm) in ["BaseHMM", "MonophoneHMM", "TriphoneHMM"]:
+			modelTemp.write(hmm.data)
+			modelFile = modelTemp.name
+		elif type_name(hmm) == "str":
+			modelFile = hmm
+		else:
+			raise UnsupportedType(f"<hmm> should be exkaldi HMM object or file path: {type_name(hmm)}.")
+
+		if type_name(feat) == "BytesFeature":
+			feat = feat.sort(by="utt")
+			featTemp.write(feat.data)
+			featFile = featTemp.name
+		elif type_name(feat) == "NumpyFeature":
+			feat = feat.sort(by="utt").to_bytes()
+			featTemp.write(feat.data)
+			featFile = featTemp.name
+		else:
+			raise UnsupportedType(f"<feat> should be exkaldi feature object or file path but got: {type_name(feat)}.")
+
+		silphonelist = ":".join(lexicons("silence", True))
+
+		cmd = f"ali-to-post ark:- ark:- | "
+		cmd += f"weight-silence-post 0.0 {silphonelist} {modelFile} ark:- ark:- | "
+		cmd += f"{tool} --rand-prune=4.0 {modelFile} ark:{featFile} ark:- {outFile}"
+
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=alignment.data)
+		return err, cod
+	
+	finally:
+		modelTemp.close()
+		featTemp.close()
+
+def accumulate_LDA_stats(alignment, lexicons, hmm, feat, outFile):
+	'''
+	Accumulate LDA statistics.
+
+	Args:
+		<alignment>: file or exkaldi Transition alignment object.
+		<lexicons>: exkaldi LexiconBank object.
+		<hmm>: file or exkaldi HMM object.
+		<feat>: exkaldi feature object.
+		<outFile>: out file name.
+	
+	Return:
+		The abspath of output file.
+	'''
+
+	err, cod = __accumulate_LDA_MLLT_stats("acc-lda", alignment, lexicons, hmm, feat, outFile)
+
+	if cod != 0:
+		print(err.decode())
+		raise KaldiProcessError("Failed to accumulate LDA statistics.")
+	else:
+		return os.path.abspath(outFile)
+
+def accumulate_MLLT_stats(alignment, lexicons, hmm, feat, outFile):
+	'''
+	Accumulate MLLT statistics.
+
+	Args:
+		<alignment>: file or exkaldi Transition alignment object.
+		<lexicons>: exkaldi LexiconsBank object.
+		<hmm>: file or exkaldi HMM object.
+		<feat>: file or exkaldi feature object.
+		<outFile>: out file name.
+	
+	Return:
+		The abspath of output file.
+	'''
+
+	err, cod = __accumulate_LDA_MLLT_stats("gmm-acc-mllt", alignment, lexicons, hmm, feat, outFile)
+
+	if cod != 0:
+		print(err.decode())
+		raise KaldiProcessError("Failed to accumulate MLLT statistics.")
+	else:
+		return os.path.abspath(outFile)
+
+def estimate_LDA_matrix(LDAstatsFile, targetDim, outFile=None):
+	'''
+	Estimate LDA transform matrix.
+
+	Args:
+		<LDAstatsFile>: file path or list/tuple of file paths. Regular grammar is avaliable.
+		<targetDim>: a int value.
+		<outFile>: None or matrix file name.
+	
+	Return:
+		If outFile is file name, the abspath of output file.
+		Else, return Numpy Matrix object.
+	'''
+	assert isinstance(targetDim, int) and targetDim > 0, "<targetDim> should be a positive int value."
+
+	if isinstance(LDAstatsFile, str):
+		accFiles = " ".join( list_files(LDAstatsFile) )
+	elif isinstance(LDAstatsFile, (tuple,list)):
+		for fName in LDAstatsFile:
+			assert isinstance(fName,str), f"LDA statistics file name should be string but got: {type_name(fName)}."
+			if not os.path.isfile(fName):
+				raise WrongPath(f"No such file: {fName}.")
+		accFiles = " ".join( LDAstatsFile )
+	else:
+		raise UnsupportedType("<LDAstatsFile> should be file name or list of files.")
+	
+	if outFile is not None:
+		assert isinstance(outFile, str), "<outFile> should be a file name."
+		make_dependent_dirs(outFile, pathIsFile=True)
+
+		cmd = f'est-lda --dim={targetDim} {outFile} {accFiles}'
+	else:
+		cmd = f'est-lda --dim={targetDim} - {accFiles} | copy-matrix --binary=False - -'
+
+	out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+	if cod != 0:
+		print(err.decode())
+		raise KaldiProcessError("Failed to estimate LDA transform matrix.")
+	else:
+		if outFile is not None:
+			return os.path.abspath(outFile)
+		else:
+			out = out.decode().strip().strip("[]").strip().split("\n")
+			results = []
+			for line in out:
+				results.append( np.asarray(line.strip().split(), dtype="float32") )
+			return np.matrix(results).T
+
+def estimate_MLLT_matrix(MLLTstatsFile, outFile=None):
+	'''
+	Estimate MLLT transform matrix.
+
+	Args:
+		<MLLTstatsFile>: file path or list of file paths.
+		<outFile>: None or matrix file name.
+	
+	Return:
+		If outFile is file name, the abspath of output file.
+		Else, return Numpy Matrix object.
+	'''
+	if isinstance(MLLTstatsFile, str):
+		accFiles = " ".join( list_files(MLLTstatsFile) )
+	elif isinstance(MLLTstatsFile, (tuple,list)):
+		for fName in MLLTstatsFile:
+			assert isinstance(fName,str), f"LDA statistics file name should be string but got: {type_name(fName)}."
+			if not os.path.isfile(fName):
+				raise WrongPath(f"No such file: {fName}.")
+		accFiles = " ".join( MLLTstatsFile )
+	else:
+		raise UnsupportedType("<MLLTstatsFile> should be file name or list of files.")
+
+	if outFile is not None:
+		assert isinstance(outFile, str), "<outFile> should be a file name."
+		make_dependent_dirs(outFile, pathIsFile=True)
+
+		cmd = f'est-mllt {outFile} {accFiles}'
+	else:
+		cmd = f'est-mllt  - {accFiles} | copy-matrix --binary=False - -'
+
+	out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+	if cod != 0:
+		print(err.decode())
+		raise KaldiProcessError("Failed to estimate MLLT transform matrix.")
+	else:
+		if outFile is not None:
+			return os.path.abspath(outFile)
+		else:
+			out = out.decode().strip().strip("[]").strip().split("\n")
+			results = []
+			for line in out:
+				results.append( np.asarray(line.strip().split(), dtype="float32") )
+			return np.matrix(results).T
+
+def compose_transform_matrixs(matAFile, matBFile, outFile=None):
+	'''
+	The dot operator between two matrixes.
+
+	Args:
+		<matAFile>: matrix A whose shape is [m,n].
+		<matBFile>: matrix B whose shape is [n,t].
+		<outFile>: None or file name to save the result matrix whose shape is [m,t].
+	
+	Return:
+		If <outFile> is not None, return the absolute path of output file.
+		Else, return Numpy Matrix object.
+	'''
+	for x in [matAFile, matBFile]:
+		assert isinstance(x, str), f"Matrix should be file name but got: {type_name(x)}."
+		if not os.path.isfile(x):
+			raise WrongPath(f"No such file: {x}.")
+
+	if outFile is not None:
+		assert isinstance(outFile, str), "<outFile> should be a file name."
+		make_dependent_dirs(outFile, pathIsFile=True)	
+
+		cmd = f'compose-transforms --print-args=false {matAFile} {matBFile} {outFile}'
+	else:
+		cmd = f'compose-transforms --print-args=false {matAFile} {matBFile} - | copy-matrix --binary=False - -'
+
+	out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+	if cod != 0:
+		print(err.decode())
+		raise KaldiProcessError("Failed to compose matrixes.")
+	else:
+		if outFile is not None:
+			return os.path.abspath(outFile)
+		else:
+			out = out.decode().strip().strip("[]").strip().split("\n")
+			results = []
+			for line in out:
+				results.append( np.asarray(line.strip().split(), dtype="float32") )
+			return np.matrix(results).T
+
+def load_mat(matrixFile):
+	'''
+	Read a matrix from file:
+
+	Args:
+		<matrixFile>: matrix file path.
+	
+	Return:
+		Numpy Matrix Object.
+	'''
+	assert isinstance(matrixFile, str), f"<matrixFile> should be a file name but got: {type_name(matrixFile)}."
+	if not os.path.isfile(matrixFile):
+		raise WrongPath(f"No such file: {matrixFile}.")
+	
+	cmd = f'copy-matrix --binary=False {matrixFile} -'
+	out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+	
+	if cod != 0:
+		print(err.decode())
+		raise KaldiProcessError("Failed to compose matrixes.")
+	else:
+		out = out.decode().strip().strip("[]").strip().split("\n")
+		results = []
+		for line in out:
+			results.append( np.asarray(line.strip().split(), dtype="float32") )
+		return np.matrix(results).T
