@@ -25,9 +25,10 @@ import numpy as np
 
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, KaldiProcessError, UnsupportedType
-from exkaldi.utils.utils import run_shell_command, make_dependent_dirs, type_name, check_config
-from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, NumpyAlignmentTrans, Metric
+from exkaldi.utils.utils import run_shell_command, make_dependent_dirs, type_name, check_config, list_files
+from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, BytesAlignmentTrans, NumpyAlignmentTrans, Metric
 from exkaldi.nn.nn import log_softmax
+from exkaldi.hmm.hmm import load_hmm
 
 class Lattice(BytesAchievement):
 	'''
@@ -396,6 +397,91 @@ class Lattice(BytesAchievement):
 			outCostFile_LM.close()
 			outCostFile_AM.close()
 
+	def determinize(self, acwt=1.0, beam=6):
+		'''
+		Determinize the lattice.
+
+		Args:
+			<acwt>: acoustic scale.
+			<beam>: prune beam.
+		Return:
+			An new Lattice object.
+		'''
+		ExkaldiInfo.vertify_kaldi_existed()
+
+		if self.is_void:
+			raise WrongOperation('No any lattice data.')
+
+		assert isinstance(acwt, float) and acwt >= 0, "Expected <acwt> is positive float value."
+		assert isinstance(beam, int) and beam >= 0, "Expected <beam> is positive int value."
+		
+		cmd = f"lattice-determinize-pruned --acoustic-scale={acwt} --beam={beam} ark:- ark:-"
+
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
+
+		if cod != 0 or out == b'':
+			print(err.decode())
+			raise KaldiProcessError("Failed to determinize lattice.")
+		else:
+			newName = f"determinize({self.name})"
+			return Lattice(data=out, wordSymbolTable=self.wordSymbolTable, hmm=self.hmm, name=newName)		
+
+	def am_rescore(self, hmm, feat):
+		"""
+		Replace the acoustic scores with new HMM-GMM model.
+		"""
+		'''
+		Determinize the lattice.
+
+		Args:
+			<hmm>: exkaldi HMM object or file path.
+
+		Return:
+			An new Lattice object.
+		'''
+		ExkaldiInfo.vertify_kaldi_existed()
+
+		if self.is_void:
+			raise WrongOperation('No any lattice data.')
+
+		hmmTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
+		featTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
+		try:
+			if isinstance(hmm, str):
+				assert os.path.isfile(hmm), f"No such file: {hmm}."
+				hmmFile = hmm
+			elif type_name(hmm) in ["BaseHMM", "MonophoneHMM", "TriphoneHMM"]:
+				hmmTemp.write(hmm.data)
+				hmmTemp.seek(0)
+				hmmFile = hmmTemp.name
+			else:
+				raise UnsupportedType(f"<hmm> should be file path or exkaldi HMM object but got: {type_name(hmm)}.")
+	
+			if type_name(feat) == "BytesFeature":
+				feat = feat.sort(by="utt")
+			elif type_name(feat) == "NumpyFeature":
+				feat = feat.sort(by="utt").to_numpy()
+			else:
+				raise UnsupportedType(f"<feat> should be exkaldi feature object but got: {type_name(feat)}.")
+
+			featTemp.write(feat.data)
+			featTemp.seek(0)
+			featFile = featTemp.name
+
+			cmd = f"gmm-rescore-lattice	{hmmFile} ark:- ark:{featFile} ark:-"
+
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
+
+			if cod != 0 or out == b'':
+				print(err.decode())
+				raise KaldiProcessError("Failed to determinize lattice.")
+			else:
+				newName = f"am_rescore({self.name})"
+				return Lattice(data=out, wordSymbolTable=self.wordSymbolTable, hmm=self.hmm, name=newName)
+		finally:
+			hmmTemp.close()
+			featTemp.close()
+
 def load_lat(target, name="lat"):
 	'''
 	Load lattice data.
@@ -412,29 +498,35 @@ def load_lat(target, name="lat"):
 		return Lattice(target, name)
 
 	elif isinstance(target, str):
-		if not os.path.isfile(target):
-			raise WrongPath(f'No such file:{target}.')
-
-		if target.endswith('.gz'):
-			cmd = 'gunzip -c {}'.format(target)
-			out, err, _ = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-			if out == b'':
-				print(err.decode())
-				raise WrongDataFormat('Failed to load Lattice.')
+		target = list_files(target)
+		allData = []
+		for fileName in target:
+			if fileName.endswith('.gz'):
+				cmd = 'gunzip -c {}'.format(fileName)
+				out, err, _ = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+				if out == b'':
+					print(err.decode())
+					raise WrongDataFormat('Failed to load Lattice.')
+				else:
+					allData.append(out)
 			else:
-				return Lattice(out, name)
+				try:
+					with open(fileName, 'rb') as fr:
+						out = fr.read()
+				except Exception as e:
+					print("Load lattice file defeated. Please make sure it is a lattice file avaliable.")
+					raise e
+				else:
+					allData.append(out)
+		try:
+			allData = b"".join(allData)
+		except Exception as e:
+			raise WrongOperation("Only support binary format lattice file.")
 		else:
-			try:
-				with open(target, 'rb') as fr:
-					out = fr.read()
-			except Exception as e:
-				print("Load lattice file defeated. Please make sure it is a lattice file avaliable.")
-				raise e
-			else:
-				return Lattice(data=out, name=name)
+			return Lattice(data=allData, name=name)
 
 	else:
-		raise UnsupportedType("Expected bytes object or alignment file.")
+		raise UnsupportedType(f"Expected bytes object or lattice file but got: {type_name(target)}.")
 
 def nn_decode(postprob, hmm, HCLGFile, wordSymbolTable, beam=10, latBeam=8, acwt=1,
 				minActive=200, maxActive=7000, maxMem=50000000, config=None, maxThreads=1):
@@ -455,12 +547,12 @@ def nn_decode(postprob, hmm, HCLGFile, wordSymbolTable, beam=10, latBeam=8, acwt
 		<config>: decode configure file.
 		<maxThreads>: the number of mutiple threads.
 		
-		Some usual options can be assigned directly. If you want use more, set <config> = your-configure, but if you do this, these usual configures we provided will be ignored.
-		You can use .check_config('decode_lattice') function to get configure information you could set.
+		Some usual options can be assigned directly. If you want use more, set <config> = your-configure.
+		You can use .check_config('nn_decode') function to get configure information you could set.
 		Also run shell command "latgen-faster-mapped" to look their meaning.
 	Return:
 		An Lattice object.
-	''' 
+	'''
 	ExkaldiInfo.vertify_kaldi_existed()
 
 	if type_name(postprob) == "BytesProbability":
@@ -475,19 +567,17 @@ def nn_decode(postprob, hmm, HCLGFile, wordSymbolTable, beam=10, latBeam=8, acwt
 		raise WrongPath(f"No such file:{HCLGFile}")
 
 	if maxThreads > 1:
-		kaldiTool = f"latgen-faster-mapped-parallel --num-threads={maxThreads}"
+		kaldiTool = f"latgen-faster-mapped-parallel --num-threads={maxThreads} "
 	else:
-		kaldiTool = "latgen-faster-mapped" 
+		kaldiTool = "latgen-faster-mapped " 
 
-	if config == None:    
-		config = {}
-		config["--allow-partial"] = "true"
-		config["--min-active"] = minActive
-		config["--max-active"] = maxActive
-		config["--max_mem"] = maxMem
-		config["--beam"] = beam
-		config["--lattice-beam"] = latBeam
-		config["--acoustic-scale"] = acwt
+	kaldiTool += f'--allow-partial=true '
+	kaldiTool += f'--min-active={minActive} '
+	kaldiTool += f'--max-active={maxActive} '  
+	kaldiTool += f'--max_mem={maxMem} '
+	kaldiTool += f'--beam={beam} '
+	kaldiTool += f'--lattice-beam={latBeam} '
+	kaldiTool += f'--acoustic-scale={acwt} '
 
 	wordsTemp = tempfile.NamedTemporaryFile("w+", suffix=".txt", encoding="utf-8")
 	modelTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
@@ -508,11 +598,16 @@ def nn_decode(postprob, hmm, HCLGFile, wordSymbolTable, beam=10, latBeam=8, acwt
 		else:
 			raise UnsupportedType(f"<wordSymbolTable> should be a file path or exkaldi LexiconBank object but got {type_name(wordSymbolTable)}.")
 
-		config["--word-symbol-table"] = wordsFile
+		kaldiTool += f'--word-symbol-table={wordsFile} '
 
-		if check_config(name='decode_lattice',config=config):
-			for key in config.keys():
-				kaldiTool += f' {key}={config[key]}'
+		if config is not None:
+			if check_config(name='nn_decode', config=config):
+				for key,value in config.items():
+					if isinstance(value, bool):
+						if value is True:
+							kaldiTool += f"{key} "
+					else:
+						kaldiTool += f" {key}={value}"
 
 		if type_name(hmm) in ["HMM", "MonophoneHMM", "TriphoneHMM"]:
 			modelTemp.write(hmm.data)
@@ -560,7 +655,7 @@ def gmm_decode(feat, hmm, HCLGFile, wordSymbolTable, beam=10, latBeam=8, acwt=1,
 		<maxThreads>: the number of mutiple threads.
 		
 		Some usual options can be assigned directly. If you want use more, set <config> = your-configure, but if you do this, these usual configures we provided will be ignored.
-		You can use .check_config('decode_lattice') function to get configure information you could set.
+		You can use .check_config('gmm_decode') function to get configure information you could set.
 		Also run shell command "gmm-latgen-faster" to look their meaning.
 	Return:
 		An exkaldi Lattice object.
@@ -579,19 +674,17 @@ def gmm_decode(feat, hmm, HCLGFile, wordSymbolTable, beam=10, latBeam=8, acwt=1,
 		raise WrongPath(f"No such file:{HCLGFile}")
 
 	if maxThreads > 1:
-		kaldiTool = f"gmm-latgen-faster-parallel --num-threads={maxThreads}"
+		kaldiTool = f"gmm-latgen-faster-parallel --num-threads={maxThreads} "
 	else:
-		kaldiTool = "gmm-latgen-faster" 
+		kaldiTool = "gmm-latgen-faster " 
 
-	if config is None:    
-		config = {}
-		config["--allow-partial"] = "true"
-		config["--min-active"] = minActive
-		config["--max-active"] = maxActive
-		config["--max_mem"] = maxMem
-		config["--beam"] = beam
-		config["--lattice-beam"] = latBeam
-		config["--acoustic-scale"] = acwt
+	kaldiTool += f'--allow-partial=true '
+	kaldiTool += f'--min-active={minActive} '
+	kaldiTool += f'--max-active={maxActive} '  
+	kaldiTool += f'--max_mem={maxMem} '
+	kaldiTool += f'--beam={beam} '
+	kaldiTool += f'--lattice-beam={latBeam} '
+	kaldiTool += f'--acoustic-scale={acwt} '
 
 	wordsTemp = tempfile.NamedTemporaryFile("w+", suffix="_words.txt", encoding="utf-8")
 	modelTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
@@ -612,11 +705,16 @@ def gmm_decode(feat, hmm, HCLGFile, wordSymbolTable, beam=10, latBeam=8, acwt=1,
 		else:
 			raise UnsupportedType(f"<wordSymbolTable> should be a file path or exkaldi LexiconBank object but got {type_name(wordSymbolTable)}.")
 
-		config["--word-symbol-table"] = wordsFile
+		kaldiTool += f'--word-symbol-table={wordsFile} '
 
-		if check_config(name='decode_lattice', config=config):
-			for key in config.keys():
-				kaldiTool += f' {key}={config[key]}'
+		if config is not None:
+			if check_config(name='gmm_decode', config=config):
+				for key,value in config.items():
+					if isinstance(value, bool):
+						if value is True:
+							kaldiTool += f"{key} "
+					else:
+						kaldiTool += f" {key}={value}"
 
 		if type_name(hmm) in ["MonophoneHMM", "TriphoneHMM"]:
 			modelTemp.write(hmm.data)
@@ -643,3 +741,57 @@ def gmm_decode(feat, hmm, HCLGFile, wordSymbolTable, beam=10, latBeam=8, acwt=1,
 	finally:
 		wordsTemp.close()
 		modelTemp.close()
+
+def nn_align(hmm, prob, trainGraphFile, transitionScale=1.0, acousticScale=0.1, 
+				selfloopScale=0.1, beam=10, retry_beam=40, name="ali"):
+	'''
+	Align the neural network acoustic output probability.
+	'''
+	if type_name(prob) == "BytesProbability":
+		pass
+	elif type_name(prob) == "NumpyProbability":
+		prob = prob.to_bytes()
+	else:
+		raise UnsupportedType(f"Expected <prob> is an exkaldi probability object but got: {type_name(prob)}.")
+
+	hmmTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
+	try:
+		if isinstance(hmm,str):
+			assert os.path.isfile(hmm), f"No such file: {hmm}."
+			hmmFile = hmm
+		else:
+			assert type_name(hmm) in ["BaseHMM","MonophoneHMM","TriphoneHMM"], f"<hmm> should be exkaldi HMM object but got: {hmm}."
+			hmmTemp.write(hmm.data)
+			hmmTemp.seek(0)
+			hmmFile = hmmTemp.name
+		
+		cmd = f"align-compiled-mapped --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
+		cmd += f"--beam={beam} --retry-beam={retry_beam} {hmmFile} ark:{trainGraphFile} ark:- ark:-"
+
+		out,err,cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=prob.data)
+
+		if cod != 0:
+			print(err.decode())
+			raise KaldiProcessError("Failed to align probability.")
+		else:
+			return BytesAlignmentTrans(out,name=name)
+	
+	finally:
+		hmmTemp.close()
+
+def gmm_align(hmm, feat, trainGraphFile, transitionScale=1.0, acousticScale=0.1, 
+				selfloopScale=0.1, beam=10, retry_beam=40, boost_silence=1.0, careful=False, name="ali", lexicons=None):
+		'''
+		Align acoustic feature with kaldi vertibi algorithm.
+			<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
+						In this step, we will use "context_indep" lexicon.
+		'''
+		if isinstance(hmm,str):
+			assert os.path.isfile(hmm), f"No such file: {hmm}."
+			assert type_name(lexicons) == "LexiconBank", "Expected <lexicons> is provided in this case."
+			hmm = load_hmm(hmm, lexicons=lexicons)
+		else:
+			assert type_name(hmm) in ["BaseHMM","MonophoneHMM","TriphoneHMM"], f"<hmm> should be exkaldi HMM object but got: {hmm}."
+		
+		return hmm.align(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, 
+						beam, retry_beam, boost_silence, careful, name, lexicons)
