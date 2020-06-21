@@ -101,85 +101,18 @@ def make_dependent_dirs(path, pathIsFile=True):
 			print(f"Failed to make directory: {dirPath}.")
 			raise e
 
-def write_log(message, mode="a", logFile=None):
-	'''
-	Write a piece of message down to log file.
-
-	Args:
-		<message>: a string that can be writed down to file.
-		<mode>: 'a' or 'w'.
-		<logFile>: If None, write to default log file.
-	'''
-	assert mode in ['w','a'], f"<mode> should be 'a' or 'w' but got {mode}."
-
-	if logFile is None:
-		fileName = datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + ".log"
-		logFile = os.path.join(ExkaldiInfo.LOG_DIR, fileName)
-
-	make_dependent_dirs(logFile, pathIsFile=True)
-
-	with open(logFile, mode, encoding="utf-8") as fw:
-		fw.write(message)
-
-def list_log_files():
-	'''
-	List all log files in default log folder.
-	'''
-	logFiles = glob( os.path.join(ExkaldiInfo.LOG_DIR, "*.log") )
-
-	return list( sorted(logFiles) )
-
-def show_log(logFile=None, tail=0):
-	'''
-	Print the tail N lines of log file to standerd output.
-
-	Args:
-		<logFile>: If None, use the lastest default log file.
-		<tail>: If 0, print all.
-	'''
-	assert isinstance(tail, int) and tail >= 0, "Expected <tail> is non-negative int value."
-	if logFile is None:
-		logFiles = sorted(glob(os.path.join(ExkaldiInfo.LOG_DIR,"*.log")), reverse=True)
-		if len(logFiles) > 0:
-			logFile = logFiles[0]
-	else:
-		if not os.path.isfile(logFile):
-			temp = os.path.join(ExkaldiInfo.LOG_DIR, logFile)
-			if not os.path.isfile(temp):
-				raise WrongPath(f"No such file:{logFile}.")
-			else:
-				logFile = temp
-	
-	if logFile is not None:
-		with open(logFile, "r", encoding="utf-8") as fr:
-			lines = fr.readlines()
-			for line in lines[-tail:]:
-				print(line.strip())
-	else:
-		print("No any log information.")
-
 def print_message(*args, **kwargs):
 	'''
 	Almost the same as Python print function.
 
 	Args:
 		<verbose>: If 0, print nothing, or print to standerd output.
-		<wtiteFile>: If it is None or a file name, write the message to file simultaneously.
 	'''
 
 	if "verbose" in kwargs.keys():
 		verbos = kwargs.pop("verbose")
 	else:
 		verbos = 1
-
-	if "writeFile" in kwargs.keys():
-		fileName = kwargs.pop("writeFile")
-		if "end" in kwargs.keys():
-			endSymbol = kwargs["end"]
-		else:
-			endSymbol = "\n"
-		message = " ".join([*args]) + endSymbol
-		write_log(message=message, mode="a", logFile=fileName)
 
 	if verbos != 0:
 		print(*args, **kwargs)
@@ -286,6 +219,76 @@ def split_txt_file(filePath, chunks=2):
 		files.append(newFile%(i))
 	
 	return files
+
+def utt2spk_to_spk2utt(utt2spkFile, outFile):
+	'''
+	Transform utt2spk file to spk2utt file.
+
+	Args:
+		<utt2spkFile>: file name.
+		<outFile>: file name.
+	'''
+	assert isinstance(utt2spkFile, str), f"<utt2spkFile> should be a string but got: {type_name(utt2spkFile)}."
+	assert isinstance(outFile, str), f"<outFile> should be a string but got: {type_name(outFile)}."
+
+	if not os.path.isfile(utt2spkFile):
+		raise WrongPath(f"No such file: {utt2spkFile}.")
+	
+	spk2utt = {}
+	with open(utt2spkFile, "r", encoding="utf-8") as fr:
+		lines = fr.readlines()
+	for index,line in enumerate(lines,start=1):
+		line = line.strip().split()
+		if len(line) == 0:
+			continue
+		else:
+			if len(line) != 2:
+				raise WrongDataFormat(f"Mismatching between utt and spk: {line}, line {index}.")
+			utt, spk = line[0], line[1]
+			if spk not in spk2utt.keys():
+				spk2utt[spk] = f"{utt}"
+			else:
+				spk2utt[spk] += f" {utt}"
+
+	with open(outFile, "w") as fw:
+		fw.write( "\n".join(map(lambda spk,utts:spk+" "+utts, spk2utt.items())) )
+	
+	return os.path.abspath(outFile)
+
+def spk2utt_to_utt2spk(spk2uttFile, outFile):
+	'''
+	Transform spk2utt file to utt2spk file.
+
+	Args:
+		<spk2uttFile>: file name.
+		<outFile>: file name.
+	'''
+	assert isinstance(spk2uttFile, str), f"<spk2uttFile> should be a string but got: {type_name(spk2uttFile)}."
+	assert isinstance(outFile, str), f"<outFile> should be a string but got: {type_name(outFile)}."
+
+	if not os.path.isfile(spk2uttFile):
+		raise WrongPath(f"No such file: {spk2uttFile}.")
+	
+	utt2spk = {}
+	with open(spk2uttFile, "r", encoding="utf-8") as fr:
+		lines = fr.readlines()
+	for index,line in enumerate(lines,start=1):
+		line = line.strip().split()
+		if len(line) == 0:
+			continue
+		else:
+			if len(line) < 2:
+				raise WrongDataFormat(f"Mismatching between utt and spk: {line}.")
+			spk = line[0]
+			for utt in line[1:]:
+				if utt in utt2spk.keys():
+					raise WrongDataFormat(f"utt:{utt} is repeated in line {index}.")
+				utt2spk[utt] = spk
+
+	with open(outFile, "w") as fw:
+		fw.write( "\n".join(map(lambda utt,spk:utt+" "+spk, utt2spk.items())) )
+	
+	return os.path.abspath(outFile)
 
 def compress_gz_file(filePath, overWrite=False):
 	'''

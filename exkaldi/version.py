@@ -129,21 +129,6 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 		# ENV is a dict object, so deepcopy it.
 		return copy.deepcopy(self.__ENV)
 
-	@property
-	def LOG_DIR(self):
-		'''
-		Log dir path.
-
-		Return:
-			a path.
-		Raise:
-			If it has not been assigned, raise error. 
-		'''		
-		if self.__LOG_DIR is None:
-			raise WrongPath("Log dir was not found. Please assign it firstly.")
-		else:
-			return self.__LOG_DIR
-	
 	def vertify_kaldi_existed(self):
 		'''
 		Vertify if kaldi toolkit is existed.
@@ -223,39 +208,6 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 		systemPATH = ":".join(systemPATH)
 		self.__ENV['PATH'] = systemPATH
 
-		# Make a default log dir
-		self.assign_log_dir( path = os.path.join(self.__KALDI_ROOT, ".exkaldilog") )
-	
-	def assign_log_dir(self, path):
-		'''
-		Assign a log directory in order to place some log or temporary files.
-		Every time when exkaldi is imported, check if this folder is existed. If existed, cleanup the log files.
-
-		Args:
-			<path>: a directory path.
-		'''
-		assert isinstance(path, str), f"<path> should be  string."
-		
-		dirPath = os.path.abspath(path.strip())
-
-		if not os.path.isdir(dirPath):
-			try:
-				os.makedirs(dirPath)
-			except Exception as e:
-				print(f"Cannot make log directory:{dirPath}.")
-				raise e
-		
-		self.__LOG_DIR = dirPath
-
-		logFiles = glob(os.path.join(dirPath, "*.log" ))
-		if len(logFiles) > 500:
-			logFiles = sorted(logFiles)
-			for i in logFiles[0:-200]: # Only keep the last 200 files.
-				try:
-					os.remove( i )
-				except:
-					continue
-
 	def prepare_srilm(self):
 		'''
 		Prepare srilm toolkit and add it to system PATH.
@@ -287,6 +239,19 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 
 			systemPATH = ":".join(systemPATH)
 			self.__ENV['PATH'] = systemPATH
+
+	def export_path(self, path):
+		'''
+		Add a directory to environment PATH.
+		
+		Args:
+			<path>: a string.
+		'''
+		if not os.path.exists(path):
+			raise WrongPath(f"No such path: {path}.")
+		systemPATH = self.ENV
+		systemPATH += f":{path}"
+		self.__ENV['PATH'] = systemPATH
 
 version = ExKaldi(
             '.'.join([_MAJOR_VERSION,_MINOR_VERSION,_PATCH_VERSION]),
