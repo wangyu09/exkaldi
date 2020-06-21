@@ -1,10 +1,9 @@
-# ExKaldi: An advance kaldi wrapper for Python
-
+# ExKaldi: An advance kaldi wrapper for Python 
 [![License](https://img.shields.io/hexpm/l/Apa)](https://github.com/wangyu09/exkaldi/blob/master/LICENSE)
 ![Developing](https://img.shields.io/badge/Debug-v--1.2.x-red)
 ================================
 
-ExKaldi automatic speech recognition toolkit is designed to build an interface between Kaldi and Python. 
+ExKaldi automatic speech recognition toolkit is designed to build an interface between [Kaldi ASR toolkit](https://github.com/kaldi-asr/kaldi) and Python. 
 Differing from other kaldi wrappers, exkaldi have these features:
 
 1. Integrated APIs to build a ASR systems, including training HMM-GMM acoustic model, training HMM-DNN acoustic model, training and quering a N-grams language model, decoding and scoring.
@@ -15,7 +14,7 @@ Differing from other kaldi wrappers, exkaldi have these features:
 
 4. Support communication between local host and linux server (The ideal environment of Exkaldi is linux server).
 
-The goal of exkaldi is to help developer build a high-performance ASR system with Python language easily.
+The goal of ExKaldi is to help developers build high-performance ASR systems with Python language easily.
 
 ## Installation
 
@@ -50,14 +49,14 @@ python -c "import exkaldi"
 ## Tutorial
 
 In [exkaldi/tutorials](tutorials) directory, we prepared a simple tutorial to show how to use Exkaldi APIs to build a ASR system from the scratch.
-The data is from librispeech train_100_clean dataset. This tutorial includes, extracting and processing feature, training and querying a N-grams language model, training HMM-GMM acoustic model, decoding and scoring. This ASR symtem built here is just a dummy model, and we have done some normal experiments in [exkaldi/examples](examples). Check the source code to look more information about exkaldi APIs.
+The data is from librispeech train_100_clean dataset. This tutorial includes, extracting and processing feature, training and querying a N-grams language model, training HMM-GMM acoustic model, training a DNN acoustic model, decoding and scoring. This ASR symtem built here is just a dummy model, and we have done some normal experiments in [exkaldi/examples](examples). Check the source code to look more information about exkaldi APIs.
 
 ## Experiments
 
 We have done some experiments to test ExKaldi toolkit, and it achived a good performance.
 (We will upload the results of experiments little by little.)
 
-##### TIMIT
+#### TIMIT
 
 1, The perplexity of various language models. All these LMs are trained with TIMIT train transcription and tested with TIMIT test transcription. The score showed in the table is weighted average of all utterances and weights are the sentence length of each utterance.  
 
@@ -67,3 +66,10 @@ We have done some experiments to test ExKaldi toolkit, and it achived a good per
 | __exkaldi srilm__         | 14.69        | 13.44       | 14.26       |
 | __exkaldi kenlm__         | 14.64        | __13.07__   | 13.20       |
 
+2, The word error rate(WER) of various systems. All these LMs are trained with TIMIT train transcription and tested with TIMIT test transcription. The Language model backend used in exkaldi is Kenlm. From the results, we can know than KenLm is avaliable to optimize the language model. And what's more, with Exkaldi, we can choose the best n-grams by testing the perplexity of LM in order to improve the performance of ASR system.
+
+|                           | __mono__  | __tri1__ | __tri2__ | __tri3__ |
+| :-----------------------: | :-------: | :------: | :------: | :------: |
+| __kaldi baseline 2grams__ | 32.54     | 26.17    | 23.63    | 21.54    |
+| __exkaldi 2grams__        | 32.53     | 25.89    | 23.63    | 21.43    |
+| __exkaldi 3grams__        | 31.42     | 24.57    | 22.13    |__20.83__ |
