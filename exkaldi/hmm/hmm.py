@@ -25,9 +25,9 @@ import time, datetime
 from collections import namedtuple
 import numpy as np
 
-from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, BytesAlignmentTrans
+from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, BytesAlignmentTrans, BytesFmllrMatrix
 from exkaldi.core.load import load_ali
-from exkaldi.core.feature import transform_feat
+from exkaldi.core.feature import transform_feat, use_fmllr
 from exkaldi.utils import run_shell_command, check_config, make_dependent_dirs, type_name, list_files
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, KaldiProcessError, UnsupportedType, WrongOperation, WrongDataFormat
@@ -95,7 +95,7 @@ class DecisionTree(BytesAchievement):
 		
 		if isinstance(alignment, BytesAlignmentTrans):
 			alignment = alignment.sort(by="utt")
-		elif isinstance(alignment, NumpyAlignmentTrans):
+		elif type_name(alignment) == "NumpyAlignmentTrans":
 			alignment = alignment.sort(by="utt").to_bytes()
 		else:
 			raise UnsupportedType("<alignment> should be file name or exkaldi alignment object.")		
@@ -263,15 +263,15 @@ class DecisionTree(BytesAchievement):
 		starttime = datetime.datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
 		print(f"Start Time: {starttime}")
 
-		print(">> Accumulate tree statistics")
+		print("Accumulate tree statistics")
 		statsFile = os.path.join(tempDir,"treeStats.acc")
 		self.accumulate_stats(feat, hmm, alignment, outFile=statsFile, lexicons=lexicons)
 
-		print(">> Cluster phones and compile questions")
+		print("Cluster phones and compile questions")
 		questionsFile = os.path.join(tempDir, "questions.qst" )
 		self.compile_questions(statsFile, topoFile, outFile=questionsFile, lexicons=lexicons)
 
-		print(">> Build tree")
+		print("Build tree")
 		self.build(statsFile, questionsFile, numleaves, topoFile, cluster_thresh)
 
 		treeFile = os.path.join(tempDir,"tree")
@@ -312,11 +312,14 @@ class DecisionTree(BytesAchievement):
 			raise WrongPath(f"No such file: {target}.")
 		
 		cmd = f"tree-info {target}"
-		out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+		out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 		if isinstance(cod,int) and cod != 0:
 			print(err.decode())
 			raise WrongDataFormat("Failed to load tree.")
 		else:
+			out = out.decode().strip().split("\n")
+			self.__contextWidth = int(out[1].strip().split()[-1])
+			self.__centralPosition = int(out[2].strip().split()[-1])
 			with open(target, "rb") as fr:
 				data = fr.read()
 			self.reset_data(data)
@@ -324,7 +327,6 @@ class DecisionTree(BytesAchievement):
 
 	@property
 	def info(self):
-		
 		'''
 		Get the information of tree.
 		'''
@@ -636,7 +638,7 @@ class BaseHMM(BytesAchievement):
 			raise WrongPath(f"No such file: {target}.")
 		
 		cmd = f"gmm-info {target}"
-		out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+		out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 		if isinstance(cod,int) and cod != 0:
 			print(err.decode())
 			raise WrongDataFormat("Failed to load HMM-GMM model.")
@@ -683,7 +685,7 @@ class BaseHMM(BytesAchievement):
 			<matrixFile>: a trnsform matrix file.
 		'''
 		assert isinstance(matrixFile, str), f'<matrixFile> file name should be a string.'
-		if os.path.isfile(matrixFile):
+		if not os.path.isfile(matrixFile):
 			raise WrongPath(f"No such file: {matrixFile}.")
 
 		cmd = f'gmm-transform-means {matrixFile} - -'
@@ -755,7 +757,7 @@ class MonophoneHMM(BaseHMM):
 				raise KaldiProcessError("Cannot get the numbers of gaussians.")
 
 			tree.seek(0)
-			self.__tempTree = DecisionTree(lexicons=self.lex, data=tree.read(), name="monoTree")
+			self.__tempTree = DecisionTree(lexicons=self.lex, data=tree.read(), contextWidth=1, centralPosition=0, name="monoTree")
 			model.seek(0)
 			self.reset_data(model.read())
 
@@ -815,59 +817,61 @@ class MonophoneHMM(BaseHMM):
 
 		print("Convert transcription to int value format.")
 		trans = transcription_to_int(transcription, wordSymbolTable=lexicons, unkSymbol=lexicons("oov"))
+		trans.save( os.path.join(tempDir, "train_text.int") )
 
 		print('Compiling training graph.')
 		trainGraphFile = os.path.join(tempDir, "train_graph")
 		self.compile_train_graph(tree=self.tree, transcription=trans, LFile=LFile, outFile=trainGraphFile, lexicons=lexicons)
 
-		print("\nIter 0")
-		print('Aligning data equally', end=" ")
-		ali = self.align_equally(feat, trainGraphFile=trainGraphFile)
-
-		print('>> Accumulate GMM statistics', end=" ")
-		statsFile = os.path.join(tempDir, "stats.acc")
-		self.accumulate_stats(feat, alignment=ali, outFile=statsFile)
-
-		print('>> Update GMM parameters')
-		self.update(statsFile, exNumgauss, power=power, minGaussianOccupancy=3)
-
 		assert isinstance(max_iter_inc, int) and max_iter_inc > 0, f"<max_iter_inc> must be positive int value but got: {max_iter_inc}."
 		incgauss = (totgauss - exNumgauss)//max_iter_inc
 		search_beam = initial_beam
 
-		for i in range(1, num_iters+1, 1):
+		for i in range(0, num_iters+1, 1):
 			
-			print(f"\nIter {i}")
-
-			if (realign_iter is None) or (i in realign_iter):
-				print("Aligning data", end=" ")
+			print(f"Iter >> {i}")
+			iterStartTime = time.time()
+			if i == 0:
+				print('Aligning data equally')
+				ali = self.align_equally(feat, trainGraphFile)
+			elif (realign_iter is None) or (i in realign_iter):
+				print("Aligning data")
 				del ali
 				ali = self.align(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, search_beam, retry_beam, boost_silence, careful, lexicons=lexicons)
 			else:
-				print("Skip aligning", end=" ")
+				print("Skip aligning")
 
-			print(">> Accumulate GMM statistics", end=" ")
-			os.remove(statsFile)
+			print("Accumulate GMM statistics")
+			statsFile = os.path.join(tempDir,"stats.acc")
 			self.accumulate_stats(feat, alignment=ali, outFile=statsFile)
 
-			print(">> Update GMM parameter")
-			self.update(statsFile, exNumgauss, power, minGaussianOccupancy)
+			print("Update GMM parameter")
+			gaussianOccupancy = 3 if i == 0 else minGaussianOccupancy
+			self.update(statsFile, exNumgauss, power, gaussianOccupancy)
 
-			exNumgauss += incgauss
-			search_beam = beam
-		
+			if i >= 1:
+				search_beam = beam
+				exNumgauss += incgauss
+
+			iterTimeCost = time.time() - iterStartTime
+			print(f"Used time: {iterTimeCost:.4f} seconds")
+
 		modelFile = os.path.join(tempDir,"final.mdl")
 		self.save(modelFile)
 
-		print('\nAlign last time with final model.')
+		print('Align last time with final model.')
 		del ali
 		ali = self.align(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, search_beam, retry_beam, boost_silence, careful)
 		aliFile = os.path.join(tempDir,"final.ali")
 		ali.save(aliFile)
 
-		print('\nDone to train the monophone model.')
+		treeFile = os.path.join(tempDir,"tree")
+		self.tree.save(treeFile)
+
+		print('Done to train the monophone model.')
 		print(f"Saved Final Model: {modelFile}")
-		print(f"Saved Alignment Model: {aliFile}")
+		print(f"Saved Alignment: {aliFile}")
+		print(f"Saved tree: {treeFile}")
 		endtime = datetime.datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
 		print(f"End Time: {endtime}")
 
@@ -877,50 +881,68 @@ class TriphoneHMM(BaseHMM):
 		super().__init__(data=None, name=name, lexicons=lexicons)
 		self.__tree = None
 
-	def initialize(self, tree, treeStatsFile, topoFile, numgauss):
+	def initialize(self, tree, topoFile, feat=None, treeStatsFile=None):
 		'''
 		Initialize a Triphone Model.
 
 		Args:
 			<tree>: file path or exkaldi DecisionTree object.
-			<treeStatsFile>: file path.
 			<topoFile>: file path.
 			<numgauss>: int value.
+			<feat>: exkaldi feature object.
+			<treeStatsFile>: tree statistics file.
 		'''
-		if isinstance(tree, str):
-			tree =  DecisionTree().load(tree)
-		else:
-			assert isinstance(tree, DecisionTree), "<tree> should be file name or exkaldi DecisionTree object."
+		assert os.path.isfile(topoFile), f"No such file. {topoFile}."
 
-		occs = tempfile.NamedTemporaryFile("wb+", suffix=".occs")
+		treeTemp = tempfile.NamedTemporaryFile("wb+", suffix=".tree")
 		try:
-			cmd = f"gmm-init-model --write-occs={occs.name} - {treeStatsFile} {topoFile} -"
-			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=tree.data)
+			if isinstance(tree, str):
+				assert os.path.isfile(tree), f"No such file: {tree}."
+				treeFile = tree
+			else:
+				assert isinstance(tree, DecisionTree), "<tree> should be file name or exkaldi DecisionTree object."
+				treeTemp.write(tree.data)
+				treeTemp.seek(0)
+				treeFile = treeTemp.name
+
+			if feat is not None:
+				assert treeStatsFile is None, "Initialize model from example feature, so tree statistics file is invalid."
+				if type_name(feat) == "BytesFeature":
+					feat = feat.subset(nRandom=10)
+				elif type_name(feat) == "NumpyFeature":
+					feat = feat.subset(nRandom=10)
+				else:
+					raise UnsupportedType(f"<feat> should be exkaldi feature object but got: {type_name(feat)}.")
+				cmd = f"gmm-init-model-flat {treeFile} {topoFile} - ark:- "
+				out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
+			else:
+				assert treeStatsFile is not None, "Either of the <feat> or <treeStatsFile> is necesssary but got both None."
+				
+				cmd = f"gmm-init-model {treeFile} {treeStatsFile} {topoFile} -"
+				out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=tree.data)
+
 			if (isinstance(cod, int) and cod != 0) or len(out) == 0:
 				print(err.decode())
-				raise KaldiProcessError("Failed to initialize triphone model.") 
-			
-			occs.seek(0)
-			cmd = f"gmm-mixup --mix-up={numgauss} - {occs.name} -"
-			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=out)
-			if (isinstance(cod, int) and cod != 0) or len(out) == 0:
-				print(err.decode())
-				raise KaldiProcessError("Failed to initialize triphone model.")
+				raise KaldiProcessError("Failed to initialize model.") 
 
 			self.reset_data(out)
+			if isinstance(tree, str):
+				tree = load_tree(tree)
 			self.__tree = tree
 
 		finally:
-			occs.close()
+			treeTemp.close()
 
 	@property
 	def tree(self):
 		return self.__tree
 
-	def train(self, feat, transcription, LFile, tree, tempDir, ldaMatFile=None,
-				num_iters=40, max_iter_inc=30, totgauss=1000, realign_iter=None, mllt_iter=None,
+	def train(self, feat, transcription, LFile, tree, tempDir, initialAli=None, 
+				ldaMatFile=None, fmllrTransMat=None, spk2utt=None, utt2spk=None,
+				num_iters=40, max_iter_inc=30, totgauss=1000, fmllrSilWt=0.0,
+				realign_iter=None, mllt_iter=None, fmllr_iter=None,
 				transitionScale=1.0, acousticScale=0.1, selfloopScale=0.1,
-				initial_beam=6, beam=10, retry_beam=40,
+				beam=10, retry_beam=40,
 				boost_silence=1.0, careful=False, power=0.25, minGaussianOccupancy=10, lexicons=None):
 		'''
 		This is a high-level API to train the HMM-GMM model.
@@ -932,6 +954,7 @@ class TriphoneHMM(BaseHMM):
 			<LFile>: L.fst file path.
 			<tree>: file path or exkaldi DecisionTree object.
 			<tempDir>: A directory to save intermidiate files.
+			<initialAli>: the initial alignment generated by monophone model to train delta model in the first iteration.
 			<ldaMatFile>: If not None, do lda_mllt training.
 			<num_iters>: Int value, the max iteration times.
 			<max_iter_inc>: Int value, increase numbers of gaussian functions when iter is smaller than <num_iters>.
@@ -946,7 +969,9 @@ class TriphoneHMM(BaseHMM):
 		if realign_iter is not None:
 			assert isinstance(realign_iter,(list,tuple)), "<realign_iter> should be a list or tuple of iter numbers."
 		if mllt_iter is not None:
-			assert isinstance(realign_iter,(list,tuple)), "<realign_iter> should be a list or tuple of iter numbers."
+			assert isinstance(mllt_iter,(list,tuple)), "<mllt_iter> should be a list or tuple of iter numbers."
+		if fmllr_iter is not None:
+			assert isinstance(fmllr_iter,(list,tuple)), "<fmllr_iter> should be a list or tuple of iter numbers."
 
 		if lexicons is None:
 			assert self.lex is not None, "No <lexicons> avaliable defaultly, so provide it please."
@@ -955,9 +980,29 @@ class TriphoneHMM(BaseHMM):
 			assert type_name(lexicons)=="LexiconBank", f"<lexicons> should be an exkaldi LexiconBank object but got {(type_name(lexicons))}."
 
 		if ldaMatFile is not None:
-			assert isinstance(ldaMatFile,str), f"<ldaMatFile> should be file name but got: {ldaMatFile}."
+			assert isinstance(ldaMatFile, str), f"<ldaMatFile> should be file name but got: {ldaMatFile}."
 			if not os.path.isfile(ldaMatFile):
 				raise WrongPath(f"No such file: {ldaMatFile}.")
+			print("Do LDA + MLLT training.")
+			assert fmllrTransMat is None, "SAT training is not expected now."
+			trainFeat = transform_feat(feat, ldaMatFile)
+		elif fmllrTransMat is not None:
+			print("Do SAT. Transform to fMLLR feature")
+			assert isinstance(spk2utt, str) and isinstance(utt2spk, str), "<spk2utt> and <utt2spk> files are expected."
+			trainFeat = use_fmllr(feat, fmllrTransMat, utt2spk)
+		else:
+			trainFeat = feat
+		
+		if initialAli is not None:
+			if isinstance(initialAli, str):
+				assert os.path.isfile(initialAli), f"No such file: {initialAli}."
+				ali = load_ali(initialAli)
+			elif type_name(initialAli) == "NumpyAlignmentTrans":
+				ali = ali.to_bytes()
+			elif type_name(initialAli) == "BytesAlignmentTrans":
+				pass
+			else:
+				raise UnsupportedType(f"<initialAli> should be alignment file or exkaldi alignment object but got: {type_name(initialAli)}.")
 
 		exNumgauss = self.info.gaussians
 		assert isinstance(totgauss,int) and totgauss >= exNumgauss, f"<totgauss> should be larger than current gaussians: {exNumgauss}."
@@ -977,54 +1022,76 @@ class TriphoneHMM(BaseHMM):
 
 		assert isinstance(max_iter_inc, int) and max_iter_inc > 0, f"<max_iter_inc> must be positive int value but got: {max_iter_inc}."
 		incgauss = (totgauss - exNumgauss)//max_iter_inc
-		search_beam = initial_beam
 
 		statsFile = os.path.join(tempDir, "gmmStats.acc")
 		for i in range(1, num_iters+1, 1):
 			
-			print(f"\nIter {i}")
-
-			if (realign_iter is None) or i==1 or (i in realign_iter):
-				print("Aligning data", end=" ")
-				ali = self.align(feat,trainGraphFile,transitionScale,acousticScale,selfloopScale,search_beam,retry_beam,boost_silence,careful,lexicons=lexicons)
+			print(f"Iter >> {i}")
+			iterStartTime = time.time()
+			if  i == 1:
+				if initialAli is None:
+					print("Aligning data")
+					ali = self.align(trainFeat,trainGraphFile,transitionScale,acousticScale,selfloopScale,beam,retry_beam,boost_silence,careful,lexicons=lexicons)
+				else:
+					ali = initialAli
+					print("Use the provided alignment")
+			elif (realign_iter is None) or (i in realign_iter):
+				print("Aligning data")
+				del ali
+				ali = self.align(trainFeat,trainGraphFile,transitionScale,acousticScale,selfloopScale,beam,retry_beam,boost_silence,careful,lexicons=lexicons)
 			else:
-				print("Skip aligning", end=" ")
+				print("Skip aligning")
 			
 			if ldaMatFile is not None:
 				if mllt_iter is None or (i in mllt_iter):
-					print(">> Accumulate MLLT statistics", end=" ")
+					print("Accumulate MLLT statistics")
 					accFile = os.path.join(tempDir, "mllt.acc")
-					accumulate_MLLT_stats(ali, lexicons, self, feat, outFile=accFile)
-					print(">> Estimate MLLT matrix", end=" ")
+					accumulate_MLLT_stats(ali, lexicons, self, trainFeat, outFile=accFile)
+					print("Estimate MLLT matrix")
 					matFile = os.path.join(tempDir, "mllt.mat")
 					estimate_MLLT_matrix(accFile, outFile=matFile)
-					print(">> Transform GMM means", end=" ")
+					print("Transform GMM means")
 					self.transform_gmm_means(matFile)
-					print(">> Compose new LDA-MLLT transform matrix", end=" ")
+					print("Compose new LDA-MLLT transform matrix")
 					newTransMat = os.path.join(tempDir, "trans.mat")
 					compose_transform_matrixs(ldaMatFile, matFile, outFile=newTransMat)
-					print(">> Transform Feature", end=" ")
-					feat = transform_feat(feat, newTransMat)
+					print("Transform feature")
+					trainFeat = transform_feat(feat, newTransMat)
+					ldaMatFile = newTransMat
 				else:
-					print(">> Skip tansform feature", end=" ")
+					print("Skip tansform feature")
+			elif fmllrTransMat is not None:
+				if fmllr_iter is None or (i in fmllr_iter):
+					print("Estimate fMLLR matrix")
+					fmllrTransMat = estimate_fMLLR_matrix(
+														aliOrLat = ali, 
+														lexicons = lexicons, 
+														aliHmm = self, 
+														feat = trainFeat, 
+														spk2utt = spk2utt,
+														silenceWeight = fmllrSilWt,
+													)
+					print("Transform feature")
+					trainFeat = use_fmllr(feat, fmllrTransMat, utt2spk)
+				else:
+					print("Skip tansform feature")
 
-			print(">> Accumulate GMM statistics", end=" ")
+			print("Accumulate GMM statistics")
+			self.accumulate_stats(trainFeat, alignment=ali, outFile=statsFile)
 
-			self.accumulate_stats(feat, alignment=ali, outFile=statsFile)
-			del ali
-
-			print(">> Update GMM parameter")
+			print("Update GMM parameter")
 			self.update(statsFile, exNumgauss, power, minGaussianOccupancy)
 			os.remove(statsFile)
 
 			exNumgauss += incgauss
-			search_beam = beam
+			iterTimeCost = time.time() - iterStartTime
+			print(f"Used time: {iterTimeCost:.4f} seconds")
 		
 		modelFile = os.path.join(tempDir,"final.mdl")
 		self.save(modelFile)
 
-		print('\nAlign last time with final model.')
-		ali = self.align(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, search_beam, retry_beam, boost_silence, careful)
+		print('Align last time with final model')
+		ali = self.align(trainFeat, trainGraphFile, transitionScale, acousticScale, selfloopScale, beam, retry_beam, boost_silence, careful)
 		aliFile = os.path.join(tempDir,"final.ali")
 		ali.save(aliFile)
 		del ali
@@ -1032,12 +1099,15 @@ class TriphoneHMM(BaseHMM):
 		del self.__tree
 		self.__tree = tree
 
-		print('\nDone to train the triphone model.')
+		print('Done to train the triphone model')
 		print(f"Saved Final Model: {modelFile}")
-		print(f"Saved Alignment Model: {aliFile}")
+		print(f"Saved Alignment: {aliFile}")
 		if ldaMatFile is not None:
 			print(f"Saved Feature Transform Matrix: {newTransMat}")
-		print(f"Saved Alignment Model: {aliFile}")
+		elif fmllrTransMat is not None:
+			fmllrTransFile = os.path.join(tempDir, "trans.ark")
+			fmllrTransMat.save( fmllrTransFile )
+			print(f"Saved Feature Transform Matrix: {fmllrTransFile}")
 		endtime = datetime.datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
 		print(f"End Time: {endtime}")
 
@@ -1058,14 +1128,17 @@ def load_tree(target, name="tree", lexicons=None):
 		raise WrongPath(f"No such file: {target}.")
 	
 	cmd = f"tree-info {target}"
-	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+	out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 	if isinstance(cod,int) and cod != 0:
 		print(err.decode())
 		raise WrongDataFormat("Failed to load tree.")
 	else:
+		out = out.decode().strip().split("\n")
+		contextWidth = int(out[1].strip().split()[-1])
+		centralPosition = int(out[2].strip().split()[-1])		
 		with open(target, "rb") as fr:
 			data = fr.read()
-		return DecisionTree(data=out, name=name, lexicons=lexicons)
+		return DecisionTree(data=data,contextWidth=contextWidth,centralPosition=centralPosition,name=name,lexicons=lexicons)
 
 def load_hmm(target, hmmType="triphone", name="hmm", lexicons=None):
 	'''
@@ -1086,7 +1159,7 @@ def load_hmm(target, hmmType="triphone", name="hmm", lexicons=None):
 		raise WrongPath(f"No such file: {target}.")
 	
 	cmd = f"gmm-info {target}"
-	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+	out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 	if isinstance(cod,int) and cod != 0:
 		print(err.decode())
 		raise WrongDataFormat("Failed to load HMM-GMM model.")
@@ -1193,6 +1266,8 @@ def make_toponology(lexicons, outFile, numNonsilStates=3, numSilStates=5):
 	nonsilphonelist = ":".join(nonsilPhones)
 	silphonelist = ":".join(silPhones)
 
+	make_dependent_dirs(outFile, pathIsFile=True)
+
 	cmd = os.path.join(ExkaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","gen_topo.pl")
 	cmd += f" {numNonsilStates} {numSilStates} {nonsilphonelist} {silphonelist} > {outFile}"
 	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
@@ -1205,14 +1280,14 @@ def make_toponology(lexicons, outFile, numNonsilStates=3, numSilStates=5):
 	else:
 		return os.path.abspath(outFile)
 
-def convert_alignment(alignment, monoHmm, triHmm, tree):
+def convert_alignment(alignment, originHmm, targetHmm, tree):
 	'''
-	Convert alignment from monophone level to triphone level.
+	Convert alignment.
 
 	Args:
 		<alignment>: file path or exkaldi transition-ID alignment object.
-		<monoHmm>: file path or exkaldi MonophoneHMM object.
-		<triHmm>: file path or exkaldi TriphoneHMM object.
+		<originHmm>: file path or exkaldi HMM object.
+		<targetHmm>: file path or exkaldi HMM object.
 		<tree>: file path or exkaldi DecisionTree object.
 	Return:
 	 	An exkaldi Transition-ID alignment object.
@@ -1230,33 +1305,35 @@ def convert_alignment(alignment, monoHmm, triHmm, tree):
 	else:
 		raise UnsupportedType(f"Expected trainstion-ID alignment data but got: {type_name(alignment)}.")
 
-	if isinstance(monoHmm, str):
-		monoHmm = MonophoneHMM().load(monoHmm)
+	if isinstance(originHmm, str):
+		originHmm = load_hmm(originHmm)
 	else:
-		assert isinstance(monoHmm, MonophoneHMM), f"<monoHmm> must be file or MonophoneHMm object but got: {type_name(monoHmm)}."
+		assert type_name(originHmm) in ["BaseHMM","MonophoneHMM","TriphoneHMM"], f"<originHmm> must be file or exkaldi HMM object but got: {type_name(originHmm)}."
 
-	if isinstance(triHmm, str):
-		triHmm = TriphoneHMM().load(triHmm)
+	if isinstance(targetHmm, str):
+		targetHmm = load_hmm(targetHmm)
 	else:
-		assert isinstance(triHmm, TriphoneHMM), f"<triHmm> must be file or TriphoneHMM object but got: {type_name(triHmm)}."
+		assert type_name(targetHmm) in ["BaseHMM","MonophoneHMM","TriphoneHMM"], f"<targetHmm> must be file or exkaldi HMM object but got: {type_name(targetHmm)}."
+
 
 	if isinstance(tree, str):
 		tree = DecisionTree().load(tree)
 	else:
 		assert isinstance(tree, DecisionTree), f"<tree> must be file or DecisionTree object but got: {type_name(tree)}."
 
-	monomodelTemp = tempfile.NamedTemporaryFile("wb+", suffix="_mono.mdl")
-	trimodelTemp = tempfile.NamedTemporaryFile("wb+", suffix="_tri.mdl")
+	originHmmTemp = tempfile.NamedTemporaryFile("wb+", suffix="_mono.mdl")
+	targetHmmTemp = tempfile.NamedTemporaryFile("wb+", suffix="_tri.mdl")
 	treeTemp = tempfile.NamedTemporaryFile("wb+", suffix=".tree")
 
 	try:
-		monoHmm.save(monomodelTemp)
-		triHmm.save(trimodelTemp)
+		originHmm.save(originHmmTemp)
+		targetHmm.save(targetHmmTemp)
 		tree.save(treeTemp)
 
-		cmd = f"convert-ali {monomodelTemp.name} {trimodelTemp.name} {treeTemp.name} ark:- ark:-"
+		cmd = f"convert-ali {originHmmTemp.name} {targetHmmTemp.name} {treeTemp.name} ark:- ark:-"
 
 		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=alignment.data)
+
 		if (isinstance(cod,int) and cod != 0) or len(out) == 0:
 			print(err.decode())
 			raise KaldiProcessError("Failed to convert alignment.")
@@ -1267,8 +1344,8 @@ def convert_alignment(alignment, monoHmm, triHmm, tree):
 				return BytesAlignmentTrans(out, name=alignment.name).to_numpy()
 	
 	finally:
-		monomodelTemp.close()
-		trimodelTemp.close()
+		originHmmTemp.close()
+		targetHmmTemp.close()
 		treeTemp.close()
 
 def transcription_to_int(transcription, wordSymbolTable, unkSymbol):
@@ -1355,7 +1432,7 @@ def transcription_from_int(transcription, wordSymbolTable):
 	
 	return trans
 
-def __accumulate_LDA_MLLT_stats(tool, alignment, lexicons, hmm, feat, outFile):
+def __accumulate_LDA_MLLT_stats(tool, alignment, lexicons, hmm, feat, silenceWeight, randPrune, outFile):
 	'''
 	Accumulate LDA or MLLT statistics.
 	'''
@@ -1398,8 +1475,8 @@ def __accumulate_LDA_MLLT_stats(tool, alignment, lexicons, hmm, feat, outFile):
 		silphonelist = ":".join(lexicons("silence", True))
 
 		cmd = f"ali-to-post ark:- ark:- | "
-		cmd += f"weight-silence-post 0.0 {silphonelist} {modelFile} ark:- ark:- | "
-		cmd += f"{tool} --rand-prune=4.0 {modelFile} ark:{featFile} ark:- {outFile}"
+		cmd += f"weight-silence-post {silenceWeight} {silphonelist} {modelFile} ark:- ark:- | "
+		cmd += f"{tool} --rand-prune={randPrune} {modelFile} ark:{featFile} ark:- {outFile}"
 
 		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=alignment.data)
 		return err, cod
@@ -1408,7 +1485,7 @@ def __accumulate_LDA_MLLT_stats(tool, alignment, lexicons, hmm, feat, outFile):
 		modelTemp.close()
 		featTemp.close()
 
-def accumulate_LDA_stats(alignment, lexicons, hmm, feat, outFile):
+def accumulate_LDA_stats(alignment, lexicons, hmm, feat, outFile, silenceWeight=0., randPrune=4):
 	'''
 	Accumulate LDA statistics.
 
@@ -1423,7 +1500,7 @@ def accumulate_LDA_stats(alignment, lexicons, hmm, feat, outFile):
 		The abspath of output file.
 	'''
 
-	err, cod = __accumulate_LDA_MLLT_stats("acc-lda", alignment, lexicons, hmm, feat, outFile)
+	err, cod = __accumulate_LDA_MLLT_stats("acc-lda", alignment, lexicons, hmm, feat, silenceWeight, randPrune, outFile)
 
 	if cod != 0:
 		print(err.decode())
@@ -1431,7 +1508,7 @@ def accumulate_LDA_stats(alignment, lexicons, hmm, feat, outFile):
 	else:
 		return os.path.abspath(outFile)
 
-def accumulate_MLLT_stats(alignment, lexicons, hmm, feat, outFile):
+def accumulate_MLLT_stats(alignment, lexicons, hmm, feat, outFile, silenceWeight=0., randPrune=4):
 	'''
 	Accumulate MLLT statistics.
 
@@ -1446,7 +1523,7 @@ def accumulate_MLLT_stats(alignment, lexicons, hmm, feat, outFile):
 		The abspath of output file.
 	'''
 
-	err, cod = __accumulate_LDA_MLLT_stats("gmm-acc-mllt", alignment, lexicons, hmm, feat, outFile)
+	err, cod = __accumulate_LDA_MLLT_stats("gmm-acc-mllt", alignment, lexicons, hmm, feat, silenceWeight, randPrune, outFile)
 
 	if cod != 0:
 		print(err.decode())
@@ -1549,46 +1626,123 @@ def estimate_MLLT_matrix(MLLTstatsFile, outFile=None):
 				results.append( np.asarray(line.strip().split(), dtype="float32") )
 			return np.matrix(results).T
 
-def compose_transform_matrixs(matAFile, matBFile, outFile=None):
+def compose_transform_matrixs(matA, matB, bIsAffine=False, utt2spk=None, outFile=None):
 	'''
 	The dot operator between two matrixes.
 
 	Args:
-		<matAFile>: matrix A whose shape is [m,n].
-		<matBFile>: matrix B whose shape is [n,t].
-		<outFile>: None or file name to save the result matrix whose shape is [m,t].
+		<matA>: matrix file or exkaldi fMLLR transform matrx object.
+		<matB>: matrix file or exkaldi fMLLR transform matrx object.
+		<outFile>: None or file name.
 	
 	Return:
 		If <outFile> is not None, return the absolute path of output file.
-		Else, return Numpy Matrix object.
+		Else, return Numpy Matrix object or BytesFmllrMatrix object.
 	'''
-	for x in [matAFile, matBFile]:
-		assert isinstance(x, str), f"Matrix should be file name but got: {type_name(x)}."
-		if not os.path.isfile(x):
-			raise WrongPath(f"No such file: {x}.")
 
-	if outFile is not None:
-		assert isinstance(outFile, str), "<outFile> should be a file name."
-		make_dependent_dirs(outFile, pathIsFile=True)	
+	cmd = f'compose-transforms --print-args=false '
+	if utt2spk is not None:
+		assert isinstance(utt2spk,str), f"<utt2spk> should be a fine name but got: {utt2spk}."
+		if not os.path.isfile(utt2spk):
+			raise WrongPath(f"No such file: {utt2spk}.")
+		cmd += f'--utt2spk=ark:{utt2spk} '
+	if bIsAffine:
+		cmd += f'--b-is-affine=true '
+	
+	matBTemp = tempfile.NamedTemporaryFile("wb+", suffix="_trans.ark")
+	matATemp = tempfile.NamedTemporaryFile("wb+", suffix="_trans.ark") 
 
-		cmd = f'compose-transforms --print-args=false {matAFile} {matBFile} {outFile}'
-	else:
-		cmd = f'compose-transforms --print-args=false {matAFile} {matBFile} - | copy-matrix --binary=False - -'
-
-	out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-	if cod != 0:
-		print(err.decode())
-		raise KaldiProcessError("Failed to compose matrixes.")
-	else:
-		if outFile is not None:
-			return os.path.abspath(outFile)
+	try:
+		BisMat = False
+		if isinstance(matB, str):
+			if not os.path.isfile(matB):
+				raise WrongPath(f"No such file: {matB}.")
+			try:
+				load_mat(matB)
+			except:
+				cmd += f'ark:{matB} '
+			else:
+				cmd += f'{matB} '
+				BisMat = True
+		elif type_name(matB) == "BytesFmllrMatrix":
+			matB = matB.sort(by="utt")
+			matBTemp.write(matB.data)
+			matBTemp.seek(0)
+			cmd += f'ark:{matBTemp.name} '
+		elif type_name(matB) == "NumpyFmllrMatrix":
+			matB = matB.sort(by="utt").to_bytes()
+			matBTemp.write(matB.data)
+			matBTemp.seek(0)
+			cmd += f'ark:{matBTemp.name} '
 		else:
-			out = out.decode().strip().strip("[]").strip().split("\n")
-			results = []
-			for line in out:
-				results.append( np.asarray(line.strip().split(), dtype="float32") )
-			return np.matrix(results).T
+			raise UnsupportedType(f"<matB> should be a file path or exkaldi fMLLR transform matrix object but got: {type_name(matB)}.")
+		
+		AisMat = False
+		if isinstance(matA, str):
+			if not os.path.isfile(matA):
+				raise WrongPath(f"No such file: {matA}.")
+			try:
+				load_mat(matA)
+			except:
+				cmd += f'ark:{matA} '
+			else:
+				cmd += f'{matA} '
+				AisMat = True
+		elif type_name(matA) == "BytesFmllrMatrix":
+			matA = matA.sort(by="utt")
+			matATemp.write(matA.data)
+			matATemp.seek(0)
+			cmd += f'ark:{matATemp.name} '
+		elif type_name(matA) == "NumpyFmllrMatrix":
+			matA = matA.sort(by="utt").to_bytes()
+			matATemp.write(matA.data)
+			matATemp.seek(0)
+			cmd += f'ark:{matATemp.name} '
+		else:
+			raise UnsupportedType(f"<matA> should be a file path or exkaldi fMLLR transform matrix object but got: {type_name(matA)}.")
+		
+		if outFile is not None:
+			assert isinstance(outFile, str), "<outFile> should be a file name."
+			make_dependent_dirs(outFile, pathIsFile=True)
+
+			if AisMat and BisMat:
+				if not outFile.rstrip().endswith(".mat"):
+					outFile += ".mat"
+				cmd += f"{outFile}"
+			else:
+				if not outFile.rstrip().endswith(".ark"):
+					outFile += ".ark"
+				cmd += f"ark:{outFile}"
+			
+			out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+			if cod != 0:
+				print(err.decode())
+				raise KaldiProcessError("Failed to compose matrixes.")
+			else:
+				return os.path.abspath(outFile)
+			
+		else:
+			if AisMat and BisMat:
+				cmd += f"- | copy-matrix --binary=False - -"
+			else:
+				cmd += f"ark:-"
+			
+			out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+			if cod != 0:
+				print(err.decode())
+				raise KaldiProcessError("Failed to compose matrixes.")
+			else:
+				if AisMat and BisMat:
+					out = out.decode().strip().strip("[]").strip().split("\n")
+					results = []
+					for line in out:
+						results.append( np.asarray(line.strip().split(), dtype="float32") )
+					return np.matrix(results).T
+				else:
+					return BytesFmllrMatrix(out, name="composedMatrix")
+	finally:
+		matBTemp.close()
+		matATemp.close()
 
 def load_mat(matrixFile):
 	'''
@@ -1616,3 +1770,88 @@ def load_mat(matrixFile):
 		for line in out:
 			results.append( np.asarray(line.strip().split(), dtype="float32") )
 		return np.matrix(results).T
+
+def estimate_fMLLR_matrix(aliOrLat, lexicons, aliHmm, feat, spk2utt, adaHmm=None, silenceWeight=0.0, acwt=1.0, name="fmllrMatrix"):
+	'''
+	Estimate fMLLR transform matrix.
+
+	Args:
+		<aliOrLat>: exkaldi Transition alignment object or Lattice object.
+		<lexicons>: exkaldi LexiconBank object.
+		<hmm>: file or exkaldi HMM object.
+		<feat>: exkaldi feature object.
+	
+	Return:
+		Rreturn exkaldi fMLLR transform matrix object.
+	'''
+	assert isinstance(silenceWeight,float) and silenceWeight >= 0, f"<silenceWeight> should be non-negative float value but got: {silenceWeight}."
+
+	aliModelTemp = tempfile.NamedTemporaryFile("wb+", suffix="_ali.mdl")
+	adaModelTemp = tempfile.NamedTemporaryFile("wb+", suffix="_ada.mdl")
+	featTemp = tempfile.NamedTemporaryFile("wb+", suffix="_feat.ark")
+	
+	try:
+		if type_name(aliOrLat) == "BytesAlignmentTrans":
+			aliOrLat = aliOrLat.sort(by="utt")
+		elif type_name(aliOrLat) == "NumpyAlignmentTrans":
+			aliOrLat = aliOrLat.sort(by="utt").to_bytes()
+		elif type_name(aliOrLat) == "Lattice":
+			pass
+		else:
+			raise UnsupportedType(f"<aliOrLat> should be exkaldi Alignment or Lattice object but got: {type_name(aliOrLat)}.")
+
+		if type_name(aliHmm) in ["BaseHMM", "MonophoneHMM", "TriphoneHMM"]:
+			aliModelTemp.write(aliHmm.data)
+			aliModelTemp.seek(0)
+			aliModelFile = aliModelTemp.name
+		elif type_name(aliHmm) == "str":
+			aliModelFile = aliHmm
+		else:
+			raise UnsupportedType(f"<aliHmm> should be exkaldi HMM object or file path: {type_name(aliHmm)}.")
+
+		if type_name(feat) == "BytesFeature":
+			feat = feat.sort(by="utt")
+		elif type_name(feat) == "NumpyFeature":
+			feat = feat.sort(by="utt").to_bytes()
+		else:
+			raise UnsupportedType(f"<feat> should be exkaldi feature object or file path but got: {type_name(feat)}.")
+
+		featTemp.write(feat.data)
+		featTemp.seek(0)
+		featFile = featTemp.name
+
+		silphonelist = ":".join(lexicons("silence", True))
+
+		if type_name(aliOrLat) == "Lattice":
+			cmd = f"lattice-to-post --acoustic-scale={acwt} ark:- ark:- | "
+		else:
+			cmd = f"ali-to-post ark:- ark:- | "
+
+		cmd += f"weight-silence-post {silenceWeight} {silphonelist} {aliModelFile} ark:- ark:- | "
+		if adaHmm is not None:
+			if type_name(adaHmm) in ["BaseHMM", "MonophoneHMM", "TriphoneHMM"]:
+				adaModelTemp.write(adaHmm.data)
+				adaModelTemp.seek(0)
+				adaModelFile = adaModelTemp.name
+			elif type_name(adaHmm) == "str":
+				adaModelFile = adaHmm
+			else:
+				raise UnsupportedType(f"<adaHmm> should be exkaldi HMM object or file path: {type_name(adaHmm)}.")			
+			cmd += f"gmm-post-to-gpost {aliModelFile} ark:{featFile} ark:- ark:- | gmm-est-fmllr-gpost "
+		else:
+			adaModelFile = aliModelFile
+			cmd += f"gmm-est-fmllr "
+			
+		cmd += f"--fmllr-update-type=full --spk2utt=ark:{spk2utt} {adaModelFile} ark:{featFile} ark:- ark:-"
+
+		out, err, cod = run_shell_command(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,stdin=subprocess.PIPE,inputs=aliOrLat.data)
+		if cod != 0:
+			print(err.decode())
+			raise KaldiProcessError("Failed to estimate fMLLR transform matrix.")
+		else:
+			return BytesFmllrMatrix(out, name="fmllrMatrix")
+	
+	finally:
+		aliModelTemp.close()
+		adaModelTemp.close()
+		featTemp.close()
