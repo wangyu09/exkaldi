@@ -416,13 +416,15 @@ class Transcription(ListTable):
 
 		return result
 	
-	def convert(self, symbolTable, unkSymbol):
+	def convert(self, symbolTable, unkSymbol=None):
 		'''
-		Convert transcription between text format and int format.
+		Convert transcription between two types of symbol, typically text format and int format.
 
 		Args:
 			<symbolTable>: exkaldi ListTable object.
-			<unkSymbol>: symbol of oov.
+			<unkSymbol>: symbol of oov. If symbol is out of table, use this to replace.
+		Return:
+			A new Transcription object.
 		'''
 		assert type_name(symbolTable) == "ListTable", "<symbolTable> must be ListTable object."
 		
@@ -438,10 +440,13 @@ class Transcription(ListTable):
 				try:
 					text[index] = str(symbolTable[word])
 				except KeyError:
-					try:
-						text[index] = str(symbolTable[unkSymbol])
-					except KeyError:
-						raise WrongDataFormat(f"Word symbol table miss unknown-map symbol: {unkSymbol}")
+					if unkSymbol is None:
+						raise WrongDataFormat(f"Missed the corresponding target for symbol: {word}.")
+					else:
+						try:
+							text[index] = str(symbolTable[unkSymbol])
+						except KeyError:
+							raise WrongDataFormat(f"Word symbol table missed unknown-map symbol: {unkSymbol}")
 		
 			trans[utt] = " ".join(text)
 	
@@ -531,7 +536,7 @@ class Metric(ListTable):
 		'''
 		return sum(self.values())
 
-	def mean(self, weights=None):
+	def mean(self, weight=None):
 		'''
 		The weighted average.
 
@@ -541,15 +546,15 @@ class Metric(ListTable):
 		if self.is_void:
 			return 0
 		
-		if weights is None:
+		if weight is None:
 			return self.sum()/len(self)
 		else:
-			assert isinstance(weights,dict), f"<weights> should be a Python dict object but got: {type_name(weights)}."
+			assert isinstance(weight,dict), f"<weight> should be a Python dict object but got: {type_name(weight)}."
 			numerator = 0
 			denominator = 1e-6
 			for key,value in self.items():
 				try:
-					W = weights[key]
+					W = weight[key]
 				except KeyError:
 					raise WrongOperation(f"Miss weight for: {key}.")
 				else:
@@ -623,6 +628,8 @@ class BytesDataIndex(ListTable):
 		'''
 		The index info spec.
 		'''
+		#spec = namedtuple("Index",["frames", "startIndex", "dataSize", "file"])
+		#spec.__new__.__defaults__ = (None,)
 		return namedtuple("Index",["frames", "startIndex", "dataSize"])
 
 	def sort(self, by="utt", reverse=False):
@@ -1922,6 +1929,103 @@ class BytesProbability(BytesMatrix):
 		result = super().sort(by, reverse)
 		return BytesProbability(result.data, name=result.name, indexTable=result.utt_index)
 
+class BytesFmllrMatrix(BytesMatrix):
+	'''
+	Hold the fMLLR transform matrix with kaldi binary format.
+	'''
+	def __init__(self, data=b"", name="fmllrMat", indexTable=None):
+		if isinstance(data, BytesFmllrMatrix):
+			data = data.data
+		elif isinstance(data, NumpyFmllrMatrix):
+			data = (data.to_bytes()).data
+		elif isinstance(data, bytes):
+			pass
+		else:
+			raise UnsupportedType(f"Expected BytesFmllrMatrix, NumpyFmllrMatrix or Python bytes object but got {type_name(data)}.")
+
+		super().__init__(data, name, indexTable)
+	
+	def to_numpy(self):
+		'''
+		Transform fMLLR transform matrix to numpy formation.
+
+		Return:
+			a NumpyFmllrMatrix object.
+		'''
+		result = super().to_numpy()
+		return NumpyFmllrMatrix(result.data, name=result.name)
+
+	def __add__(self, other):
+		'''
+		Plus operation between two fMLLR transform matrix objects.
+
+		Args:
+			<other>: a BytesFmllrMatrix or NumpyFmllrMatrix object.
+		Return:
+			a BytesFmllrMatrix object.
+		'''		
+		if isinstance(other, BytesFmllrMatrix):
+			pass
+		elif isinstance(other, NumpyFmllrMatrix):
+			other = other.to_bytes()
+		else:
+			raise UnsupportedType(f"Excepted a BytesFmllrMatrix or NumpyFmllrMatrix object but got {type_name(other)}.")
+
+		result = super().__add__(other)
+
+		return BytesFmllrMatrix(result.data, name=result.name, indexTable=result.utt_index)
+
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
+		'''
+		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
+		
+		Args:
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
+		Return:
+			a new BytesFmllrMatrix object or a list of new BytesFmllrMatrix objects.
+		''' 
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
+
+		if isinstance(result, list):
+			for index in range(len(result)):
+				temp = result[index]
+				result[index] = BytesFmllrMatrix(temp.data, temp.name, temp.utt_index)
+		else:
+			result = BytesFmllrMatrix(result.data, result.name, result.utt_index)
+
+		return result
+
+	def __call__(self, uttID):
+		'''
+		Pick out the specified utterance.
+		
+		Args:
+			<uttID>: a string.
+		Return:
+			If existed, return a new BytesFmllrMatrix object.
+		''' 
+		result = super().__call__(uttID)
+		return BytesFmllrMatrix(result.data, result.name, result.utt_index)
+
+	def sort(self, by="utt", reverse=False):
+		'''
+		Sort utterances by frames length or uttID
+
+		Args:
+			<by>: "frame" or "utt"
+			<reverse>: If reverse, sort in descending order.
+		Return:
+			A new BytesCMVNStatistics object.
+		''' 
+		result = super().sort(by, reverse)
+		return BytesFmllrMatrix(result.data, name=result.name, indexTable=result.utt_index)
+
 ## Base class: for Vector Data achivements
 class BytesVector(BytesAchievement):
 	'''
@@ -2008,6 +2112,19 @@ class BytesVector(BytesAchievement):
 		'''
 		# Return deepcopied dict object.
 		return copy.deepcopy(self.__dataIndex)
+
+	@property
+	def utts(self):
+		'''
+		Get all utts ID.
+		
+		Return:
+			a list of all utterance IDs.
+		'''
+		if self.is_void:
+			return []
+		else:
+			return list(self.__dataIndex.keys())
 
 	@property
 	def dtype(self):
@@ -3232,7 +3349,7 @@ class NumpyFeature(NumpyMatrix):
 
 		return result
 
-	def sort(self, by='frame', reverse=False):
+	def sort(self, by='utt', reverse=False):
 		'''
 		Sort utterances by frames length or uttID
 
@@ -3393,20 +3510,20 @@ class NumpyFeature(NumpyMatrix):
 		result = super().map(func)
 		return NumpyFeature(data=result.data, name=result.name)	
 
-## Subclass: for CMVN statistics
-class NumpyCMVNStatistics(NumpyMatrix):
+## Subclass: for fMLLR transform matrix
+class NumpyFmllrMatrix(NumpyMatrix):
 	'''
-	Hold the CMVN statistics with Numpy format.
+	Hold the fMLLR transform matrix with Numpy format.
 	'''
-	def __init__(self, data={}, name="cmvn"):
-		if isinstance(data, BytesCMVNStatistics):			
+	def __init__(self, data={}, name="fmllrMat"):
+		if isinstance(data, BytesFmllrMatrix):			
 			data = (data.to_numpy()).data
-		elif isinstance(data, NumpyCMVNStatistics):
+		elif isinstance(data, NumpyFmllrMatrix):
 			data = data.data
 		elif isinstance(data, dict):
 			pass
 		else:
-			raise UnsupportedType(f"Expected BytesCMVNStatistics, NumpyCMVNStatistics or Python dict object but got {type_name(data)}.")		
+			raise UnsupportedType(f"Expected BytesFmllrMatrix, NumpyFmllrMatrix or Python dict object but got {type_name(data)}.")		
 		super().__init__(data,name)
 
 	def to_bytes(self):
@@ -3414,10 +3531,10 @@ class NumpyCMVNStatistics(NumpyMatrix):
 		Transform feature to bytes formation.
 
 		Return:
-			a BytesCMVNStatistics object.
+			a BytesFmllrMatrix object.
 		'''			
 		result = super().to_bytes()
-		return BytesCMVNStatistics(result.data, result.name)
+		return BytesFmllrMatrix(result.data, result.name)
 
 	def to_dtype(self, dtype):
 		'''
@@ -3426,33 +3543,33 @@ class NumpyCMVNStatistics(NumpyMatrix):
 		Args:
 			<dtype>: a string of "float", "float32" or "float64". IF "float", it will be treated as "float32".
 		Return:
-			A new NumpyCMVNStatistics object.
+			A new NumpyFmllrMatrix object.
 		'''
 		assert dtype in ["float", "float32", "float64"], '<dtype> must be a string of "float", "float32" or "float64".'
 
 		result = super().to_dtype(dtype)
 
-		return NumpyCMVNStatistics(result.data, result.name)
+		return NumpyFmllrMatrix(result.data, result.name)
 
 	def __add__(self, other):
 		'''
-		Plus operation between two CMVN statistics objects.
+		Plus operation between two fMLLR transform matrix objects.
 
 		Args:
-			<other>: a NumpyCMVNStatistics or BytesCMVNStatistics object.
+			<other>: a NumpyFmllrMatrix or BytesFmllrMatrix object.
 		Return:
-			a NumpyCMVNStatistics object.
+			a NumpyFmllrMatrix object.
 		'''	
-		if isinstance(other, NumpyCMVNStatistics):
+		if isinstance(other, NumpyFmllrMatrix):
 			pass
-		elif isinstance(other, BytesCMVNStatistics):
+		elif isinstance(other, BytesFmllrMatrix):
 			other = other.to_numpy()
 		else:
-			raise UnsupportedType(f'Excepted a BytesCMVNStatistics or NumpyCMVNStatistics object but got {type_name(other)}.')
+			raise UnsupportedType(f'Excepted a BytesFmllrMatrix or NumpyFmllrMatrix object but got {type_name(other)}.')
 		
 		result = super().__add__(other)
 
-		return NumpyCMVNStatistics(result.data, result.name)
+		return NumpyFmllrMatrix(result.data, result.name)
 
 	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
 		'''
@@ -3467,16 +3584,16 @@ class NumpyCMVNStatistics(NumpyMatrix):
 			<chunks>: split data into N chunks averagely.
 			<uttList>: pick out these utterances whose ID in uttList.
 		Return:
-			a new NumpyCMVNStatistics object or a list of new NumpyCMVNStatistics objects.
+			a new NumpyFmllrMatrix object or a list of new NumpyFmllrMatrix objects.
 		''' 
 		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
 
 		if isinstance(result, list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = NumpyCMVNStatistics(temp.data, temp.name)
+				result[index] = NumpyFmllrMatrix(temp.data, temp.name)
 		else:
-			result = NumpyCMVNStatistics(result.data, result.name)
+			result = NumpyFmllrMatrix(result.data, result.name)
 
 		return result
 
@@ -3488,11 +3605,11 @@ class NumpyCMVNStatistics(NumpyMatrix):
 			<by>: "frame" or "utt"
 			<reverse>: If reverse, sort in descending order.
 		Return:
-			A new NumpyCMVNStatistics object.
+			A new NumpyFmllrMatrix object.
 		''' 		
 		result = super().sort(by,reverse)
 
-		return NumpyCMVNStatistics(result.data, result.name)
+		return NumpyFmllrMatrix(result.data, result.name)
 
 	def __call__(self, uttID):
 		'''
@@ -3501,10 +3618,10 @@ class NumpyCMVNStatistics(NumpyMatrix):
 		Args:
 			<uttID>: a string.
 		Return:
-			If existed, return a new NumpyFeature object.
+			If existed, return a new NumpyFmllrMatrix object.
 		''' 
 		result = super().__call__(uttID)
-		return NumpyCMVNStatistics(result.data, result.name)
+		return NumpyFmllrMatrix(result.data, result.name)
 
 	def map(self, func):
 		'''
@@ -3514,10 +3631,10 @@ class NumpyCMVNStatistics(NumpyMatrix):
 			<func>: callable function object.
 		
 		Return:
-			A new NumpyCMVNStatistics object.
+			A new NumpyFmllrMatrix object.
 		'''
 		result = super().map(func)
-		return NumpyCMVNStatistics(data=result.data, name=result.name)	
+		return NumpyFmllrMatrix(data=result.data, name=result.name)	
 
 ## Subclass: for probability of neural network output
 class NumpyProbability(NumpyMatrix):
@@ -3644,6 +3761,132 @@ class NumpyProbability(NumpyMatrix):
 		'''
 		result = super().map(func)
 		return NumpyProbability(data=result.data, name=result.name)	
+
+## Subclass: for CMVN statistics
+class NumpyCMVNStatistics(NumpyMatrix):
+	'''
+	Hold the CMVN statistics with Numpy format.
+	'''
+	def __init__(self, data={}, name="cmvn"):
+		if isinstance(data, BytesCMVNStatistics):			
+			data = (data.to_numpy()).data
+		elif isinstance(data, NumpyCMVNStatistics):
+			data = data.data
+		elif isinstance(data, dict):
+			pass
+		else:
+			raise UnsupportedType(f"Expected BytesCMVNStatistics, NumpyCMVNStatistics or Python dict object but got {type_name(data)}.")		
+		super().__init__(data,name)
+
+	def to_bytes(self):
+		'''
+		Transform feature to bytes formation.
+
+		Return:
+			a BytesCMVNStatistics object.
+		'''			
+		result = super().to_bytes()
+		return BytesCMVNStatistics(result.data, result.name)
+
+	def to_dtype(self, dtype):
+		'''
+		Transform data type.
+
+		Args:
+			<dtype>: a string of "float", "float32" or "float64". IF "float", it will be treated as "float32".
+		Return:
+			A new NumpyCMVNStatistics object.
+		'''
+		assert dtype in ["float", "float32", "float64"], '<dtype> must be a string of "float", "float32" or "float64".'
+
+		result = super().to_dtype(dtype)
+
+		return NumpyCMVNStatistics(result.data, result.name)
+
+	def __add__(self, other):
+		'''
+		Plus operation between two CMVN statistics objects.
+
+		Args:
+			<other>: a NumpyCMVNStatistics or BytesCMVNStatistics object.
+		Return:
+			a NumpyCMVNStatistics object.
+		'''	
+		if isinstance(other, NumpyCMVNStatistics):
+			pass
+		elif isinstance(other, BytesCMVNStatistics):
+			other = other.to_numpy()
+		else:
+			raise UnsupportedType(f'Excepted a BytesCMVNStatistics or NumpyCMVNStatistics object but got {type_name(other)}.')
+		
+		result = super().__add__(other)
+
+		return NumpyCMVNStatistics(result.data, result.name)
+
+	def subset(self, nHead=0, nTail=0, nRandom=0, chunks=1, uttList=None):
+		'''
+		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > uttList.
+		If you chose mutiple modes, only the prior one will work.
+		
+		Args:
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<uttList>: pick out these utterances whose ID in uttList.
+		Return:
+			a new NumpyCMVNStatistics object or a list of new NumpyCMVNStatistics objects.
+		''' 
+		result = super().subset(nHead, nTail, nRandom, chunks, uttList)
+
+		if isinstance(result, list):
+			for index in range(len(result)):
+				temp = result[index]
+				result[index] = NumpyCMVNStatistics(temp.data, temp.name)
+		else:
+			result = NumpyCMVNStatistics(result.data, result.name)
+
+		return result
+
+	def sort(self, by='frame', reverse=False):
+		'''
+		Sort utterances by frames length or uttID
+
+		Args:
+			<by>: "frame" or "utt"
+			<reverse>: If reverse, sort in descending order.
+		Return:
+			A new NumpyCMVNStatistics object.
+		''' 		
+		result = super().sort(by,reverse)
+
+		return NumpyCMVNStatistics(result.data, result.name)
+
+	def __call__(self, uttID):
+		'''
+		Pick out the specified utterance.
+		
+		Args:
+			<uttID>: a string.
+		Return:
+			If existed, return a new NumpyFeature object.
+		''' 
+		result = super().__call__(uttID)
+		return NumpyCMVNStatistics(result.data, result.name)
+
+	def map(self, func):
+		'''
+		Map all arrays to a function.
+
+		Args:
+			<func>: callable function object.
+		
+		Return:
+			A new NumpyCMVNStatistics object.
+		'''
+		result = super().map(func)
+		return NumpyCMVNStatistics(data=result.data, name=result.name)	
 
 ## Base Class: for Vector Data Achivements
 class NumpyVector(NumpyMatrix):
@@ -4354,7 +4597,7 @@ class NumpyAlignmentPhone(NumpyAlignment):
 		Return:
 			A new NumpyAlignmentPhone object.
 		''' 
-		resutl = super().cut(maxFrames)
+		result = super().cut(maxFrames)
 		return NumpyAlignmentPhone(result.data, result.name)
 
 ## Subclass: for pdf-ID alignment 
@@ -4482,5 +4725,5 @@ class NumpyAlignmentPdf(NumpyAlignment):
 		Return:
 			A new NumpyAlignmentPdf object.
 		''' 
-		resutl = super().cut(maxFrames)
+		result = super().cut(maxFrames)
 		return NumpyAlignmentPdf(result.data, result.name)
