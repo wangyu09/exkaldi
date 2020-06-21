@@ -521,7 +521,7 @@ class LexiconBank:
 
 			self.__dictionaries["lexiconp_silprob"] = temp
 
-			if self.__parameters["positionDependent"] and (not extimatePositionDependent):
+			if self.__parameters["positionDependent"] and (not MayBePositionDependent):
 				self.__apply_position_dependent_to_lexiconp(dictType="lexiconp_silprob")
 			
 			self.__add_disambig_to_lexiconp(dictType="lexiconp_silprob")
@@ -537,7 +537,7 @@ class LexiconBank:
 
 			self.__dictionaries["lexiconp_silprob_disambig"] = temp
 
-			if self.__parameters["positionDependent"] and (not extimatePositionDependent):
+			if self.__parameters["positionDependent"] and (not MayBePositionDependent):
 				self.__apply_position_dependent_to_lexiconp(dictType=="lexiconp_silprob_disambig")
 			
 			self.__remove_disambig_from_lexiconp_disambig(dictType="lexiconp_silprob_disambig")
@@ -1508,10 +1508,10 @@ def make_L(lexicons, outFile, useSilprobLexicon=False, useSilprob=0.5, useDisamb
 		out2, err2, cod2 = run_shell_command(cmd2, stdin=subprocess.PIPE, stderr=subprocess.PIPE, inputs=out1)
 		
 		if isinstance(cod2,int) and cod2 != 0:
-			print(err.decode())
+			print(err2.decode())
 			if os.path.isfile(outFile):
 				os.remove(outFile)
-			if useDisambig:
+			if useDisambigLexicon:
 				raise KaldiProcessError("Failed to generate L_disambig.fst.")
 			else:
 				raise KaldiProcessError("Failed to generate L.fst.")
@@ -1798,7 +1798,7 @@ def make_graph(lexicons, arpaFile, hmm, tree, tempDir, order=3, useSilprobLexico
 
 
 	if useLFile is None:
-		if useDisambig:
+		if useDisambigLexicon:
 			useLFile = os.path.join(tempDir, "L_disambig.fst")
 		else:
 			useLFile = os.path.join(tempDir, "L.fst")

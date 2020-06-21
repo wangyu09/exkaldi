@@ -26,7 +26,7 @@ from io import BytesIO
 
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, UnsupportedType, ShellProcessError, KaldiProcessError
-from exkaldi.utils.utils import run_shell_command, type_name
+from exkaldi.utils.utils import run_shell_command, type_name, list_files
 from exkaldi.core.achivements import BytesMatrix, BytesFeature, BytesCMVNStatistics, BytesProbability, BytesAlignmentTrans
 from exkaldi.core.achivements import NumpyMatrix, NumpyFeature, NumpyCMVNStatistics, NumpyProbability, NumpyAlignmentTrans
 from exkaldi.core.achivements import NumpyAlignment, NumpyAlignmentPhone, NumpyAlignmentPdf
@@ -48,14 +48,7 @@ def __read_data_from_file(fileName, useSuffix=None):
 		if os.path.isdir(fileName):
 			raise WrongOperation(f"Expected file name but got a directory:{fileName}.")
 		else:
-			out, err, cod = run_shell_command(f"ls {fileName}", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-			if isinstance(cod, int) and cod != 0:
-				print(err.decode())
-				raise ShellProcessError("Failed to run shell command.")
-			elif out == b'':
-				raise WrongPath(f"No such file:{fileName}")
-			else:
-				allFiles = out.decode().strip().split('\n')
+			allFiles = list_files(fileName)
 	else:
 		raise UnsupportedType(f'Expected <fileName> is file name-like string but got a {type_name(fileName)}.')
 
@@ -287,14 +280,8 @@ def load_ali(target, aliType=None, name="ali", hmm=None):
 		return result
 
 	elif isinstance(target, str):
-		out, err, cod = run_shell_command(f'ls {target}', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-		if (isinstance(cod,int) and cod != 0):
-			print(err.decode())
-			raise ShellProcessError("Failed to run shell command.")
-		elif out == b'':
-			raise WrongPath(f"No such file or dir:{target}.")
-		else:
-			allFiles = out.decode().strip().split('\n')
+				
+		allFiles = list_files(target)
 
 		results = {"NumpyAlignment": NumpyAlignment(),
 				   "NumpyAlignmentTrans": NumpyAlignmentTrans(),
