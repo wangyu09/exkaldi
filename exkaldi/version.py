@@ -88,7 +88,7 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 				with open(filePath, "r", encoding="utf-8") as fr:
 					v = fr.readline().strip()
 					major, minor = v.split(".")[0:2]
-				if v != "5.5":
+				if v != _EXPECTED_KALDI_VERSION:
 					raise UnsupportedKaldiVersion(f"Current Exkaldi supports Kaldi version=={_EXPECTED_KALDI_VERSION} but got {v}.")
 				else:
 					return namedtuple("Kaldi", ["version", "major", "minor"])(v, major, minor)

@@ -18,7 +18,7 @@ The goal of ExKaldi is to help developers build high-performance ASR systems wit
 
 ## Installation
 
-1. If you have not installed Kaldi ASR toolkit, clone the Kaldi ASR toolkit repository firstly.
+1. If you have not installed Kaldi ASR toolkit, clone the Kaldi ASR toolkit repository firstly (Kaldi version 5.5 is expected.)
 ```
 git clone https://github.com/kaldi-asr/kaldi.git kaldi --origin upstream
 ```
@@ -58,7 +58,7 @@ We have done some experiments to test ExKaldi toolkit, and it achived a good per
 
 #### TIMIT
 
-1, The perplexity of various language models. All these LMs are trained with TIMIT train transcription and tested with TIMIT test transcription. The score showed in the table is weighted average of all utterances and weights are the sentence length of each utterance.  
+1, The perplexity of various language models. All these systems are trained with TIMIT train data and tested with TIMIT test data. The score showed in the table is weighted average of all utterances and weights are the sentence length of each utterance.  
 
 |                           | __2-grams__  | __3-grams__ | __4-grams__ |
 | :-----------------------: | :----------: | :---------: | :---------: |
@@ -66,7 +66,7 @@ We have done some experiments to test ExKaldi toolkit, and it achived a good per
 | __exkaldi srilm__         | 14.69        | 13.44       | 14.26       |
 | __exkaldi kenlm__         | 14.64        | __13.07__   | 13.20       |
 
-2, The word error rate(WER) of various systems. All these LMs are trained with TIMIT train transcription and tested with TIMIT test transcription. The Language model backend used in exkaldi is Kenlm. From the results, we can know than KenLm is avaliable to optimize the language model. And what's more, with Exkaldi, we can choose the best n-grams by testing the perplexity of LM in order to improve the performance of ASR system.
+2, The word error rate(WER) of various systems. All these systems are trained with TIMIT train dataset and tested with TIMIT test dataset. The Language model backend used in exkaldi is Kenlm. From the results, we can know than KenLm is avaliable to optimize the language model. And what's more, with Exkaldi, we cherry-picked the N-grams by testing the perplexity and it improved the performance of ASR system.
 
 |                           | __mono__  | __tri1__ | __tri2__ | __tri3__ |
 | :-----------------------: | :-------: | :------: | :------: | :------: |

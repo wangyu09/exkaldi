@@ -271,14 +271,14 @@ def compute_spectrogram(wavFile, rate=16000, frameWidth=25, frameShift=10,
 	assert frameWidth > frameShift,  f"<frameWidth> and <frameShift> is unavaliable."
 	assert windowType in ["hamming","hanning","povey","rectangular","blackmann"], f'<windowType> should be "hamming","hanning","povey","rectangular","blackmann", but got: {windowType}.'
 
-	kaldiTool = 'compute-spetrogram-feats --allow-downsample --allow-upsample '
+	kaldiTool = 'compute-spectrogram-feats --allow-downsample --allow-upsample '
 	kaldiTool += f'--sample-frequency={rate} '
 	kaldiTool += f'--frame-length={frameWidth} '
 	kaldiTool += f'--frame-shift={frameShift} '
 	kaldiTool += f'--window-type={windowType} '
 
 	if config is not None:
-		if check_config(name='compute_spetrogram', config=config):
+		if check_config(name='compute_spectrogram', config=config):
 			for key,value in config.items():
 				if isinstance(value, bool):
 					if value is True:

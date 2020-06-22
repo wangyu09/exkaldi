@@ -1,4 +1,4 @@
-compute_plp = {
+config = {
                 "--blackman-coeff":[0.42,float],
                 "--cepstral-lifter":[22,int],
                 "--cepstral-scale":[1,int],

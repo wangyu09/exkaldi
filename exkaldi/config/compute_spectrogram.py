@@ -1,4 +1,4 @@
-compute_spectrogram =  {
+config =  {
 				"--blackman-coeff":[0.42,float],
 				"--channel":[-1,int],
 				"--dither":[1.0,float],
