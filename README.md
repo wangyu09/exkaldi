@@ -4,17 +4,59 @@
 ================================
 
 ExKaldi automatic speech recognition toolkit is designed to build an interface between [Kaldi ASR toolkit](https://github.com/kaldi-asr/kaldi) and Python. 
-Differing from other kaldi wrappers, exkaldi have these features:
-
-1. Integrated APIs to build a ASR systems, including training HMM-GMM acoustic model, training HMM-DNN acoustic model, training and quering a N-grams language model, decoding and scoring.
-
-2. Exkaldi C++ library was designed to support, such as ctc decoding for End-to-End. 
-
-3. Use KenLm as languange model backend.
-
-4. Support communication between local host and linux server (The ideal environment of Exkaldi is linux server).
-
+Differing from other kaldi wrappers, exkaldi have these features:  
+1. Integrated APIs to build a ASR systems, including training HMM-GMM acoustic model, training HMM-DNN acoustic model, training and quering a N-grams language model, decoding and scoring.  
+2. Exkaldi C++ library was designed to support, such as ctc decoding for End-to-End.   
+3. Use KenLm as languange model backend.  
 The goal of ExKaldi is to help developers build high-performance ASR systems with Python language easily.
+
+## The Concept of Exkaldi
+We use three data structures to discribe the Kaldi numerical data archieves: __Index Table__, __Bytes Object__ and __NumPy Array__. They all stand for the same data.  
+
+![three approaches](images/threeApproachs.png)  
+  
+__Index Table__: hold the index information of archieve which has been saved in files.  
+__Bytes Object__: hold the data in memory with bytes format.   
+__NumPy Array__: hold the data in memory with NumPy array format.
+
+These three structures have been designed as various specified classes in Exkaldi. Basesd on these classes, Exkaldi interacts with Kaldi command-line API to process archieves and build ASR system via Python subprocess.  
+Basically, these three data structures have these features:  
+1. They can convert to one another easily. 
+2. They are treated by exkaldi functions without distinction.
+3. Achieves with NumPy format can be used to generate iterable dataset and train NN model with deep learning frameworks, such as Tensorflow.  
+4. Achieves with index table format make it possible to deal with large scale corpus. 
+
+This is a glance of ExKaldi numerical data archieve class group:  
+
+![core classes](images/archieveClassGroup.png)  
+
+Beside above, ExKaldi has complete approaches to carry and process other archieves and objects.  
+This is a glance of other main data classes in Exkaldi:  
+
+![other main classes](images/otherMainClasses.png)  
+
+With the help of these classes, ExKaldi is qualified to build a complete ASR system from the scratch to a state-of-the-art level.
+
+## Parallel Processes In Exkaldi
+Starting from version 1.3, we support mutiple processes so as to deal with a large-scale corpus. When process a small one, such as TIMIT coupus in our examples, we prefer to apply the single process that will hold on data in memory, and defaultly appoint buffer as IO streams during the processing. For example, we want to compute the MFCC feature from a script-table file:
+```
+wavFile = "wav.scp"
+feat = exkaldi.compute_mfcc(wavFile, rate=16000, name="dummy_mfcc")
+```
+The returned object: ___feat___ would be an exkaldi __BytesFeature__ object.
+Implementing parallel processes is easy in Exkaldi because you only need to give the function mutiple resources. For example:
+```
+wavFiles = ["wav_0.scp", "wav_1.scp"]
+feat = exkaldi.compute_mfcc(wavFiles, rate=16000, name="dummy_mfcc", outFile="dummy_mfcc.ark")
+```
+This function will run double processes parallelly because it received two scripts. At the moment, the IO streams must be files and the currency will become __Index Table__. In above case, the returned object: ___feat___ would be two exkaldi __ArkIndexTable__ objects.  
+In particular, we not only accept mutiple recources but also different parameters. This is different with Kaldi. Just for example, we will use different sample rates to compute the MFCC feature:
+```
+wavFile = "wav.scp"
+rates = [16000, 8000]
+feat = exkaldi.compute_mfcc(wavFile, rate=rates, name="dummy_mfcc", outFile="dummy_mfcc.ark")
+```
+We think it will be very useful on some ocassions, such as decoding.
 
 ## Installation
 
