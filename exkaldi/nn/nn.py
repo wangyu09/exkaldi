@@ -31,6 +31,7 @@ from glob import glob
 
 from exkaldi.version import WrongPath, WrongOperation, UnsupportedType
 from exkaldi.utils.utils import make_dependent_dirs, type_name, run_shell_command, flatten
+from exkaldi.utils import declare
 from exkaldi.core.load import load_feat
 from collections import namedtuple, Iterable
 
@@ -42,8 +43,8 @@ class Supporter:
 		<outDir>: the output directory of Log information.
 	'''      
 	def __init__(self, outDir='Result'):
-
-		assert isinstance(outDir, str), "<outDir> should be a name-like string."
+		
+		declare.is_valid_dir_name("outDir", outDir)
 		make_dependent_dirs(outDir, pathIsFile=False)
 		self.outDir = os.path.abspath(outDir)
 
@@ -71,8 +72,8 @@ class Supporter:
 					such as {"epoch":epoch,"train_loss":loss,"train_acc":acc}
 					The value can be Python int, float object, Numpy int, float object or NUmpy ndarray with only one value.
 		'''
-		assert isinstance(info, dict), "Expected <info> is a Python dict object."
-	
+		declare.is_classes("info", info, dict)
+
 		for name,value in info.items(): 
 			assert isinstance(name, str) and len(name) > 0, f"The name of info should be string avaliable but got {type_name(name)}."
 			valueDtype = type_name(value)
@@ -164,8 +165,8 @@ class Supporter:
 			<maxRetain>: the max numbers of saved achivements to retain. If 0, retain all.
 		''' 
 		assert isinstance(arch, dict), "Expected <arch> is dict whose keys are architecture-names and values are architecture-objects."
-		assert callable(saveFunc), "<saveFunc> must be a callable object or function."
-		assert isinstance(maxRetain,int) and maxRetain>=0, "<maxRetain> shoule be a non-negative int value."
+		declare.is_callable("saveFunc", saveFunc)
+		declare.is_non_negative_int("maxRetain", maxRetain)
 
 		#if self.currentField != {}:
 		#	self.collect_report(plot=False)
@@ -287,8 +288,8 @@ class Supporter:
 		Return:
 			True or False. 
 		''' 
-		assert condition in ['>','>=','<=','<','==','!='], '<condiction> is not a correct conditional operator.'
-		assert isinstance(threshold,(int,float)), '<threshold> should be a float or int value.'
+		declare.is_instance("condition operator", condition, ['>','>=','<=','<','==','!='])
+		declare.is_classes("threshold", threshold, (int,float))
 
 		#if self.currentField != {}:
 		#	self.collect_report(plot=False)
@@ -341,47 +342,36 @@ class Supporter:
 			return allData
 
 class DataIterator:
-	'''
-	Usage: obj = DataIterator('train.scp',64,chunks='auto',processFunc=function)
 
-	If you give it a large scp file of train data, it will split it into N smaller chunks and load them into momery alternately with parallel thread. 
-	It will shuffle the original scp file and split again while new epoch.
-	'''
-
-	def __init__(self, scpTable, processFunc, batchSize, chunks='auto', otherArgs=None, shuffle=False, retainData=0.0):
+	def __init__(self, indexTable, processFunc, batchSize, chunks='auto', otherArgs=None, shuffle=False, retainData=0.0):
 		
-		assert type_name(scpTable) == "ScriptTable", "<scpTable> should be an exkaldi ScriptTable object."
-		assert callable(processFunc), "<processFunc> should be a callable instance or function."
+		declare.is_index_table("indexTable", indexTable)
+		declare.is_callable("processFunc", processFunc)	
+		declare.is_positive_int("batchSize", batchSize)
+		declare.is_bool("shuffle", shuffle)
+		declare.in_boundary("retainData", retainData, minV=0.0, maxV=0.9)
 
-		self.fileProcessFunc = processFunc
+		self.processFunc = processFunc
 		self._batchSize = batchSize
 		self.otherArgs = otherArgs
 		self._shuffle = shuffle
 		self._chunks = chunks
 
-		if isinstance(chunks, int):
-			assert chunks>0, "Expected <chunks> is a positive int number but got {}.".format(chunks)
-		elif chunks != 'auto':
-			raise WrongOperation('Expected <chunks> is a positive int number or <auto> but got {}.'.format(chunks))
+		if chunks != 'auto':
+			declare.is_positive_int("chunks", chunks)
 		
-		totalDataNumber = len(scpTable)
+		totalDataNumber = len(indexTable)
 		trainDataNumber = int(  totalDataNumber * (1-retainData) )
 		evalDataNumber = totalDataNumber - trainDataNumber
-		scpTable = scpTable.shuffle()
+		scpTable = indexTable.shuffle()
 
 		self.trainTable = scpTable.subset(nHead=trainDataNumber)
 		self.evalTable = scpTable.subset(nTail=evalDataNumber)
-		del scpTable
 
 		if chunks == 'auto':
 			#Compute the chunks automatically
 			sampleTable = self.trainTable.subset(nHead=10)
-			with tempfile.NamedTemporaryFile('w', encoding='utf-8', suffix='.scp') as sampleFile:
-				sampleTable.save(sampleFile)
-				sampleFile.seek(0)
-				sampleChunkData = load_feat(sampleFile.name, name="sampleFeature", useSuffix="scp")
-			indexInfo = list(sampleChunkData.utt_index.values())[-1]
-			meanSize = (indexInfo.startIndex + indexInfo.dataSize)/10 #Bytes
+			meanSize = sum([ indexInfo.dataSize for indexInfo in sampleTable.values() ]) / 10
 			autoChunkSize = math.ceil(104857600/meanSize)  # 100MB = 102400KB = 104857600 B
 			self._chunks = trainDataNumber//autoChunkSize
 			if self._chunks == 0: 
@@ -414,15 +404,13 @@ class DataIterator:
 		self.datasetBag = self.trainTable.subset(chunks=self._chunks)
 
 	def load_dataset(self, datasetIndex):
-		with tempfile.NamedTemporaryFile('w', suffix='.scp') as scpFile:
-			self.datasetBag[datasetIndex].save(scpFile)
-			scpFile.seek(0)
-			chunkData = load_feat(scpFile.name, name="feat", useSuffix="scp")
+		chunkData = load_feat(self.datasetBag[datasetIndex])
 		if self.otherArgs != None:
-			self.nextDataset = self.fileProcessFunc(self, chunkData, self.otherArgs)
+			self.nextDataset = self.processFunc(self, chunkData, self.otherArgs)
 		else:
-			self.nextDataset = self.fileProcessFunc(self, chunkData)
+			self.nextDataset = self.processFunc(self, chunkData)
 
+		assert isinstance(self.nextDataset, Iterable), "Process function should return an iterable objects."
 		self.nextDataset = [X for X in self.nextDataset]
 
 		if self._batchSize > len(self.nextDataset):
@@ -473,6 +461,7 @@ class DataIterator:
 
 				if self.datasetIndex == 0:
 					self.countEpochSizeFlag = False
+					del self.datasetBag
 					self.make_dataset_bag(shuffle=True)
 
 				self.loadDatasetThread = threading.Thread(target=self.load_dataset,args=(self.datasetIndex,))
@@ -530,19 +519,16 @@ class DataIterator:
 
 	def get_retained_data(self, processFunc=None, batchSize=None, chunks='auto', otherArgs=None, shuffle=False, retainData=0.0):
 
-		if self.evalTable.is_void:
-			raise WrongOperation('No retained validation data.')   
+		declare.non_void("retained data", self.evalTable)
 
 		if processFunc is None:
-			processFunc = self.fileProcessFunc
+			processFunc = self.processFunc
 		
 		if batchSize is None:
 			batchSize = self._batchSize
 
-		if isinstance(chunks, int):
-			assert chunks > 0, "Expected <chunks> is a positive int number."
-		elif chunks != 'auto':
-			raise WrongOperation(f'Expected <chunks> is a positive int number or <auto> but got {chunks}.')
+		if chunks != 'auto':
+			declare.is_positive_int("chunks", chunks)
 
 		if otherArgs is None:
 			otherArgs = self.otherArgs
@@ -559,11 +545,12 @@ def pad_sequence(data, shuffle=False, pad=0):
 	If <shuffle> is "True", pad each sequence with random start-index and return padded data and length information of (startIndex,endIndex) of each sequence.
 	If <shuffle> is "False", align the start index of all sequences then pad them rear. This will return length information of only endIndex.
 	'''
-	assert isinstance(data, list), f"Expected <data> is a list but got {type_name(data)}."
-	assert isinstance(pad, (int, float)), f"Expected <pad> is an int or float value but got {type_name(pad)}."
+	declare.is_classes("data", data, (list,tuple))
+	declare.is_classes("pad", pad, (int,float))
 
 	lengths = []
 	for i in data:
+		declare.is_classes("data", i, np.ndarray)
 		lengths.append(len(i))
 	
 	maxLen = int(max(lengths))
@@ -621,11 +608,11 @@ def unpack_padded_sequence(data, lengths, batchSizeDim=1):
 	This is a reverse operation of .pad_sequence() function. Return a list whose members are sequences.
 	We defaultly think the dimension 0 of <data> is sequence-length and the dimension 1 is batch-size.
 	If the dimension of batch-size is not 1, assign the <batchSizeDim> please.
-	'''   
-	assert isinstance(data, np.ndarray), f"Expected <data> is NumPy array but got {type_name(data)}."
-	assert isinstance(lengths, list), "Expected <lengths> is list whose members are padded start position ( and end position)."
-	assert isinstance(batchSizeDim, int) and batchSizeDim >= 0, "<batchSizeDim> should be a non-negative int value."
-	assert batchSizeDim < len(data.shape), "<batchSizeDim> is out of the dimensions of <data>."
+	'''
+	declare.is_classes("data", data, np.ndarray)
+	declare.is_classes("lengths", lengths, (list,tuple))
+	declare.is_non_negative_int("batchSizeDim", batchSizeDim)
+	declare.smaller("batchSizeDim", batchSizeDim, "the dimensions of data", len(data.shape))
 	
 	if batchSizeDim != 0:
 		dims = [ d for d in range(len(data.shape))]
@@ -656,10 +643,10 @@ def softmax(data, axis=1):
 	Return:
 		A new array.
 	'''
-	assert isinstance(data, np.ndarray), f"<data> should be Numpy array but got {type_name(data)}."
+	declare.is_classes("data", data, np.ndarray)
 	if len(data.shape) == 1:
 		axis = 0
-	assert isinstance(axis, int) and 0 <= axis < len(data.shape), "<axis> is out of range of the shape of data."
+	declare.in_boundary("axis", axis, 0, len(data.shape)-1 )
 	
 	maxValue = data.max(axis, keepdims=True)
 	dataNor = data - maxValue
@@ -679,10 +666,10 @@ def log_softmax(data, axis=1):
 	Return:
 		A new array.
 	'''
-	assert isinstance(data, np.ndarray), f"Expected <data> is NumPy ndarray but got {type_name(data)}."
+	declare.is_classes("data", data, np.ndarray)
 	if len(data.shape) == 1:
 		axis = 0
-	assert isinstance(axis, int) and 0 <= axis < len(data.shape), "<axis> is out of range."
+	declare.in_boundary("axis", axis, 0, len(data.shape)-1 )
 
 	dataShape = list(data.shape)
 	dataShape[axis] = 1

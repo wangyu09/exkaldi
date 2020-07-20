@@ -23,12 +23,16 @@ import subprocess
 import copy
 import numpy as np
 
-from exkaldi.version import version as ExkaldiInfo
+from exkaldi.version import info as ExkaldiInfo
 from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, KaldiProcessError, UnsupportedType
 from exkaldi.utils.utils import run_shell_command, make_dependent_dirs, type_name, check_config, list_files
+from exkaldi.utils.utils import FileHandleManager
+from exkaldi.utils import declare
 from exkaldi.core.archieve import BytesArchieve, Transcription, ListTable, BytesAlignmentTrans, NumpyAlignmentTrans, Metric
+from exkaldi.core.common import check_mutiple_resources, run_kaldi_commands_parallel 
 from exkaldi.nn.nn import log_softmax
 from exkaldi.hmm.hmm import load_hmm
+from exkaldi.core.load import load_transcription
 
 class Lattice(BytesArchieve):
 	'''
@@ -38,19 +42,19 @@ class Lattice(BytesArchieve):
 	The <lattice> can be lattice binary data or file path. Both <hmm> and <wordSymbol> are expected to be file path.
 	decode_lattice() function will return a KaldiLattice object. Aslo, you can define a empty KaldiLattice object and load its data later.
 	'''
-	def __init__(self, data=None, wordSymbolTable=None, hmm=None, name="lat"):
+	def __init__(self, data=None, symbolTable=None, hmm=None, name="lat"):
 		super().__init__(data, name)
-		if wordSymbolTable is not None:
-			assert type_name(wordSymbolTable) == "ListTable", f"<wordSymbolTable> must be exkaldi ListTable object but got: {type_name(wordSymbolTable)}."
+		if symbolTable is not None:
+			declare.is_list_table("symbolTable", symbolTable)
 		if hmm is not None:
-			assert type_name(hmm) in ["MonophoneHMM","TriphoneHMM"], f"<hmm> must be exkaldi HMM object but got: {type_name(hmm)}."
+			declare.is_hmm("hmm", hmm)
 		
-		self.__wordSymbolTable = wordSymbolTable
+		self.__symbolTable = symbolTable
 		self.__hmm = hmm
 	
 	@property
-	def wordSymbolTable(self):
-		return copy.deepcopy(self.__wordSymbolTable)
+	def symbolTable(self):
+		return copy.deepcopy(self.__symbolTable)
 	
 	@property
 	def hmm(self):
@@ -63,111 +67,126 @@ class Lattice(BytesArchieve):
 		Args:
 			<fileName>: file name.
 		''' 
-		assert isinstance(fileName, str) and len(fileName) > 0, "file name is unavaliable."
+		declare.not_void("lattice", self)
 
-		if self.is_void:
-			raise WrongOperation('No any data to save.')
+		if isinstance(fileName, tempfile._TemporaryFileWrapper):
+			fileName.truncate()
+			fileName.write(self.data)
+			fileName.seek(0)
+			return None
+		else:
+			declare.is_valid_string("fileName", fileName)
 
-		if not fileName.rstrip().endswith(".lat"):
-			fileName += ".lat"
-		
-		make_dependent_dirs(fileName)
+			make_dependent_dirs(fileName)
+			with open(fileName, "wb") as fw:
+				fw.write(self.data)
 
-		with open(fileName, "wb") as fw:
-			fw.write(self.data)
+			return fileName
 
-		return os.path.abspath(fileName)
-
-	def get_1best(self, wordSymbolTable=None, hmm=None, lmwt=1, acwt=1.0, phoneLevel=False):
+	def get_1best(self, symbolTable=None, hmm=None, lmwt=1, acwt=1.0, phoneLevel=False, outFile=None):
 		'''
 		Get 1 best result with text formation.
 
-		Args:
-			<wordSymbolTable>: None or file path or ListTable object or LexiconBank object.
-			<hmm>: None or file path or HMM object.
+		Share Args:
+			<symbolTable>: None or file path or ListTable object or LexiconBank object.
+			<hmm>: None or file path or exkaldi HMM object.
+			<phoneLevel>: If Ture, return phone results.
+
+		Parallel Args:
 			<lmwt>: language model weight.
 			<acwt>: acoustic model weight.
-			<phoneLevel>: If Ture, return phone results.
+			<outFile>: output file name.
+
 		Return:
-			An exkaldi Transcription object.
+			exkaldi Transcription object.
 		'''
-		ExkaldiInfo.vertify_kaldi_existed()
+		declare.is_bool("phoneLevel", phoneLevel)
+		declare.kaldi_existed()
+		declare.not_void("lattice", self)
 
-		if self.is_void:
-			raise WrongOperation('No any data in lattice.')
-
-		assert isinstance(lmwt, int) and lmwt >=0, "Expected <lmwt> is a non-negative int number."
-
-		if wordSymbolTable is None:
-			assert self.wordSymbolTable is not None, "<wordSymbolTable> is necessary because no wordSymbol table is avaliable."
-			wordSymbolTable = self.wordSymbolTable
-		
-		if hmm is None:
-			assert self.hmm is not None, "<hmm> is necessary because no wordSymbol table is avaliable."
-			hmm = self.hmm
-
-		modelTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
-		wordSymbolTemp = tempfile.NamedTemporaryFile("w+", suffix="_words.txt", encoding="utf-8")
-
-		try:
-			if isinstance(wordSymbolTable, str):
-				assert os.path.isfile(wordSymbolTable), f"No such file: {wordSymbolTable}."
-				wordsFile = wordSymbolTable
-			elif type_name(wordSymbolTable) == "LexiconBank":
-				if phoneLevel:
-					wordSymbolTable.dump_dict("phones", wordSymbolTemp)
+		with FileHandleManager() as fhm:
+			# check the fotmat of word symbol table
+			if symbolTable is None:
+				assert self.symbolTable is not None, "<symbolTable> is necessary because no wordSymbol table is avaliable."
+				symbolTable = self.symbolTable
+			
+			if isinstance(symbolTable,str):
+				assert os.path.isfile(symbolTable), f"No such file: {symbolTable}."
+			elif type_name(symbolTable) == "LexiconBank":
+				symbolTableTemp = fhm.create("w+", encoding="utf-8")
+				if phoneLevel is True:
+					symbolTable.dump_dict("phones", symbolTableTemp, False)
 				else:
-					wordSymbolTable.dump_dict("words", wordSymbolTemp)
-				wordsFile = wordSymbolTemp.name
-			elif type_name(wordSymbolTable) == "ListTable":
-				wordSymbolTable.save(wordSymbolTemp)
-				wordSymbolTemp.seek(0)
-				wordsFile = wordSymbolTemp.name
+					symbolTable.dump_dict("words", symbolTableTemp, False)
+				symbolTable = symbolTableTemp.name
+			elif type_name(symbolTable) == "ListTable":
+				symbolTableTemp = fhm.create("w+", encoding="utf-8")
+				symbolTable.save(symbolTableTemp)
+				symbolTable = symbolTableTemp.name
 			else:
-				raise UnsupportedType(f"<wordSymbolTable> should be file name, LexiconBank object or ListTable object but got: {type_name(wordSymbolTable)}.")
+				raise UnsupportedType(f"<symbolTable> should be file name, exkaldi LexiconBank or ListTable object but got: {type_name(symbolTable)}.")
+			
+			if phoneLevel is True:
+				# check the format of HMM
+				if hmm is None:
+					assert self.hmm is not None, "<hmm> is necessary because no HMM model is avaliable."
+					hmm = self.hmm
 
-			if isinstance(hmm, str):
-				assert os.path.isfile(hmm), f"No such file: {hmm}."
-				hmmFile = hmm
-			elif type_name(hmm) in ["MonophoneHMM","TriphoneHMM"]:
-				hmm.save(modelTemp)
-				hmmFile = modelTemp.name
+				declare.is_potential_hmm("hmm", hmm)
+				if not isinstance(hmm, str):
+					hmmTemp = fhm.create("wb+", suffix=".mdl")
+					hmm.save(hmmTemp)
+					hmm = hmmTemp.name
 			else:
-				raise UnsupportedType(f"<hmm> should be file name, exkaldi HMM object but got: {type_name(hmm)}.")
+				hmm = "placeholder"
+
+			symbolTables,hmms,lmwts,acwts,outFiles = check_mutiple_resources(symbolTable,hmm,lmwt,acwt,outFile=outFile)
+			
+			if len(outFiles) > 1:
+				latTemp = fhm.create("wb+",suffix=".lat")
+				self.save(latTemp)
+				lat = latTemp.name
+			else:
+				lat = self
+			
+			lats = []
+			for lmwt, acwt in zip(lmwts, acwts):
+				declare.is_positive("lmwt", lmwt)
+				declare.is_positive("acwt", acwt)
+				lats.append(lat)
 
 			if phoneLevel:
-				cmd0 = f'lattice-align-phones --replace-output-symbols=true {hmmFile} ark:- ark:- | '
+				cmdPattern = 'lattice-align-phones --replace-output-symbols=true {model} ark:{lat} ark:- | '
+				cmdPattern += "lattice-best-path --lm-scale={lmwt} --acoustic-scale={acwt} --word-symbol-table={words} ark:- ark,t:{outFile}"
+				outputName = '1-best-phone'
 			else:
-				cmd0 = ""
+				cmdPattern = "lattice-best-path --lm-scale={lmwt} --acoustic-scale={acwt} --word-symbol-table={words} ark:{lat} ark,t:{outFile}"
+				outputName = '1-best-word'
 
-			cmd1 = f"lattice-best-path --lm-scale={lmwt} --acoustic-scale={acwt} --word-symbol-table={wordsFile} --verbose=2 ark:- ark,t:- "
-			cmd = cmd0 + cmd1
+			resources = {"lat":lats,"words":symbolTables,"model":hmms,"lmwt":lmwts,"acwt":acwts,"outFile":outFiles}
 
-			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
-			if cod != 0 or out == b'':
-				print(err.decode())
-				raise KaldiProcessError('Failed to get 1-best from lattice.')
-			else:
-				out = out.decode().strip().split("\n")
-				if phoneLevel:
-					newName = "1-best-phones"
+			results = run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True)
+
+			if len(outFiles) == 1:
+				outFile = outFiles[0]
+				if outFile == "-":
+					outbuffer = results[2].decode().strip().split("\n")
+					results = Transcription(name=outputName)
+					for line in outbuffer:
+						line = line.strip().split(maxsplit=1)
+						if len(line) == 0:
+							continue
+						elif len(line) == 1:
+							results[line[0]] = " "
+						else:
+							results[line[0]] = line[1]
 				else:
-					newName = "1-best-words"
-
-				results = Transcription(name=newName)
-				for re in out:
-					re = re.strip().split(maxsplit=1)
-					if len(re) == 0:
-						continue
-					elif len(re) == 1:
-						results[re[0]] = " "
-					else:
-						results[re[0]] = re[1]
-				return results
-
-		finally:
-			modelTemp.close()
-			wordSymbolTemp.close()
+					results = load_transcription(outFile, name=outputName)
+			else:
+				for i, fileName in enumerate(outFiles):
+					results[i] = load_transcription(fileName, name=outputName)
+			
+			return results
 	
 	def scale(self, acwt=1, invAcwt=1, ac2lm=0, lmwt=1, lm2ac=0):
 		'''
@@ -182,13 +201,11 @@ class Lattice(BytesArchieve):
 		Return:
 			An new Lattice object.
 		'''
-		ExkaldiInfo.vertify_kaldi_existed()
-
-		if self.is_void:
-			raise WrongOperation('No any lattice to scale.')           
+		declare.kaldi_existed()
+		declare.not_void("lattice", self)
 
 		for x in [acwt, invAcwt, ac2lm, lmwt, lm2ac]:
-			assert x >= 0, "Expected scale is positive value."
+			declare.is_non_negative("scales", x)
 		
 		cmd = 'lattice-scale'
 		cmd += ' --acoustic-scale={}'.format(acwt)
@@ -205,7 +222,7 @@ class Lattice(BytesArchieve):
 			raise KaldiProcessError("Failed to scale lattice.")
 		else:
 			newName = f"scale({self.name})"
-			return Lattice(data=out,wordSymbolTable=self.wordSymbolTable,hmm=self.hmm,name=newName)
+			return Lattice(data=out,symbolTable=self.symbolTable,hmm=self.hmm,name=newName)
 
 	def add_penalty(self, penalty=0):
 		'''
@@ -216,12 +233,9 @@ class Lattice(BytesArchieve):
 		Return:
 			An new Lattice object.
 		'''
-		ExkaldiInfo.vertify_kaldi_existed()
-
-		if self.is_void:
-			raise WrongOperation('No any lattice to scale.')
-
-		assert isinstance(penalty, (int,float)) and penalty >= 0, "Expected <penalty> is positive int or float value."
+		declare.kaldi_existed()
+		declare.not_void("lattice", self)
+		declare.is_non_negative("penalty",penalty)
 		
 		cmd = f"lattice-add-penalty --word-ins-penalty={penalty} ark:- ark:-"
 
@@ -232,79 +246,77 @@ class Lattice(BytesArchieve):
 			raise KaldiProcessError("Failed to add penalty.")
 		else:
 			newName = f"add_penalty({self.name})"
-			return Lattice(data=out, wordSymbolTable=self.wordSymbolTable, hmm=self.hmm, name=newName)
+			return Lattice(data=out, symbolTable=self.symbolTable, hmm=self.hmm, name=newName)
 
-	def get_nbest(self, n, wordSymbolTable=None, hmm=None, acwt=1, phoneLevel=False, requireAli=False, requireCost=False):
+	def get_nbest(self, n, symbolTable=None, hmm=None, acwt=1, phoneLevel=False, requireAli=False, requireCost=False):
 		'''
 		Get N best result with text formation.
 
-		Args:
+		Share Args:
 			<n>: n best results.
-			<wordSymbolTable>: file or ListTable object or LexiconBank object.
+			<symbolTable>: file or ListTable object or LexiconBank object.
 			<hmm>: file or HMM object.
 			<acwt>: acoustic weight.
 			<phoneLevel>: If True, return phone results.
 			<requireAli>: If True, return alignment simultaneously.
 			<requireCost>: If True, return acoustic model and language model cost simultaneously.
+		
+		Parallel Args:
+			NULL
 
 		Return:
 			A list of exkaldi Transcription objects (and their Metric objects).
 		'''
-		assert isinstance(n, int) and n > 0, "Expected <n> is a positive int value."
-		assert isinstance(acwt, (int,float)) and acwt > 0, "Expected <acwt> is a positive int or float value."
-	
-		if self.is_void:
-			raise WrongOperation('No any data in lattice.')
-		
-		if wordSymbolTable is None:
-			assert self.wordSymbolTable is not None, "<wordSymbolTable> is necessary because no wordSymbol table is avaliable."
-			wordSymbolTable = self.wordSymbolTable
-		
-		if hmm is None:
-			assert self.hmm is not None, "<hmm> is necessary because no wordSymbol table is avaliable."
-			hmm = self.hmm
+		declare.is_positive_int("n", n)
+		declare.is_positive("acwt", acwt)
+		declare.not_void("lattice", self)
 
-		wordSymbolTemp = tempfile.NamedTemporaryFile('w+', suffix="_words.txt", encoding='utf-8')
-		modelTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
-		outAliTemp = tempfile.NamedTemporaryFile('w+', suffix=".ali", encoding='utf-8')
-		outCostFile_LM = tempfile.NamedTemporaryFile('w+', suffix=".cost", encoding='utf-8')
-		outCostFile_AM = tempfile.NamedTemporaryFile('w+', suffix=".cost", encoding='utf-8')
-
-		try:
-			if isinstance(wordSymbolTable, str):
-				assert os.path.isfile(wordSymbolTable), f"No such file: {wordSymbolTable}."
-				wordsFile = wordSymbolTable
-			elif type_name(wordSymbolTable) == "LexiconBank":
+		if symbolTable is None:
+			assert self.symbolTable is not None, "<symbolTable> is necessary because no wordSymbol table is avaliable."
+			symbolTable = self.symbolTable
+		
+		with FileHandleManager() as fhm:
+			
+			if isinstance(symbolTable, str):
+				assert os.path.isfile(symbolTable), f"No such file: {symbolTable}."
+			elif type_name(symbolTable) == "LexiconBank":
+				wordSymbolTemp = fhm.create('w+', suffix=".txt", encoding='utf-8')
 				if phoneLevel:
-					wordSymbolTable.dump_dict("phones", wordSymbolTemp)
+					symbolTable.dump_dict("phones", wordSymbolTemp)
 				else:
-					wordSymbolTable.dump_dict("words", wordSymbolTemp)
-				wordsFile = wordSymbolTemp.name
-			elif type_name(wordSymbolTable) == "ListTable":
-				wordSymbolTable.save(wordSymbolTemp)
-				wordSymbolTemp.seek(0)
-				wordsFile = wordSymbolTemp.name
+					symbolTable.dump_dict("words", wordSymbolTemp)
+				symbolTable = wordSymbolTemp.name
+			elif type_name(symbolTable) == "ListTable":
+				wordSymbolTemp = fhm.create('w+', suffix=".txt", encoding='utf-8')
+				symbolTable.save(wordSymbolTemp)
+				symbolTable = wordSymbolTemp.name
 			else:
-				raise UnsupportedType(f"<wordSymbolTable> should be file name, LexiconBank object or ListTable object but got: {type_name(wordSymbolTable)}.")
+				raise UnsupportedType(f"<symbolTable> should be file name, LexiconBank object or ListTable object but got: {type_name(symbolTable)}.")
+			
+			if phoneLevel is True:
+				# check the format of HMM
+				if hmm is None:
+					assert self.hmm is not None, "<hmm> is necessary because no HMM model is avaliable."
+					hmm = self.hmm
 
-			if isinstance(hmm, str):
-				assert os.path.isfile(hmm), f"No such file: {hmm}."
-				hmmFile = hmm
-			elif type_name(hmm) in ["MonophoneHMM","TriphoneHMM"]:
-				hmm.save(modelTemp)
-				hmmFile = modelTemp.name
-			else:
-				raise UnsupportedType(f"<hmm> should be file name, exkaldi HMM object but got: {type_name(hmm)}.")
+				declare.is_potential_hmm("hmm", hmm)
+				if not isinstance(hmm, str):
+					hmmTemp = fhm.create("wb+", suffix=".mdl")
+					hmm.save(hmmTemp)
+					hmm = hmmTemp.name
 
-			if phoneLevel:
-				cmd = f'lattice-align-phones --replace-output-symbols=true {hmmFile} ark:- ark:- | '
+				cmd = f'lattice-align-phones --replace-output-symbols=true {hmm} ark:- ark:- | '
 			else:
-				cmd = ""			
+				cmd = ''
+
+			outAliTemp = fhm.create('w+', suffix=".ali", encoding='utf-8')
 
 			cmd += f'lattice-to-nbest --acoustic-scale={acwt} --n={n} ark:- ark:- |'
-			cmd += f'nbest-to-linear ark:- ark,t:{outAliTemp.name} ark,t:-'   
-			
+			cmd += f'nbest-to-linear ark:- ark,t:{outAliTemp.name} ark,t:-'  
+
 			if requireCost:
+				outCostFile_LM = fhm.create('w+', suffix=".cost", encoding='utf-8')
+				outCostFile_AM = fhm.create('w+', suffix=".cost", encoding='utf-8')				
 				cmd += f' ark,t:{outCostFile_LM.name} ark,t:{outCostFile_AM.name}'
 
 			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
@@ -389,13 +401,6 @@ class Lattice(BytesArchieve):
 				finalResult = finalResult[0]
 
 			return finalResult
-			 
-		finally:
-			wordSymbolTemp.close()
-			modelTemp.close()
-			outAliTemp.close()
-			outCostFile_LM.close()
-			outCostFile_AM.close()
 
 	def determinize(self, acwt=1.0, beam=6):
 		'''
@@ -407,13 +412,10 @@ class Lattice(BytesArchieve):
 		Return:
 			An new Lattice object.
 		'''
-		ExkaldiInfo.vertify_kaldi_existed()
-
-		if self.is_void:
-			raise WrongOperation('No any lattice data.')
-
-		assert isinstance(acwt, float) and acwt >= 0, "Expected <acwt> is positive float value."
-		assert isinstance(beam, int) and beam >= 0, "Expected <beam> is positive int value."
+		declare.kaldi_existed()
+		declare.is_positive("acwt", acwt)
+		declare.is_positive_int("beam", beam)
+		declare.not_void("lattice", self)
 		
 		cmd = f"lattice-determinize-pruned --acoustic-scale={acwt} --beam={beam} ark:- ark:-"
 
@@ -424,7 +426,7 @@ class Lattice(BytesArchieve):
 			raise KaldiProcessError("Failed to determinize lattice.")
 		else:
 			newName = f"determinize({self.name})"
-			return Lattice(data=out, wordSymbolTable=self.wordSymbolTable, hmm=self.hmm, name=newName)		
+			return Lattice(data=out, symbolTable=self.symbolTable, hmm=self.hmm, name=newName)		
 
 	def am_rescore(self, hmm, feat):
 		"""
@@ -435,40 +437,39 @@ class Lattice(BytesArchieve):
 
 		Args:
 			<hmm>: exkaldi HMM object or file path.
+			<feat>: exkaldi feature object or index table object.
 
 		Return:
 			An new Lattice object.
 		'''
-		ExkaldiInfo.vertify_kaldi_existed()
+		declare.kaldi_existed()
+		declare.not_void("lattice", self)
+		declare.is_potential_hmm("hmm", hmm)
+		declare.is_feature("feat", feat)
+		
+		with FileHandleManager() as fhm:
 
-		if self.is_void:
-			raise WrongOperation('No any lattice data.')
-
-		hmmTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
-		featTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
-		try:
-			if isinstance(hmm, str):
-				assert os.path.isfile(hmm), f"No such file: {hmm}."
-				hmmFile = hmm
-			elif type_name(hmm) in ["BaseHMM", "MonophoneHMM", "TriphoneHMM"]:
-				hmmTemp.write(hmm.data)
-				hmmTemp.seek(0)
-				hmmFile = hmmTemp.name
-			else:
-				raise UnsupportedType(f"<hmm> should be file path or exkaldi HMM object but got: {type_name(hmm)}.")
-	
-			if type_name(feat) == "BytesFeature":
+			if not isinstance(hmm, str):
+				hmmTemp = fhm.create("wb+", suffix=".mdl")
+				hmm.save(hmmTemp)
+				hmm = hmmTemp.name
+			
+			if type_name(feat) == "ArkIndexTable":
+				featTemp = fhm.create("w+", suffix=".scp", encoding="utf-8")
+				feat.save(featTemp)
+				featRepe = f"scp:{featTemp.name}"
+			elif type_name(feat) == "BytesFeature":
 				feat = feat.sort(by="utt")
-			elif type_name(feat) == "NumpyFeature":
-				feat = feat.sort(by="utt").to_numpy()
+				featTemp = fhm.create("wb+", suffix=".ark")
+				feat.save(featTemp)
+				featRepe = f"ark:{featTemp.name}"
 			else:
-				raise UnsupportedType(f"<feat> should be exkaldi feature object but got: {type_name(feat)}.")
+				feat = feat.sort(by="utt").to_bytes()
+				featTemp = fhm.create("wb+", suffix=".ark")
+				feat.save(featTemp)
+				featRepe = f"ark:{featTemp.name}"
 
-			featTemp.write(feat.data)
-			featTemp.seek(0)
-			featFile = featTemp.name
-
-			cmd = f"gmm-rescore-lattice	{hmmFile} ark:- ark:{featFile} ark:-"
+			cmd = f"gmm-rescore-lattice	{hmm} ark:- {featRepe} ark:-"
 
 			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=self.data)
 
@@ -477,10 +478,7 @@ class Lattice(BytesArchieve):
 				raise KaldiProcessError("Failed to determinize lattice.")
 			else:
 				newName = f"am_rescore({self.name})"
-				return Lattice(data=out, wordSymbolTable=self.wordSymbolTable, hmm=self.hmm, name=newName)
-		finally:
-			hmmTemp.close()
-			featTemp.close()
+				return Lattice(data=out, symbolTable=self.symbolTable, hmm=self.hmm, name=newName)
 
 def load_lat(target, name="lat"):
 	'''
@@ -494,8 +492,10 @@ def load_lat(target, name="lat"):
 	Return:
 		A exkaldi lattice object.
 	'''
+	declare.is_valid_string("name", name)
+
 	if isinstance(target, bytes):
-		return Lattice(target, name)
+		return Lattice(target, name=name)
 
 	elif isinstance(target, str):
 		target = list_files(target)
@@ -528,391 +528,498 @@ def load_lat(target, name="lat"):
 	else:
 		raise UnsupportedType(f"Expected bytes object or lattice file but got: {type_name(target)}.")
 
-def nn_decode(postprob, hmm, HCLGFile, wordSymbolTable, beam=10, latBeam=8, acwt=1,
-				minActive=200, maxActive=7000, maxMem=50000000, config=None, maxThreads=1):
+def nn_decode(prob, hmm, HCLGFile, symbolTable, beam=10, latBeam=8, acwt=1,
+				minActive=200, maxActive=7000, maxMem=50000000, config=None, maxThreads=1, outFile=None):
 	'''
 	Decode by generating lattice from acoustic probability output by NN model.
 
-	Args:
-		<postprob>: An exkaldi probability object. We expect the probability didn't pass any activation function, or it may generate wrong results.
-		<hmm>: An exkaldi HMM object or file path.
-		<HCLGFile>: HCLG file path.
-		<wordSymbolTable>: words.txt file path or exkaldi LexiconBank object.
-		<beam>: beam size.
-		<latBeam>: lattice beam size.
-		<acwt>: acoustic model weight.
-		<minActivate>: .
-		<maxActive>: .
-		<maxMem>: .
-		<config>: decode configure file.
-		<maxThreads>: the number of mutiple threads.
-		
+	Share Args:
+		NULL
+	
+	Parallel Args:
+		<prob>: An exkaldi probability object. We expect the probability didn't pass any activation function, or it may generate wrong results.
+		<hmm>: file path or exkaldi HMM object.
+		<HCLGFile>: HCLG graph file:
+		<symbolTable>: words.txt file path or exkaldi LexiconBank or ListTable object.
+		<beam>.
+		<latBeam>.
+		<acwt>.
+		<minActive>.
+		<maxActive>.
+		<maxMem>.
+		<config>.
+		<maxThreads>.
+		<outFile>.
+
 		Some usual options can be assigned directly. If you want use more, set <config> = your-configure.
 		You can use .check_config('nn_decode') function to get configure information you could set.
 		Also run shell command "latgen-faster-mapped" to look their meaning.
-	Return:
-		An Lattice object.
-	'''
-	ExkaldiInfo.vertify_kaldi_existed()
-
-	if type_name(postprob) == "BytesProbability":
-		pass
-	elif type_name(postprob) == "NumpyProbability":
-		postprob = postprob.to_bytes()
-	else:
-		raise UnsupportedType("Expected <postprob> is aexkaldi postprobability object.")
-		
-	assert isinstance(HCLGFile, str), "<HCLGFile> should be a file path."
-	if not os.path.isfile(HCLGFile):
-		raise WrongPath(f"No such file:{HCLGFile}")
-
-	if maxThreads > 1:
-		kaldiTool = f"latgen-faster-mapped-parallel --num-threads={maxThreads} "
-	else:
-		kaldiTool = "latgen-faster-mapped " 
-
-	kaldiTool += f'--allow-partial=true '
-	kaldiTool += f'--min-active={minActive} '
-	kaldiTool += f'--max-active={maxActive} '  
-	kaldiTool += f'--max_mem={maxMem} '
-	kaldiTool += f'--beam={beam} '
-	kaldiTool += f'--lattice-beam={latBeam} '
-	kaldiTool += f'--acoustic-scale={acwt} '
-
-	wordsTemp = tempfile.NamedTemporaryFile("w+", suffix=".txt", encoding="utf-8")
-	modelTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
-
-	try:
-		if type_name(wordSymbolTable) == "LexiconBank":
-			wordSymbolTable.dump_dict("words", wordsTemp)
-			wordsFile = wordsTemp.name
-		elif type_name(wordSymbolTable) == "ListTable":
-			wordSymbolTable.save(wordsTemp)
-			wordsTemp.seek(0)
-			wordsFile = wordsTemp.name
-		elif isinstance(wordSymbolTable, str):
-			if not os.path.isfile(wordSymbolTable):
-				raise WrongPath(f"No such file:{wordSymbolTable}.")
-			else:
-				wordsFile = wordSymbolTable
-		else:
-			raise UnsupportedType(f"<wordSymbolTable> should be a file path or exkaldi LexiconBank object but got {type_name(wordSymbolTable)}.")
-
-		kaldiTool += f'--word-symbol-table={wordsFile} '
-
-		if config is not None:
-			if check_config(name='nn_decode', config=config):
-				for key,value in config.items():
-					if isinstance(value, bool):
-						if value is True:
-							kaldiTool += f"{key} "
-					else:
-						kaldiTool += f" {key}={value}"
-
-		if type_name(hmm) in ["HMM", "MonophoneHMM", "TriphoneHMM"]:
-			modelTemp.write(hmm.data)
-			modelTemp.seek(0)
-			hmmFile = modelTemp.name
-		elif isinstance(hmm, str):
-			if not os.path.isfile(hmm):
-				raise WrongPath(f"No such file:{hmm}.")
-			else:
-				hmmFile = hmm
-		else:
-			raise UnsupportedType(f"<hmm> should be exkaldi HMM object or file path but got {type_name(hmm)}.")
-		
-		cmd = f'{kaldiTool} {hmmFile} {HCLGFile} ark:- ark:-'
-		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=postprob.data)
-
-		if cod !=0 or out == b'':
-			print(err.decode())
-			raise KaldiProcessError('Failed to generate lattice.')
-		else:
-			newName = f"lat({postprob.name})"
-			return Lattice(data=out, name=newName)
 	
-	finally:
-		wordsTemp.close()
-		modelTemp.close()
-
-def gmm_decode(feat, hmm, HCLGFile, wordSymbolTable, beam=10, latBeam=8, acwt=1,
-				minActive=200, maxActive=7000, maxMem=50000000, config=None, maxThreads=1):
-	'''
-	Decode by generating lattice from feature and GMM model.
-
-	Args:
-		<feat>: An exkaldi feature object.
-		<hmm>: An exkaldi HMM object or file path.
-		<HCLGFile>: HCLG file path.
-		<wordSymbolTable>: words.txt file path or exkaldi LexiconBank object or exkaldi ListTable object.
-		<beam>: beam size.
-		<latBeam>: lattice beam size.
-		<acwt>: acoustic model weight.
-		<minActivate>: .
-		<maxActive>: .
-		<maxMem>: .
-		<config>: decode configure file.
-		<maxThreads>: the number of mutiple threads.
-		
-		Some usual options can be assigned directly. If you want use more, set <config> = your-configure, but if you do this, these usual configures we provided will be ignored.
-		You can use .check_config('gmm_decode') function to get configure information you could set.
-		Also run shell command "gmm-latgen-faster" to look their meaning.
 	Return:
-		An exkaldi Lattice object.
-	''' 
-	ExkaldiInfo.vertify_kaldi_existed()
+		exkaldi Lattice object.
+	'''
+	declare.kaldi_existed()
 
-	if type_name(feat) == "BytesFeature":
-		pass
-	elif type_name(feat) == "NumpyFeature":
-		feat = feat.to_bytes()
-	else:
-		raise UnsupportedType(f"Expected <feat> is an exkaldi feature object but got: {type_name(feat)}.")
-		
-	assert isinstance(HCLGFile, str), "<HCLGFile> should be a file path."
-	if not os.path.isfile(HCLGFile):
-		raise WrongPath(f"No such file:{HCLGFile}")
+	parameters = check_mutiple_resources( prob, hmm, HCLGFile, symbolTable, 
+										  beam, latBeam, acwt, minActive, maxActive, maxMem,
+										  config, maxThreads, outFile=outFile,
+										)
 
-	if maxThreads > 1:
-		kaldiTool = f"gmm-latgen-faster-parallel --num-threads={maxThreads} "
-	else:
-		kaldiTool = "gmm-latgen-faster " 
+	with FileHandleManager() as fhm:
 
-	kaldiTool += f'--allow-partial=true '
-	kaldiTool += f'--min-active={minActive} '
-	kaldiTool += f'--max-active={maxActive} '  
-	kaldiTool += f'--max_mem={maxMem} '
-	kaldiTool += f'--beam={beam} '
-	kaldiTool += f'--lattice-beam={latBeam} '
-	kaldiTool += f'--acoustic-scale={acwt} '
+		baseCmds = []
+		outFiles = parameters[-1]
 
-	wordsTemp = tempfile.NamedTemporaryFile("w+", suffix="_words.txt", encoding="utf-8")
-	modelTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
-
-	try:
-		if type_name(wordSymbolTable) == "LexiconBank":
-			wordSymbolTable.dump_dict("words", wordsTemp)
-			wordsFile = wordsTemp.name
-		elif type_name(wordSymbolTable) == "ListTable":
-			wordSymbolTable.save(wordsTemp)
-			wordsTemp.seek(0)
-			wordsFile = wordsTemp.name
-		elif isinstance(wordSymbolTable, str):
-			if not os.path.isfile(wordSymbolTable):
-				raise WrongPath(f"No such file:{wordSymbolTable}.")
+		for prob,hmm,HCLGFile,symbolTable,beam,latBeam,acwt,minActive,maxActive,maxMem,config,maxThreads in zip(*parameters[:-1]):
+			# check probability
+			declare.is_probability("prob", prob)
+			# check hmm
+			declare.is_potential_hmm("hmm", hmm)
+			# check HCLGFile
+			declare.is_file("HCLGFile", HCLGFile)
+			# check symbolTable
+			if isinstance(symbolTable,str):
+				assert os.path.isfile(hmm), f"No such file: {hmm}."
+			elif type_name(symbolTable) == "LexiconBank":
+				wordsTemp = fhm.create("w+", suffix=".words", encoding="utf-8")
+				symbolTable.dump_dict("words", wordsTemp)
+				symbolTable = wordsTemp.name
+			elif type_name(symbolTable) == "ListTable":
+				wordsTemp = fhm.create("w+", suffix=".words", encoding="utf-8")
+				symbolTable.save(wordsTemp)
+				symbolTable = wordsTemp.name
 			else:
-				wordsFile = wordSymbolTable
-		else:
-			raise UnsupportedType(f"<wordSymbolTable> should be a file path or exkaldi LexiconBank object but got {type_name(wordSymbolTable)}.")
-
-		kaldiTool += f'--word-symbol-table={wordsFile} '
-
-		if config is not None:
-			if check_config(name='gmm_decode', config=config):
-				for key,value in config.items():
-					if isinstance(value, bool):
-						if value is True:
-							kaldiTool += f"{key} "
-					else:
-						kaldiTool += f" {key}={value}"
-
-		if type_name(hmm) in ["MonophoneHMM", "TriphoneHMM"]:
-			modelTemp.write(hmm.data)
-			modelTemp.seek(0)
-			hmmFile = modelTemp.name
-		elif isinstance(hmm, str):
-			if not os.path.isfile(hmm):
-				raise WrongPath(f"No such file:{hmm}.")
+				raise UnsupportedType(f"<symbolTable> should be file name, LexiconBank or ListTable object but got: {symbolTable}.")
+			# check other parameters
+			declare.is_positive_int("maxThreads", maxThreads)
+			# build the base command
+			if maxThreads > 1:
+				kaldiTool = f"latgen-faster-mapped-parallel --num-threads={maxThreads} "
 			else:
-				hmmFile = hmm
+				kaldiTool = "latgen-faster-mapped "
+			kaldiTool += f'--allow-partial=true '
+			kaldiTool += f'--min-active={minActive} '
+			kaldiTool += f'--max-active={maxActive} '  
+			kaldiTool += f'--max_mem={maxMem} '
+			kaldiTool += f'--beam={beam} '
+			kaldiTool += f'--lattice-beam={latBeam} '
+			kaldiTool += f'--acoustic-scale={acwt} '
+			kaldiTool += f'--word-symbol-table={symbolTable} '
+			if config is not None:
+				if check_config(name='nn_decode', config=config):
+					for key,value in config.items():
+						if isinstance(value, bool):
+							if value is True:
+								kaldiTool += f"{key} "
+						else:
+							kaldiTool += f" {key}={value}"
+			baseCmds.append( kaldiTool )
+			
+		# define command pattern
+		cmdPattern = '{kaldiTool} {hmm} {HCLG} {prob} ark:{outFile}'
+		# define resources
+		resources = {"prob":parameters[0], "hmm":parameters[1], "HCLG":parameters[2], "kaldiTool":baseCmds, "outFile":outFiles}
+		# run
+		results = run_kaldi_commands_parallel(resources, cmdPattern)
+		if len(outFiles) == 1:
+			outFile = outFiles[0]
+			newName = f"lat({parameters[0][0].name})"
+			if outFile == "-":
+				results = Lattice(data=results[2], name=newName)
+			else:
+				results = load_lat(outFile, name=newName)
 		else:
-			raise UnsupportedType(f"<hmm> should be exkaldi HMM object or file path but got {type_name(hmm)}.")
-		
-		cmd = f'{kaldiTool} {hmmFile} {HCLGFile} ark:- ark:-'
-		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
+			for i, fileName in enumerate(outFiles):
+				newName = f"lat({parameters[0][i].name})"
+				results[i] = load_lat(fileName, name=newName)
+			
+		return results
 
-		if cod != 0 or out == b'':
-			print(err.decode())
-			raise KaldiProcessError('Failed to generate lattice.')
-		else:
-			newName = f"lat({feat.name})"
-			return Lattice(data=out, name=newName)
+def gmm_decode(feat, hmm, HCLGFile, symbolTable, beam=10, latBeam=8, acwt=1,
+				minActive=200, maxActive=7000, maxMem=50000000, config=None, maxThreads=1, outFile=None):
+	'''
+	Decode by generating lattice from acoustic probability output by NN model.
+
+	Share Args:
+		NULL
 	
-	finally:
-		wordsTemp.close()
-		modelTemp.close()
+	Parallel Args:
+		<feat>: An exkaldi feature or index table object.
+		<hmm>: file path or exkaldi HMM object.
+		<HCLGFile>: HCLG graph file:
+		<symbolTable>: words.txt file path or exkaldi LexiconBank or ListTable object.
+		<beam>.
+		<latBeam>.
+		<acwt>.
+		<minActive>.
+		<maxActive>.
+		<maxMem>.
+		<config>.
+		<maxThreads>.
+		<outFile>.
+
+		Some usual options can be assigned directly. If you want use more, set <config> = your-configure.
+		You can use .check_config('nn_decode') function to get configure information you could set.
+		Also run shell command "latgen-faster-mapped" to look their meaning.
+	
+	Return:
+		exkaldi Lattice object.
+	'''
+	declare.kaldi_existed()
+
+	parameters = check_mutiple_resources( feat, hmm, HCLGFile, symbolTable, 
+										  beam, latBeam, acwt, minActive, maxActive, maxMem,
+										  config, maxThreads, outFile=outFile,
+										)
+
+	with FileHandleManager() as fhm:
+
+		baseCmds = []
+		outFiles = parameters[-1]
+
+		for feat,hmm,HCLGFile,symbolTable,beam,latBeam,acwt,minActive,maxActive,maxMem,config,maxThreads in zip(*parameters[:-1]):
+			# check probability
+			declare.is_feature("feat", feat)
+			# check hmm
+			declare.is_potential_hmm("hmm", hmm)
+			# check HCLGFile
+			declare.is_file("HCLGFile", HCLGFile)
+			# check symbolTable
+			if isinstance(symbolTable,str):
+				assert os.path.isfile(hmm), f"No such file: {hmm}."
+			elif type_name(symbolTable) == "LexiconBank":
+				wordsTemp = fhm.create("w+", suffix=".words", encoding="utf-8")
+				symbolTable.dump_dict("words", wordsTemp)
+				symbolTable = wordsTemp.name
+			elif type_name(symbolTable) == "ListTable":
+				wordsTemp = fhm.create("w+", suffix=".words", encoding="utf-8")
+				symbolTable.save(wordsTemp)
+				symbolTable = wordsTemp.name
+			else:
+				raise UnsupportedType(f"<symbolTable> should be file name, LexiconBank or ListTable object but got: {symbolTable}.")
+			# check other parameters
+			declare.is_positive_int("maxThreads", maxThreads)
+			# build the base command
+			if maxThreads > 1:
+				kaldiTool = f"gmm-latgen-faster-parallel --num-threads={maxThreads} "
+			else:
+				kaldiTool = "gmm-latgen-faster "
+			kaldiTool += f'--allow-partial=true '
+			kaldiTool += f'--min-active={minActive} '
+			kaldiTool += f'--max-active={maxActive} '
+			kaldiTool += f'--max_mem={maxMem} '
+			kaldiTool += f'--beam={beam} '
+			kaldiTool += f'--lattice-beam={latBeam} '
+			kaldiTool += f'--acoustic-scale={acwt} '
+			kaldiTool += f'--word-symbol-table={symbolTable} '
+			if config is not None:
+				if check_config(name='gmm_decode', config=config):
+					for key,value in config.items():
+						if isinstance(value, bool):
+							if value is True:
+								kaldiTool += f"{key} "
+						else:
+							kaldiTool += f" {key}={value}"
+			baseCmds.append( kaldiTool )
+			
+		# define command pattern
+		cmdPattern = '{kaldiTool} {hmm} {HCLG} {feat} ark:{outFile}'
+		# define resources
+		resources = {"feat":parameters[0], "hmm":parameters[1], "HCLG":parameters[2], "kaldiTool":baseCmds, "outFile":outFiles}
+		# run
+		results = run_kaldi_commands_parallel(resources, cmdPattern)
+
+		if len(outFiles) == 1:
+			outFile = outFiles[0]
+			newName = f"lat({parameters[0][0].name})"
+			if outFile == "-":
+				results = Lattice(data=results[2], name=newName)
+			else:
+				results = load_lat(outFile, name=newName)
+		else:
+			for i, fileName in enumerate(outFiles):
+				newName = f"lat({parameters[0][i].name})"
+				results[i] = load_lat(fileName, name=newName)
+			
+		return results
 
 def compile_align_graph(hmm, tree, transcription, LFile, outFile, lexicons=None):
 	'''
 	Compile graph for training or aligning.
-		<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
-					In this step, we will use "context_indep" lexicon.
+
+	Share Args:
+		<hmm>: file name or exkaldi HMM object.
+		<tree>: file name or exkaldi decision tree object.
+		<lexicons>: exkaldi lexicon bank object.
+		<LFile>: file name.
+	
+	Parallel Args:
+		<transcription>, file path or exkaldi trancription object.
+		<outFile>, output file name.
+
+	Return:
+		output file name.
 	'''
-	if isinstance(hmm,str):
-		assert os.path.isfile(hmm), f"No such file: {hmm}."
-		assert type_name(lexicons) == "LexiconBank", "Expected <lexicons> is provided in this case."
-		hmm = load_hmm(hmm, lexicons=lexicons)
+	declare.is_potential_hmm("hmm", hmm)
+	declare.is_potential_tree("tree", tree)
+
+	if isinstance(tree, str):
+		treeLexicons = None
 	else:
-		assert type_name(hmm) in ["BaseHMM","MonophoneHMM","TriphoneHMM"], f"<hmm> should be exkaldi HMM object but got: {hmm}."
+		treeLexicons = tree.lex
+
+	if isinstance(hmm, str):
+		if lexicons is not None:
+			declare.is_lexicon_bank("lexicons", lexicons)
+		elif treeLexicons is not None:
+			lexicons = treeLexicons
+		else:
+			raise WrongOperation("<lexicons> is necessary on this case.")
+		hmm = load_hmm(hmm, lexicons=lexicons)
 
 	return hmm.compile_train_graph(tree, transcription, LFile, outFile)
 
 def nn_align(hmm, prob, alignGraphFile=None, tree=None, transcription=None, Lfile=None, transitionScale=1.0, acousticScale=0.1, 
-				selfloopScale=0.1, beam=10, retry_beam=40, lexicons=None, name="ali"):
+				selfloopScale=0.1, beam=10, retry_beam=40, lexicons=None, name="ali", outFile=None):
 	'''
 	Align the neural network acoustic output probability.
+
+	Share Args:
+		<hmm>: file name or exkaldi HMM object.
+		<tree>: file name or exkaldi decision tree object.
+		<Lfile>: file name.
+		<lexicons>: exkaldi LexiconBank object.
+	
+	Parallel Args:
+		<prob>: exkaldi probability object or index table object.
+		<alignGraphFile>: file name.
+		<transcription>: file name or exkaldi transcription object.
+		<transitionScale>.
+		<acousticScale>.
+		<selfloopScale>.
+		<beam>.
+		<retry_beam>.
+		<name>: string.
+		<outFile>: file name.
+
+	Return:
+		exkaldi alignment object or index table object.
 	'''
-	if type_name(prob) == "BytesProbability":
-		pass
-	elif type_name(prob) == "NumpyProbability":
-		prob = prob.to_bytes()
-	else:
-		raise UnsupportedType(f"Expected <prob> is an exkaldi probability object but got: {type_name(prob)}.")
+	declare.kaldi_existed()
+	declare.is_potential_hmm("hmm", hmm)
 
-	hmmTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
-	treeTemp = tempfile.NamedTemporaryFile("wb+", suffix=".tree")
-	disambigTemp = tempfile.NamedTemporaryFile("w+", suffix="_disambig.int", encoding="utf-8")
-	try:
+	with FileHandleManager() as fhm:
+
 		if isinstance(hmm,str):
-			assert os.path.isfile(hmm), f"No such file: {hmm}."
-			hmmFile = hmm
+			hmmLexicons = None
 		else:
-			assert type_name(hmm) in ["BaseHMM","MonophoneHMM","TriphoneHMM"], f"<hmm> should be exkaldi HMM object but got: {hmm}."
-			hmmTemp.write(hmm.data)
-			hmmTemp.seek(0)
-			hmmFile = hmmTemp.name
-
+			hmmTemp = fhm.create("wb+",suffix=".mdl")
+			hmm.save(hmmTemp)
+			hmmLexicons = hmm.lex
+			hmm = hmmTemp.name
+		
 		if alignGraphFile is None:
-			assert None not in [tree,transcription,Lfile], "When align graph is not provided, all of <tree>, <transcription> and <Lfile> is necessary."
-			assert isinstance(transcription,str) and os.path.isfile(transcription), "Transcription is not a file name or does not exist."
-			assert isinstance(Lfile,str) and os.path.isfile(Lfile), "Lexicon fst is not a file name or does not exist."
-			
-			if lexicons is not None:
-				assert type_name(lexicons) == "LexiconBank", "<lexicons> is necessary."
+			assert None not in [tree, transcription, Lfile], "When align graph is not provided, all of <tree>, <transcription> and <Lfile> is necessary."
+			declare.is_file("Lfile", Lfile)
+			declare.is_potential_tree("tree", tree)
+
+			if isinstance(tree,str):
+				treeLexicons = None
 			else:
-				if isinstance(hmm,str) or hmm.lex is None:
-					raise WrongOperation("<lexicons> is necessary in this case.")
+				treeTemp = fhm.create("wb+",suffix=".tree")
+				tree.save(treeTemp)
+				treeLexicons = tree.lex
+				tree = treeTemp.name
+			
+			if lexicons is None:
+				if hmmLexicons is None:
+					if treeLexicons is None:
+						raise WrongOperation("<lexicons> is necessary on this case.")
+					else:
+						lexicons = treeLexicons
 				else:
-					lexicons = hmm.lex
-			
-			if type_name(tree) == "DecisionTree":
-				treeTemp.write(tree.data)
-				treeTemp.seek(0)
-				treeFile = treeTemp.name
+					lexicons = hmmLexicons
 			else:
-				assert isinstance(tree, str) and os.path.isfile(tree), "Tree is not a file name or does not exist."
-				treeFile = tree
-			
+				declare.is_lexicon_bank("lexicons", lexicons)
+
+			disambigTemp = fhm.create("w+", suffix="_disambig.int", encoding="utf-8")
 			lexicons.dump_dict(name="disambig", outFile=disambigTemp, dumpInt=True)
+
+			parameters = check_mutiple_resources(prob, transcription, transitionScale, acousticScale, selfloopScale, beam, retry_beam, outFile=outFile)
+			baseCmds = []
+			for prob, transcription, transitionScale, acousticScale, selfloopScale, beam, retry_beam, _ in zip(*parameters):
+				declare.is_probability("prob", prob)
+				declare.is_potential_transcription("transcription", transcription)
+
+				cmd = f"align-mapped --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
+				cmd += f"--beam={beam} --retry-beam={retry_beam} "
+				cmd += f"--read-disambig-syms={disambigTemp.name} "
+				cmd += f"{tree} {hmm} {Lfile} "
+				baseCmds.append(cmd)
 			
-			cmd = f"align-mapped --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
-			cmd += f"--beam={beam} --retry-beam={retry_beam} "
-			cmd += f"--read-disambig-syms={disambigTemp.name} "
-			cmd += f"{treeFile} {hmmFile} {Lfile} ark:- ark:{transcription} ark:-"
+			cmdPattern = "{baseTool} {prob} ark:{trans} ark:{outFile}"
+			resources = {"prob":parameters[0], "baseTool":baseCmds, "trans":parameters[1], "outFile":parameters[-1]}
 
 		else:
 			assert tree is None and transcription is None and Lfile is None, "When use compiled align graph, any of <tree>, <transcription> and <Lfile> is invalid."
-			assert isinstance(alignGraphFile,str) and os.path.isfile(alignGraphFile), "Align graph is not a file name or does not exist."
+			
+			parameters = check_mutiple_resources(prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retry_beam, outFile=outFile)
 
-			cmd = f"align-compiled-mapped --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
-			cmd += f"--beam={beam} --retry-beam={retry_beam} "
-			cmd += f"{hmmFile} ark:{alignGraphFile} ark:- ark:-"
+			baseCmds = []
+			for prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retry_beam, _ in zip(*parameters):
+				declare.is_probability("prob", prob)
+				declare.is_file("alignGraphFile", alignGraphFile)
+			
+				cmd = f"align-compiled-mapped --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
+				cmd += f"--beam={beam} --retry-beam={retry_beam} "
+				cmd += f"{hmm} ark:{alignGraphFile}"
+				baseCmds.append(cmd)
+			
+			cmdPattern = "{baseTool} {prob} ark:{outFile}"
+			resources = {"prob":parameters[0], "baseTool":baseCmds, "outFile":parameters[-1]}			
 
-		out,err,cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=prob.data)
-
-		if cod != 0:
-			print(err.decode())
-			raise KaldiProcessError("Failed to align probability.")
+		# run
+		results = run_kaldi_commands_parallel(resources, cmdPattern)
+		# analyze result
+		if len(outFiles) == 1:
+			outFile = outFiles[0]
+			if outFile == "-":
+				results = BytesAlignmentTrans(results[2], name=names[0])
+			else:
+				results = load_index_table(outFile, name=names[0])
 		else:
-			return BytesAlignmentTrans(out,name=name)
-	
-	finally:
-		hmmTemp.close()
-		treeTemp.close()
-		disambigTemp.close()
+			for i, fileName in enumerate(outFiles):
+				results = load_index_table(fileName, name=names[i])
+		
+		return results
 
 def gmm_align(hmm, feat, alignGraphFile=None, tree=None, transcription=None, Lfile=None, transitionScale=1.0, acousticScale=0.1, 
-				selfloopScale=0.1, beam=10, retry_beam=40, boost_silence=1.0, careful=False, name="ali", lexicons=None):
+				selfloopScale=0.1, beam=10, retry_beam=40, boost_silence=1.0, careful=False, name="ali", lexicons=None, outFile=None):
 	'''
-	Align acoustic feature with kaldi vertibi algorithm.
-		<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
-					In this step, we will use "context_indep" lexicon.
+	Align the neural network acoustic output probability.
+
+	Share Args:
+		<hmm>: file name or exkaldi HMM object.
+		<tree>: file name or exkaldi decision tree object.
+		<Lfile>: file name.
+		<lexicons>: exkaldi LexiconBank object.
+		<boost_silence>.
+		<careful>.
+	
+	Parallel Args:
+		<feat>: exkaldi feature object or index table object.
+		<alignGraphFile>: file name.
+		<transcription>: file name or exkaldi transcription object.
+		<transitionScale>.
+		<acousticScale>.
+		<selfloopScale>.
+		<beam>.
+		<retry_beam>.
+		<name>: string.
+		<outFile>: file name.
+
+	Return:
+		exkaldi alignment object or index table object.
 	'''
-	if type_name(feat) == "BytesFeature":
-		feat = feat.sort(by="utt")
-	elif type_name(feat) == "NumpyFeature":
-		feat = feat.sort(by="utt").to_bytes()
-	else:
-		raise UnsupportedType(f"Expected exkaldi feature object but got {type_name(feat)}.")
+	declare.kaldi_existed()
+	declare.is_potential_tree("tree", tree)
 
-	hmmTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
-	treeTemp = tempfile.NamedTemporaryFile("wb+", suffix=".tree")
-	disambigTemp = tempfile.NamedTemporaryFile("w+", suffix="_disambig.int", encoding="utf-8")
+	with FileHandleManager() as fhm:
 
-	try:
+		if isinstance(tree,str):
+			treeLexicons = None
+		else:
+			treeTemp = fhm.create("wb+",suffix=".tree")
+			tree.save(treeTemp)
+			treeLexicons = tree.lex
+			tree = treeTemp.name
+
+		hmmTemp = fhm.create("wb+",suffix=".mdl")
+		declare.is_potential_hmm("hmm", hmm)
+
 		if isinstance(hmm,str):
-			assert os.path.isfile(hmm), f"No such file: {hmm}."
-			assert type_name(lexicons) == "LexiconBank", "<lexicons> is necessary in this case."
+			if lexicons is None:
+				if treeLexicons is None:
+					raise WrongOperation("<lexicons> is necessary on this case.")
+				else:
+					lexicons = treeLexicons
+			else:
+				declare.is_lexicon_bank("lexicons", lexicons)
 			optionSilence = ":".join(lexicons("optional_silence", True))
-
 			cmd = f'gmm-boost-silence --boost={boost_silence} {optionSilence} {hmm} {hmmTemp.name}'
-			out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+			out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)			
 
 		else:
-			assert type_name(hmm) in ["BaseHMM","MonophoneHMM","TriphoneHMM"], f"<hmm> should be exkaldi HMM object but got: {hmm}."
 			if lexicons is None:
-				assert hmm.lex is not None, "<lexicons> is necessary in this case."
-				lexicons = hmm.lex
+				if hmm.lex is None:
+					if treeLexicons is None:
+						raise WrongOperation("<lexicons> is necessary on this case.")
+					else:
+						lexicons = treeLexicons
+				else:
+					lexicons = hmm.lex
 			else:
-				assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be exkaldi LexiconBank object but got: {type_name(lexicons)}."
-
+				declare.is_lexicon_bank("lexicons", lexicons)
 			optionSilence = ":".join(lexicons("optional_silence", True))
-
 			cmd = f'gmm-boost-silence --boost={boost_silence} {optionSilence} - {hmmTemp.name}'
 			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=hmm.data)
 		
 		if (isinstance(cod,int) and cod != 0 ) or os.path.getsize(hmmTemp.name) == 0:
 			print(err.decode())
 			raise KaldiProcessError("Generate new HMM defeated.")
-		hmmTemp.ssek(0)
-
+		hmmTemp.seek(0)
+		
 		if alignGraphFile is None:
 			assert None not in [tree,transcription,Lfile], "When align graph is not provided, all of <tree>, <transcription> and <Lfile> is necessary."
-			assert isinstance(transcription,str) and os.path.isfile(transcription), "Transcription is not a file name or does not exist."
-			assert isinstance(Lfile,str) and os.path.isfile(Lfile), "Lexicon fst is not a file name or does not exist."
+			declare.is_file("Lfile", Lfile)
 
-			if type_name(tree) == "DecisionTree":
-				treeTemp.write(tree.data)
-				treeTemp.seek(0)
-				treeFile = treeTemp.name
-			else:
-				assert isinstance(tree, str) and os.path.isfile(tree), "Tree is not a file name or does not exist."
-				treeFile = tree
+			disambigTemp = fhm.create("w+", suffix="_disambig.int", encoding="utf-8")
+			lexicons.dump_dict(name="disambig", outFile=disambigTemp, dumpInt=True)
+
+			parameters = check_mutiple_resources(feat, transcription, transitionScale, acousticScale, selfloopScale, beam, retry_beam, careful, outFile=outFile)
+			baseCmds = []
+			for feat, transcription, transitionScale, acousticScale, selfloopScale, beam, retry_beam, careful, _ in zip(*parameters):
+				declare.is_feature("feat", feat)
+				declare.is_potential_transcription("transcription", transcription)
+
+				cmd = f"gmm-align --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
+				cmd += f"--beam={beam} --retry-beam={retry_beam} --careful={careful} "
+				cmd += f"--read-disambig-syms={disambigTemp.name} "
+				cmd += f"{tree} {hmmTemp.name} {Lfile} "
+				baseCmds.append(cmd)
 			
-			lexicons.dump_dict(name="disambig", outFile=disambigTemp, dumpInt=True)				
-			
-			cmd = f'gmm-align --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} '
-			cmd += f'--beam={beam} --retry-beam={retry_beam} --careful={careful} '
-			cmd += f'{treeFile} {hmmTemp.name} {Lfile} ark:- ark:{transcription} ark:-'
+			cmdPattern = "{baseTool} {feat} ark:{trans} ark:{outFile}"
+			resources = {"feat":parameters[0], "baseTool":baseCmds, "trans":parameters[1], "outFile":parameters[-1]}
 
 		else:
 			assert tree is None and transcription is None and Lfile is None, "When use compiled align graph, any of <tree>, <transcription> and <Lfile> is invalid."
-			assert isinstance(alignGraphFile,str) and os.path.isfile(alignGraphFile), "Align graph is not a file name or does not exist."
+			
+			parameters = check_mutiple_resources(prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retry_beam, careful, outFile=outFile)
 
-			cmd = f"gmm-align-compiled --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
-			cmd += f"--beam={beam} --retry-beam={retry_beam} --careful={careful} "
-			cmd += f"{hmmTemp.name} ark:{alignGraphFile} ark:- ark:-"
+			baseCmds = []
+			for feat, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retry_beam, careful, _ in zip(*parameters):
+				declare.is_feature("feat", feat)
+				declare.is_file("alignGraphFile", alignGraphFile)
+				
+				cmd = f"gmm-align-compiled --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
+				cmd += f"--beam={beam} --retry-beam={retry_beam}  --careful={careful} "
+				cmd += f"{hmm} ark:{alignGraphFile}"
+				baseCmds.append(cmd)
+			
+			cmdPattern = "{baseTool} {feat} ark:{outFile}"
+			resources = {"feat":parameters[0], "baseTool":baseCmds, "outFile":parameters[-1]}			
 
-		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
-
-		if (isinstance(cod,int) and cod != 0):
-			print(err.decode())
-			raise KaldiProcessError("Failed to align feature.")
+		# run
+		results = run_kaldi_commands_parallel(resources, cmdPattern)
+		# analyze result
+		if len(outFiles) == 1:
+			outFile = outFiles[0]
+			if outFile == "-":
+				results = BytesAlignmentTrans(results[2], name=names[0])
+			else:
+				results = load_index_table(outFile, name=names[0])
+		else:
+			for i, fileName in enumerate(outFiles):
+				results = load_index_table(fileName, name=names[i])
 		
-		return BytesAlignmentTrans(out, name=name)
-	
-	finally:
-		hmmTemp.close()
-		treeTemp.close()
-		disambigTemp.close()
-	
+		return results

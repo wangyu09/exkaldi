@@ -35,10 +35,12 @@ class UnsupportedKaldiVersion(Exception): pass
 '''Version Control'''
 
 _MAJOR_VERSION = '1'
-_MINOR_VERSION = '2'
+_MINOR_VERSION = '3'
 _PATCH_VERSION = '0'
 
 _EXPECTED_KALDI_VERSION = "5.5"
+
+_TIMEOUT = 300
 
 class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 
@@ -128,18 +130,6 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 
 		# ENV is a dict object, so deepcopy it.
 		return copy.deepcopy(self.__ENV)
-
-	def vertify_kaldi_existed(self):
-		'''
-		Vertify if kaldi toolkit is existed.
-
-		Raise:
-			If unexisted, raise error. 
-		'''	
-		if self.KALDI_ROOT is None:
-			raise WrongPath("Kaldi was not found.")
-		else:
-			return True
 
 	def assign_kaldi_root(self, path):
 		'''
@@ -253,9 +243,30 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 		systemPATH += f":{path}"
 		self.__ENV['PATH'] = systemPATH
 
-version = ExKaldi(
+	@property
+	def timeout(self):
+		return _TIMEOUT
+
+# initialize version infomation
+info = ExKaldi(
             '.'.join([_MAJOR_VERSION,_MINOR_VERSION,_PATCH_VERSION]),
             _MAJOR_VERSION,
             _MINOR_VERSION,
 			_PATCH_VERSION,
         ).initialize()
+
+# clear the temporary files possibly being left as garbage.
+garbageFiles = glob(os.path.join(" ","tmp","exkaldi_*").lstrip())
+for t in garbageFiles:
+	os.remove(t)
+
+def set_timeout(timeout):
+	'''
+	Set the global timeout value.
+
+	Args:
+		<timeout>: apositive int value.
+	'''
+	assert isinstance(timeout, int) and timeout > 0, f"<timeout> must be positive int value but got: {timeout}."
+	global _TIMEOUT
+	_TIMEOUT = timeout

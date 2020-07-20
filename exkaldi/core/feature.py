@@ -24,86 +24,81 @@ import numpy as np
 from io import BytesIO
 import struct
 
-from exkaldi.version import version as ExkaldiInfo
+from exkaldi.version import info as ExkaldiInfo
 from exkaldi.version import WrongPath, UnsupportedType, KaldiProcessError, WrongOperation, ShellProcessError, WrongDataFormat
-from exkaldi.utils.utils import run_shell_command, type_name, check_config
-from exkaldi.core.archieve import BytesFeature, BytesCMVNStatistics, ScriptTable
+from exkaldi.utils.utils import run_shell_command, run_shell_command_parallel, type_name, check_config, list_files, make_dependent_dirs
+from exkaldi.utils.utils import FileHandleManager
+from exkaldi.utils import declare
+from exkaldi.core.archieve import BytesFeature, BytesCMVNStatistics, ListTable, ArkIndexTable
+from exkaldi.core.load import load_list_table, load_index_table
+from exkaldi.core.common import check_mutiple_resources, run_kaldi_commands_parallel
 
-def __compute_feature(wavFile, kaldiTool, useSuffix=None, name="feat"):
+def __compute_feature(target, kaldiTool, useSuffix=None, name="feat", outFile=None):
+	'''
+	The base funtion to compute feature.
+	'''
+	declare.kaldi_existed()
 
 	if useSuffix != None:
-		assert isinstance(useSuffix, str), "Expected <useSuffix> is a string."
+		declare.is_valid_string("useSuffix", useSuffix)
 		useSuffix = useSuffix.strip().lower()[-3:]
+		declare.is_instances("useSuffix", useSuffix,["scp","wav"])
 	else:
-		useSuffix = ""
-	assert useSuffix in ["","scp","wav"], 'Expected <useSuffix> is "scp" or "wav".'
+		useSuffix = ""	
+	targets, kaldiTools, useSuffixs, names, outFiles = check_mutiple_resources(target, kaldiTool, useSuffix, name, outFile=outFile)
 
-	ExkaldiInfo.vertify_kaldi_existed()
+	# pretreatment
+	for index, target, useSuffix, name in zip(range(len(outFiles)), targets, useSuffixs, names):
+		declare.is_classes("target", target, [str, ListTable])
+		declare.is_valid_string("name", name)
+		if isinstance(target, str):		
+	
+			allFiles = list_files(target)
+			target = ListTable()
 
-	wavFileTemp = tempfile.NamedTemporaryFile("w+", suffix=".scp", encoding="utf-8")
-	try:
-		if isinstance(wavFile, str):
-			if os.path.isdir(wavFile):
-				raise WrongOperation(f'Expected <wavFile> is file path but got a directory:{wavFile}.')
-			else:
-				out, err, cod = run_shell_command(f'ls {wavFile}', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-				if out == b'':
-					raise WrongPath(f"No such file:{wavFile}.")
+			for filePath in allFiles:
+				filePath = os.path.abspath(filePath)
+
+				if filePath[-4:].lower() == ".wav":
+					dirName = os.path.dirname(filePath)
+					fileName = os.path.basename(filePath)
+					uttID = fileName[0:-4].replace(".","")
+					target[uttID] = filePath
+				
+				elif filePath[-4:].lower() == '.scp':
+					target += load_list_table(filePath)
+				
+				elif "wav" in useSuffix:
+					dirName = os.path.dirname(filePath)
+					fileName = os.path.basename(filePath)
+					uttID = fileName.replace(".","")
+					target[uttID] = filePath
+
+				elif "scp" in useSuffix:
+					target += load_list_table(filePath)
+
 				else:
-					allFiles = out.decode().strip().split('\n')
-		elif isinstance(wavFile, ScriptTable):
-			wavFile = wavFile.sort()
-			wavFile.save(wavFileTemp)
-			allFiles = [wavFileTemp.name,]
-		else:
-			raise UnsupportedType(f'Expected filename-like string but got a {type_name(wavFile)}.')
-		
-		results = []
-		for wavFile in allFiles:
-			wavFile = os.path.abspath(wavFile)
-			if wavFile[-3:].lower() == "wav":
-				dirName = os.path.dirname(wavFile)
-				fileName = os.path.basename(wavFile)
-				uttID = "".join(fileName[0:-4].split("."))
-				cmd = f"echo {uttID} {wavFile} | {kaldiTool} scp,p:- ark:-"
-			elif wavFile[-3:].lower() == 'scp':
-				cmd = f"{kaldiTool} scp,p:{wavFile} ark:-"
-			elif "wav" in useSuffix:
-				dirName = os.path.dirname(wavFile)
-				fileName = os.path.basename(wavFile)
-				uttID = "".join(fileName[0:-4].split("."))
-				cmd = f"echo {uttID} {wavFile} | {kaldiTool} scp,p:- ark:-"
-			elif "scp" in useSuffix:        
-				cmd = f"{kaldiTool} scp,p:{wavFile} ark:-" 
-			else:
-				raise UnsupportedType('Unknown file suffix. You can declare it by making <useSuffix> "wav" or "scp".')
+					raise UnsupportedType('Unknown file suffix. You can declare <useSuffix> as "wav" or "scp".')
+			
+			targets[index] = target
+	# define the command pattern
+	cmdPattern = "{kaldiTool} scp:{wavFile} ark:{outFile}"
+	# define resources
+	resources = {"wavFile":targets, "kaldiTool":kaldiTools, "outFile":outFiles}
+	# Run
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
 
-			out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-			if (isinstance(out, int) and cod != 0) or out == b'':
-				print(err.decode())
-				raise KaldiProcessError(f'Failed to compute feature:{name}.')
-			else:
-				results.append(BytesFeature(out))
-	finally:
-		wavFileTemp.close()
-
-	if len(results) == 0:
-		raise WrongOperation("No any feature date in file path.")
-	else:
-		result = results[0]
-		for i in results[1:]:
-			result += i
-		result.rename(name)
-		return result	
-
-def compute_mfcc(wavFile, rate=16000, frameWidth=25, frameShift=10, 
+def compute_mfcc(target, rate=16000, frameWidth=25, frameShift=10, 
 				melBins=23, featDim=13, windowType='povey', useSuffix=None,
-				config=None, name="mfcc"):
+				config=None, name="mfcc", outFile=None):
 	'''
 	Compute MFCC feature.
 
-	Args:
-		<wavFile>: wave file or scp file or exkaldi SriptTable object. If it is wave file, use it's file name as utterance ID.
+	Share Args:
+		Null
+	
+	Parallel Args:
+		<target>: wave file, scp file, exkaldi ListTable object. If it is wave file, use it's file name as utterance ID.
 		<rate>: sample rate.
 		<frameWidth>: sample windows width.
 		<frameShift>: shift windows width.
@@ -113,47 +108,61 @@ def compute_mfcc(wavFile, rate=16000, frameWidth=25, frameShift=10,
 		<useSuffix>: If the suffix of file is not .scp, use this to specify it.
 		<config>: use this to assign more extra optional configures.
 		<name>: the name of feature.
+		<outFile>: output file name.
 
-		Some usual options can be assigned directly. If you want use more, set <config> = your-configure.
-		You can use .check_config('compute_mfcc') function to get configure information that you can set.
-		Also you can run shell command "compute-mfcc-feats" to look their meaning.
+		Some usual options can be specified directly. If you want to use more, set <config> = your-configure.
+		You can use exkaldi.utils.check_config('compute_mfcc') function to get extra configures that you can set.
+		Also you can run shell command "compute-mfcc-feats" to look more information.
 
 	Return:
-		A exkaldi bytes feature object.
+		exkaldi feature or index table object.
 	'''
-	assert isinstance(frameWidth, int) and frameWidth > 0,  f"<frameWidth> should be a positive int value but got {type_name(frameWidth)}."
-	assert isinstance(frameShift, int) and frameShift > 0,  f"<frameShift> should be a positive int value but got {type_name(frameShift)}."
-	assert frameWidth > frameShift,  f"<frameWidth> and <frameShift> is unavaliable."
-	assert windowType in ["hamming","hanning","povey","rectangular","blackmann"], f'<windowType> should be "hamming","hanning","povey","rectangular","blackmann", but got: {windowType}.'
+	# check the basis configure parameters to build base commands
+	stdParameters = check_mutiple_resources(rate, frameWidth, frameShift, melBins, featDim, windowType, config)
 
-	kaldiTool = 'compute-mfcc-feats --allow-downsample --allow-upsample '
-	kaldiTool += f'--sample-frequency={rate} '
-	kaldiTool += f'--frame-length={frameWidth} '
-	kaldiTool += f'--frame-shift={frameShift} '
-	kaldiTool += f'--num-mel-bins={melBins} '
-	kaldiTool += f'--num-ceps={featDim} '
-	kaldiTool += f'--window-type={windowType} '
+	baseCmds = []
+	for rate, frameWidth, frameShift, melBins, featDim, windowType, config, _ in zip(*stdParameters):
+		# declare
+		declare.is_positive_int("rate", rate)
+		declare.is_positive_int("frameWidth", frameWidth)
+		declare.is_positive_int("frameShift", frameShift)
+		declare.is_positive_int("melBins", melBins)
+		declare.is_positive_int("featDim", featDim)
+		declare.larger("frameWidth", frameWidth, "frameShift", frameShift)
+		declare.is_instances("windowType", windowType, ["hamming","hanning","povey","rectangular","blackmann"])
+		# build kaldi command
+		kaldiTool = 'compute-mfcc-feats --allow-downsample --allow-upsample '
+		kaldiTool += f'--sample-frequency={rate} '
+		kaldiTool += f'--frame-length={frameWidth} '
+		kaldiTool += f'--frame-shift={frameShift} '
+		kaldiTool += f'--num-mel-bins={melBins} '
+		kaldiTool += f'--num-ceps={featDim} '
+		kaldiTool += f'--window-type={windowType} '
+		# check config
+		if config is not None:
+			if check_config(name='compute_mfcc', config=config):
+				for key,value in config.items():
+					if isinstance(value, bool):
+						if value is True:
+							kaldiTool += f"{key} "
+					else:
+						kaldiTool += f"{key}={value} "
+		
+		baseCmds.append(kaldiTool)
+	# run the common function
+	return __compute_feature(target, baseCmds, useSuffix, name, outFile)
 
-	if config is not None:
-		if check_config(name='compute_mfcc', config=config):
-			for key,value in config.items():
-				if isinstance(value, bool):
-					if value is True:
-						kaldiTool += f"{key} "
-				else:
-					kaldiTool += f" {key}={value}"
-	
-	result = __compute_feature(wavFile, kaldiTool, useSuffix, name)
-	return result
-
-def compute_fbank(wavFile, rate=16000, frameWidth=25, frameShift=10, 
+def compute_fbank(target, rate=16000, frameWidth=25, frameShift=10, 
 					melBins=23, windowType='povey', useSuffix=None,
-					config=None, name="fbank"):
+					config=None, name="fbank", outFile=None):
 	'''
 	Compute fbank feature.
+	
+	Share Args:
+		Null 
 
-	Args:
-		<wavFile>: wave file or scp file or exkaldi SriptTable object. If it is wave file, use it's file name as utterance ID.
+	Parallel Args:
+		<target>: wave file, scp file, exkaldi ListTable object. If it is wave file, use it's file name as utterance ID.
 		<rate>: sample rate.
 		<frameWidth>: sample windows width.
 		<frameShift>: shift windows width.
@@ -162,46 +171,59 @@ def compute_fbank(wavFile, rate=16000, frameWidth=25, frameShift=10,
 		<useSuffix>: If the suffix of file is not .scp, use this to specify it.
 		<config>: use this to assign more configures. If use it, all these configures above will be skipped.
 		<name>: the name of feature.
+		<outFile>: output file name.
 		
 		Some usual options can be assigned directly. If you want use more, set <config> = your-configure, but if you do this, these usual configures we provided will be ignored.
 		You can use .check_config('compute_fbank') function to get configure information that you can set.
 		Also you can run shell command "compute-fbank-feats" to look their meaning.
 
 	Return:
-		A exkaldi bytes feature object.
+		exkaldi feature or index table object.
 	'''
-	assert isinstance(frameWidth, int) and frameWidth > 0,  f"<frameWidth> should be a positive int value but got {type_name(frameWidth)}."
-	assert isinstance(frameShift, int) and frameShift > 0,  f"<frameShift> should be a positive int value but got {type_name(frameShift)}."
-	assert frameWidth > frameShift,  f"<frameWidth> and <frameShift> is unavaliable."
-	assert windowType in ["hamming","hanning","povey","rectangular","blackmann"], f'<windowType> should be "hamming","hanning","povey","rectangular","blackmann", but got: {windowType}.'
+	stdParameters = check_mutiple_resources(rate, frameWidth, frameShift, melBins, windowType, config)
 
-	kaldiTool = 'compute-fbank-feats --allow-downsample --allow-upsample '
-	kaldiTool += f'--sample-frequency={rate} '
-	kaldiTool += f'--frame-length={frameWidth} '
-	kaldiTool += f'--frame-shift={frameShift} '
-	kaldiTool += f'--num-mel-bins={melBins} '
-	kaldiTool += f'--window-type={windowType} '
+	baseCmds = []
+	for rate, frameWidth, frameShift, melBins, windowType, config, _ in zip(*stdParameters):
 
-	if config is not None:
-		if check_config(name='compute_fbank', config=config):
-			for key,value in config.items():
-				if isinstance(value, bool):
-					if value is True:
-						kaldiTool += f"{key} "
-				else:
-					kaldiTool += f" {key}={value}"
+		declare.is_positive_int("rate", rate)
+		declare.is_positive_int("frameWidth", frameWidth)
+		declare.is_positive_int("frameShift", frameShift)
+		declare.is_positive_int("melBins", melBins)
+		declare.larger("frameWidth", frameWidth, "frameShift", frameShift)
+		declare.is_instances("windowType", windowType, ["hamming","hanning","povey","rectangular","blackmann"])
+
+		kaldiTool = 'compute-fbank-feats --allow-downsample --allow-upsample '
+		kaldiTool += f'--sample-frequency={rate} '
+		kaldiTool += f'--frame-length={frameWidth} '
+		kaldiTool += f'--frame-shift={frameShift} '
+		kaldiTool += f'--num-mel-bins={melBins} '
+		kaldiTool += f'--window-type={windowType} '
+
+		if config is not None:
+			if check_config(name='compute_fbank', config=config):
+				for key,value in config.items():
+					if isinstance(value, bool):
+						if value is True:
+							kaldiTool += f"{key} "
+					else:
+						kaldiTool += f"{key}={value} "
+		
+		baseCmds.append(kaldiTool)
 	
-	result = __compute_feature(wavFile, kaldiTool, useSuffix, name)
-	return result
+	# run the common function
+	return __compute_feature(target, baseCmds, useSuffix, name, outFile)
 
-def compute_plp(wavFile, rate=16000, frameWidth=25, frameShift=10,
+def compute_plp(target, rate=16000, frameWidth=25, frameShift=10,
 				melBins=23, featDim=13, windowType='povey', useSuffix=None,
-				config=None, name="plp"):
+				config=None, name="plp", outFile=None):
 	'''
 	Compute fbank feature.
 
-	Args:
-		<wavFile>: wave file or scp file or exkaldi SriptTable object. If it is wave file, use it's file name as utterance ID.
+	Share Args:
+		Null
+
+	Parallel Args:
+		<target>: wave file, scp file, exkaldi ListTable object. If it is wave file, use it's file name as utterance ID.
 		<rate>: sample rate.
 		<frameWidth>: sample windows width.
 		<frameShift>: shift windows width.
@@ -211,46 +233,59 @@ def compute_plp(wavFile, rate=16000, frameWidth=25, frameShift=10,
 		<useSuffix>: If the suffix of file is not .scp, use this to specify it.
 		<config>: use this to assign more configures.
 		<name>: the name of feature.
+		<outFile>: output file name.
 
 		Some usual options can be assigned directly. If you want use more, set <config> = your-configure.
 		You can use .check_config('compute_plp') function to get configure information that you can set.
 		Also you can run shell command "compute-plp-feats" to look their meaning.
 
 	Return:
-		A exkaldi bytes feature object.
+		exkaldi feature or index table object.
 	'''
-	assert isinstance(frameWidth, int) and frameWidth > 0,  f"<frameWidth> should be a positive int value but got {type_name(frameWidth)}."
-	assert isinstance(frameShift, int) and frameShift > 0,  f"<frameShift> should be a positive int value but got {type_name(frameShift)}."
-	assert frameWidth > frameShift,  f"<frameWidth> and <frameShift> is unavaliable."
-	assert windowType in ["hamming","hanning","povey","rectangular","blackmann"], f'<windowType> should be "hamming","hanning","povey","rectangular","blackmann", but got: {windowType}.'
+	stdParameters = check_mutiple_resources(rate, frameWidth, frameShift, melBins, featDim, windowType, config)
+	baseCmds = []
+	for rate, frameWidth, frameShift, melBins, featDim, windowType, config, _ in zip(*stdParameters):
+		
+		declare.is_positive_int("rate", rate)
+		declare.is_positive_int("frameWidth", frameWidth)
+		declare.is_positive_int("frameShift", frameShift)
+		declare.is_positive_int("melBins", melBins)
+		declare.is_positive_int("featDim", featDim)
+		declare.larger("frameWidth", frameWidth, "frameShift", frameShift)
+		declare.is_instances("windowType", windowType, ["hamming","hanning","povey","rectangular","blackmann"])
 
-	kaldiTool = 'compute-plp-feats --allow-downsample --allow-upsample '
-	kaldiTool += f'--sample-frequency={rate} '
-	kaldiTool += f'--frame-length={frameWidth} '
-	kaldiTool += f'--frame-shift={frameShift} '
-	kaldiTool += f'--num-mel-bins={melBins} '
-	kaldiTool += f'--num-ceps={featDim} '
-	kaldiTool += f'--window-type={windowType} '
+		kaldiTool = 'compute-plp-feats --allow-downsample --allow-upsample '
+		kaldiTool += f'--sample-frequency={rate} '
+		kaldiTool += f'--frame-length={frameWidth} '
+		kaldiTool += f'--frame-shift={frameShift} '
+		kaldiTool += f'--num-mel-bins={melBins} '
+		kaldiTool += f'--num-ceps={featDim} '
+		kaldiTool += f'--window-type={windowType} '
 
-	if config is not None:
-		if check_config(name='compute_plp', config=config):
-			for key,value in config.items():
-				if isinstance(value, bool):
-					if value is True:
-						kaldiTool += f"{key} "
-				else:
-					kaldiTool += f" {key}={value}"
+		if config is not None:
+			if check_config(name='compute_plp', config=config):
+				for key,value in config.items():
+					if isinstance(value, bool):
+						if value is True:
+							kaldiTool += f"{key} "
+					else:
+						kaldiTool += f"{key}={value} "
+		
+		baseCmds.append(kaldiTool)
 	
-	result = __compute_feature(wavFile, kaldiTool, useSuffix, name)
-	return result
+	# run the common function
+	return __compute_feature(target, baseCmds, useSuffix, name, outFile)
 	
-def compute_spectrogram(wavFile, rate=16000, frameWidth=25, frameShift=10,
-						windowType='povey', useSuffix=None, config=None, name="spectrogram"):
+def compute_spectrogram(target, rate=16000, frameWidth=25, frameShift=10,
+						windowType='povey', useSuffix=None, config=None, name="spectrogram", outFile=None):
 	'''
 	Compute power spectrogram feature.
 
-	Args:
-		<wavFile>: wave file or scp file or exkaldi SriptTable object. If it is wave file, use it's file name as utterance ID.
+	Share Args:
+		Null
+
+	Parallel Args:
+		<target>: wave file, scp file, exkaldi ListTable object. If it is wave file, use it's file name as utterance ID.
 		<rate>: sample rate.
 		<frameWidth>: sample windows width.
 		<frameShift>: shift windows width.
@@ -258,290 +293,286 @@ def compute_spectrogram(wavFile, rate=16000, frameWidth=25, frameShift=10,
 		<useSuffix>: If the suffix of file is not .scp, use this to specify it.
 		<config>: use this to assign more configures. If use it, all these configures above will be skipped.
 		<name>: the name of feature.
+		<outFile>: output file name.
 
 		Some usual options can be assigned directly. If you want use more, set <config> = your-configure, but if you do this, these usual configures we provided will be ignored.
 		You can use .check_config('compute_spectrogram') function to get configure information that you can set.
 		Also you can run shell command "compute-spectrogram-feats" to look their meaning.
 
 	Return:
-		A exkaldi bytes feature object.
+		exkaldi feature or index table object.
 	'''
-	assert isinstance(frameWidth, int) and frameWidth > 0,  f"<frameWidth> should be a positive int value but got {type_name(frameWidth)}."
-	assert isinstance(frameShift, int) and frameShift > 0,  f"<frameShift> should be a positive int value but got {type_name(frameShift)}."
-	assert frameWidth > frameShift,  f"<frameWidth> and <frameShift> is unavaliable."
-	assert windowType in ["hamming","hanning","povey","rectangular","blackmann"], f'<windowType> should be "hamming","hanning","povey","rectangular","blackmann", but got: {windowType}.'
+	stdParameters = check_mutiple_resources(rate, frameWidth, frameShift, windowType, config)
+	baseCmds = []
+	for rate, frameWidth, frameShift, windowType, config, _ in zip(*stdParameters):
+		# check
+		declare.is_positive_int("rate", rate)
+		declare.is_positive_int("frameWidth", frameWidth)
+		declare.is_positive_int("frameShift", frameShift)
+		declare.larger("frameWidth", frameWidth, "frameShift", frameShift)
+		declare.is_instances("windowType", windowType, ["hamming","hanning","povey","rectangular","blackmann"])
 
-	kaldiTool = 'compute-spectrogram-feats --allow-downsample --allow-upsample '
-	kaldiTool += f'--sample-frequency={rate} '
-	kaldiTool += f'--frame-length={frameWidth} '
-	kaldiTool += f'--frame-shift={frameShift} '
-	kaldiTool += f'--window-type={windowType} '
+		kaldiTool = 'compute-spectrogram-feats --allow-downsample --allow-upsample '
+		kaldiTool += f'--sample-frequency={rate} '
+		kaldiTool += f'--frame-length={frameWidth} '
+		kaldiTool += f'--frame-shift={frameShift} '
+		kaldiTool += f'--window-type={windowType} '
 
-	if config is not None:
-		if check_config(name='compute_spectrogram', config=config):
-			for key,value in config.items():
-				if isinstance(value, bool):
-					if value is True:
-						kaldiTool += f"{key} "
-				else:
-					kaldiTool += f" {key}={value}"
+		if config is not None:
+			if check_config(name='compute_spectrogram', config=config):
+				for key,value in config.items():
+					if isinstance(value, bool):
+						if value is True:
+							kaldiTool += f"{key} "
+					else:
+						kaldiTool += f"{key}={value} "
+		
+		baseCmds.append(kaldiTool)
 	
-	result = __compute_feature(wavFile, kaldiTool, useSuffix, name)
-	return result
+	# run the common function
+	return __compute_feature(target, baseCmds, useSuffix, name, outFile)
 
-def transform_feat(feat, matrixFile):
+def transform_feat(feat, matrixFile, outFile=None):
 	'''
 	Transform feat by a transform matrix. Typically, LDA, MLLt matrixes.
 
-	Args:
-		<feat>: exkaldi feature object.
+	Share Args:
+		Null
+
+	Parallel Args:
+		<feat>: exkaldi feature or index table object.
 		<matrixFile>: file name.
 	
 	Return:
-		a new exkaldi feature object.
+		exkaldi feature or index table object.
 	'''
-	assert isinstance(matrixFile, str), f"<transformMatrix> should be a file path but got: {type_name(matrixFile)}."
-	if not os.path.isfile(matrixFile):
-		raise WrongPath(f"No such file: {matrixFile}.")
+	feats, matrixFiles, outFiles = check_mutiple_resources(feat, matrixFile, outFile=outFile)
 
-	if type_name(feat) == "BytesFeature":
-		bytesFlag = True
-	elif type_name(feat) == "NumpyFeature":
-		bytesFlag = False
-		feat = feat.to_bytes()
-	else:
-		raise UnsupportedType(f"<feat> should exkaldi feature object but got: {type_name(feat)}.")
-	
-	cmd = f'transform-feats {matrixFile} ark:- ark:-'
+	names = []
+	for feat, matrixFile in zip(feats, matrixFiles):
+		declare.is_feature("feat", feat)
+		declare.is_file("matrixFile", matrixFile)
+		names.append( f"tansform({feat.name})" )
 
-	out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
+	cmdPattern = 'transform-feats {matrixFile} {feat} ark:{outFile}'
+	resources = {"feat":feats, "matrixFile":matrixFiles, "outFile":outFiles}
 
-	if cod != 0 :
-		print(err.decode())
-		raise KaldiProcessError("Failed to transform feature.")
-	else:
-		newName = f"tansform({feat.name})"
-		newFeat = BytesFeature(out, name=newName)
-		if bytesFlag:
-			return newFeat
-		else:
-			return newFeat.to_numpy()
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
 
-def use_fmllr(feat, transMatrix, utt2spkFile):
+def use_fmllr(feat, fmllrMat, utt2spk, outFile=None):
 	'''
 	Transform feat by a transform matrix. Typically, LDA, MLLt matrixes.
 
-	Args:
-		<feat>: exkaldi feature object.
-		<transFile>: exkaldi fMLLR transform matrix object.
-		<utt2spkFile>: utt2spk file name.
+	Share Args:
+		Null
+
+	Parallel Args:
+		<feat>: exkaldi feature or index table object.
+		<fmllrMat>: exkaldi fMLLR transform matrix or index table object.
+		<utt2spk>: file name or ListTable object.
+		<outFile>: output file name.
 	
 	Return:
-		a new exkaldi feature object.
+		exkaldi feature or index table object.
 	'''
-	if type_name(feat) == "BytesFeature":
-		bytesFlag = True
-		feat = feat.sort(by="utt")
-	elif type_name(feat) == "NumpyFeature":
-		bytesFlag = False
-		feat = feat.sort(by="utt").to_bytes()
-	else:
-		raise UnsupportedType(f"<feat> should exkaldi feature object but got: {type_name(feat)}.")
+	feats, fmllrMats, utt2spks, outFiles = check_mutiple_resources(feat, fmllrMat, utt2spk, outFile=outFile)
 
-	if type_name(transMatrix) == "BytesFmllrMatrix":
-		transMatrix = transMatrix.sort(by="utt")
-	elif type_name(transMatrix) == "NumpyFmllrMatrix":
-		transMatrix = transMatrix.sort(by="utt").to_bytes()
-	else:
-		raise UnsupportedType(f"<transMatrix> should exkaldi fMLLR transform matrix object but got: {type_name(transMatrix)}.")
+	names = []
+	for index, feat, fmllrMat, utt2spk in zip(range(len(outFiles)),feats, fmllrMats, utt2spks):
+		# verify feature
+		declare.is_feature("feat", feat)
+		declare.is_fmllr_matrix("fmllrMat", fmllrMat)
+		# verify utt2spk
+		declare.is_potential_list_table("utt2spk", utt2spk)
+		names.append(f"tansform({feat.name})")
 	
-	transTemp = tempfile.NamedTemporaryFile("wb+", suffix="_trans.ark")
-	try:
-		transTemp.write(transMatrix.data)
-		transTemp.seek(0)
+	cmdPattern = 'transform-feats --utt2spk=ark:{utt2spk} {transMat} {feat} ark:{outFile}'
+	resources = {"feat":feats, "transMat":fmllrMats, "utt2spk":utt2spks, "outFile":outFiles}
 
-		cmd = f'transform-feats --utt2spk=ark:{utt2spkFile} ark:{transTemp.name} ark:- ark:-'
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
 
-		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
-
-		if cod != 0 :
-			print(err.decode())
-			raise KaldiProcessError("Failed to transform feature to fMLLR feature.")
-		else:
-			newName = f"fmllr({feat.name})"
-			newFeat = BytesFeature(out, name=newName)
-			if bytesFlag:
-				return newFeat
-			else:
-				return newFeat.to_numpy()
-	finally:
-		transTemp.close()
-
-def use_cmvn(feat, cmvn, utt2spk=None, std=False):
+def use_cmvn(feat, cmvn, utt2spk=None, std=False, outFile=None):
 	'''
 	Apply CMVN statistics to feature.
 
-	Args:
-		<feat>: exkaldi feature object.
-		<cmvn>: exkaldi CMVN statistics object.
-		<utt2spk>: utt2spk file path or ScriptTable object.
+	Share Args:
+		Null
+
+	Parrallel Args:
+		<feat>: exkaldi feature or index table object.
+		<cmvn>: exkaldi CMVN statistics or index object.
+		<utt2spk>: file path or ListTable object.
 		<std>: If true, apply std normalization.
+		<outFile>: out file name.
 
 	Return:
-		A new feature object.
-	''' 
-	ExkaldiInfo.vertify_kaldi_existed()
+		feature or index table object.
+	'''
+	feats, cmvns, utt2spks, stds, outFiles = check_mutiple_resources(feat, cmvn, utt2spk, std, outFile=outFile)
 
-	if type_name(feat) == "BytesFeature":
-		feat = feat.sort(by="utt")
-	elif type_name(feat) == "NumpyFeature":
-		feat = feat.sort(by="utt").to_bytes()
+	names = []
+	for i, feat, cmvn, utt2spk, std in zip(range(len(outFiles)), feats, cmvns, utt2spks, stds):
+		# verify feature and cmvn
+		declare.is_feature("feat", feat)
+		declare.is_cmvn("cmvn", cmvn)
+		# verify utt2spk
+		if utt2spk is not None:
+			declare.is_potential_list_table("utt2spk", utt2spk)
+		# std
+		declare.is_bool("std", std)
+		#stds[i] = "true" if std else "false"
+		names.append( f"cmvn({feat.name},{cmvn.name})" ) 
+
+	if utt2spks[0] is None:
+		cmdPattern = 'apply-cmvn --norm-vars={std} {cmvn} {feat} ark:{outFile}'
+		resources = {"feat":feats, "cmvn":cmvns, "std":stds, "outFile":outFiles}
 	else:
-		raise UnsupportedType(f"Expected exkaldi feature but got {type_name(feat)}.")
+		cmdPattern = 'apply-cmvn --norm-vars={std} --utt2spk=ark:{utt2spk} {cmvn} {feat} ark:{outFile}'
+		resources = {"feat":feats, "cmvn":cmvns, "utt2spk":utt2spks, "std":stds, "outFile":outFiles}	
+	
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
 
-	if type_name(cmvn) == "BytesCMVNStatistics":
-		cmvn = cmvn.sort(by="utt")
-	elif type_name(cmvn) == "NumpyCMVNStatistics":
-		cmvn = cmvn.sort(by="utt").to_bytes()
-	else:
-		raise UnsupportedType(f"Expected exkaldi CMVN statistics but got {type_name(cmvn)}.")
-
-	cmvnTemp = tempfile.NamedTemporaryFile('wb+', suffix='_cmvn.ark')
-	utt2spkTemp = tempfile.NamedTemporaryFile('w+', suffix="_utt2spk",encoding="utf-8")
-	try:
-		cmvnTemp.write(cmvn.data)
-		cmvnTemp.seek(0)
-
-		if std is True:
-			stdOption = " --norm-vars true"
-		else:
-			stdOption = ""
-
-		if utt2spk is None:
-			cmd = f'apply-cmvn{stdOption} ark:{cmvnTemp.name} ark:- ark:-'
-		else:
-			if isinstance(utt2spk, str):
-				if not os.path.isfile(utt2spk):
-					raise WrongPath(f"No such file:{utt2spk}.")
-				utt2spkSorted = ScriptTable(name="utt2spk").load(utt2spk).sort()
-				utt2spkSorted.save(utt2spkTemp)
-			elif isinstance(utt2spk, ScriptTable):
-				utt2spkSorted = utt2spk.sort()
-				utt2spkSorted.save(utt2spkTemp)
-			else:
-				raise UnsupportedType(f"<utt2spk> should be a file path or ScriptTable object but got {type_name(utt2spk)}.")
-			utt2spkTemp.seek(0)	
-
-			cmd = f'apply-cmvn{stdOption} --utt2spk=ark:{utt2spkTemp.name} ark:{cmvnTemp.name} ark:- ark:-'	
-
-		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
-
-		if (isinstance(cod,int) and cod != 0) or out == b'':
-			print(err.decode())
-			raise KaldiProcessError('Failed to apply CMVN statistics.')
-		else:
-			newName = f"cmvn({feat.name},{cmvn.name})"
-			if type_name(feat) == "NumpyFeature":
-				return BytesFeature(out, newName, indexTable=None).to_numpy()
-			else:
-				return BytesFeature(out, newName, indexTable=None)
-	finally:
-		cmvnTemp.close()
-		utt2spkTemp.close()
-
-def compute_cmvn_stats(feat, spk2utt=None, name="cmvn"):
+def compute_cmvn_stats(feat, spk2utt=None, name="cmvn", outFile=None):
 	'''
 	Compute CMVN statistics.
 
-	Args:
-		<feat>: exkaldi feature object.
-		<spk2utt>: spk2utt file or exkaldi ScriptTable object.
+	Share Args:
+		Null
+
+	Parrallel Args:
+		<feat>: exkaldi feature object or index table object.
+		<spk2utt>: spk2utt file or exkaldi ListTable object.
 		<name>: a string.
+		<outFile>: file name.
 
 	Return:
-		A exkaldi CMVN statistics object.
+		exkaldi CMVN statistics or index table object.
 	''' 
-	ExkaldiInfo.vertify_kaldi_existed()
+	feats, spk2utts, names, outFiles = check_mutiple_resources(feat, spk2utt, name, outFile=outFile)
 
-	if type_name(feat) == "BytesFeature":
-		feat = feat.sort("utt")
-	elif type_name(feat) == "NumpyFeature":
-		feat = feat.sort("utt").to_bytes()
-	else:
-		raise UnsupportedType(f"Expected <feat> is a exkaldi feature object but got {type_name(feat)}.")
+	for feat, spk2utt in zip(feats, spk2utts):
+		# verify feature
+		declare.is_feature("feat", feat)
+		# verify spk2utt
+		if spk2utt is not None:
+			declare.is_potential_list_table("spk2utt", spk2utt)
 	
-	spk2uttTemp = tempfile.NamedTemporaryFile("w+", encoding="utf-8")
-	try:
-		if spk2utt is None:
-			cmd = 'compute-cmvn-stats ark:- ark:-'
-		else:
-			if isinstance(spk2utt, str):
-				if not os.path.isfile(spk2utt):
-					raise WrongPath(f"No such file:{spk2utt}.")
-				spk2uttSorted = ScriptTable(name="spk2utt").load(spk2utt).sort()
-				spk2uttSorted.save(spk2uttTemp)
-			elif isinstance(spk2utt, ScriptTable):
-				spk2uttSorted = spk2utt.sort()
-				spk2uttSorted.save(spk2uttTemp)
-			else:
-				raise UnsupportedType(f"<spk2utt> should be a file path or ScriptTable object but got {type_name(spk2utt)}.")			
-			spk2uttTemp.seek(0)
+	if spk2utts[0] is None:
+		cmdPattern = 'compute-cmvn-stats {feat} ark:{outFile}'
+		resources  = {"feat":feats, "outFile":outFiles}
+	else:
+		cmdPattern = 'compute-cmvn-stats --spk2utt=ark:{spk2utt} {feat} ark:{outFile}'
+		resources  = {"feat":feats, "spk2utt":spk2utts, "outFile":outFiles}
 
-			cmd = f'compute-cmvn-stats --spk2utt=ark:{spk2uttTemp.name} ark:- ark:-'
-
-		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
-
-		if (isinstance(cod,int) and cod != 0) or out == b'':
-			print(err.decode())
-			raise KaldiProcessError('Failed to compute CMVN statistics.')
-		else:
-			return BytesCMVNStatistics(out, name, indexTable=None)
-	finally:
-		spk2uttTemp.close()
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="cmvn", archieveNames=names)
 
 def use_cmvn_sliding(feat, windowsSize=None, std=False):
 	'''
 	Allpy sliding CMVN statistics.
 
-	Args:
+	Share Args:
 		<feat>: exkaldi feature object.
 		<windowsSize>: windows size, If None, use windows size larger than the frames of feature.
 		<std>: a bool value.
+	
+	Parallel Args:
+		Null
 
 	Return:
-		An exkaldi feature object.
+		exkaldi feature object.
 	'''
-	ExkaldiInfo.vertify_kaldi_existed()
+	declare.is_classes("feat", feat,  ["BytesFeature", "NumpyFeature"])
+	declare.is_bool("std", std)
 
-	if isinstance(feat, BytesFeature):
-		pass
-	elif type_name(feat) == "NumpyFeature":
-		feat = feat.to_bytes()
-	else:
-		raise UnsupportedType(f"Expected <feat> is an exkaldi feature object but got {type_name(feat)}.")
-	
-	if windowsSize == None:
+	if windowsSize is None:
 		featLen = feat.lens[1]
 		maxLen = max([length for utt, length in featLen])
 		windowsSize = math.ceil(maxLen/100)*100
 	else:
-		assert isinstance(windowsSize,int), "Expected <windowsSize> is an int value."
+		declare.is_positive_int("windowsSize", windowsSize)
 
-	if std==True:
+	if std:
 		std='true'
 	else:
 		std='false'
 
 	cmd = f'apply-cmvn-sliding --cmn-window={windowsSize} --min-cmn-window=100 --norm-vars={std} ark:- ark:-'
-	out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
-	if (isinstance(cod,int) and cod != 0) or out == b'':
+	out,err,cod = run_shell_command(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE, inputs=feat.data)
+	if cod != 0:
 		print(err.decode())
-		raise KaldiProcessError('Failed to use sliding CMVN.')
-	else:
-		newName = f"cmvn({feat.name},{windowsSize})"
-		return BytesFeature(out, newName, indexTable=None)
+		raise KaldiProcessError("Failed to compute sliding cmvn.")
+	
+	newName = f"cmvn({feat.name},{windowsSize})"
+	return BytesFeature(out, newName, indexTable=None)
 
-def decompress_feat(feat):
+def add_delta(feat, order=2, outFile=None):
+	'''
+	Add n order delta to feature.
+	
+	Share Args:
+		Null
+
+	Parrallel Args:
+		<feat>: exkaldi feature objects.
+		<order>: the orders.
+		<outFile>: output file name.
+
+	Return:
+		exkaldi feature or index table object.
+	'''
+	feats, orders, outFiles = check_mutiple_resources(feat, order, outFile=outFile)
+	names = []
+	for feat, order in zip(feats, orders):
+		# check feature
+		declare.is_feature("feat", feat)
+		# check order
+		declare.is_positive_int("order", order)
+		names.append(f"add_delta({feat.name},{order})")
+
+	# prepare command pattern and resources
+	cmdPattern = "add-deltas --delta-order={order} {feat} ark:{outFile}"
+	resources = {"feat":feats, "order":orders, "outFile":outFiles}
+	# run 
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
+
+def splice_feature(feat, left, right=None, outFile=None):
+	'''
+	Splice left-right N frames to generate new feature.
+	The dimentions will become original-dim * (1 + left + right)
+
+	Share Args:
+		Null
+
+	Parrallel Args:
+		<feat>: feature or index table object.
+		<left>: the left N-frames to splice.
+		<right>: the right N-frames to splice. If None, right = left.
+		<outFile>; output file name.
+
+	Return:
+		exkaldi feature object or index table object.
+	'''
+	feats, lefts, rights, outFiles = check_mutiple_resources(feat, left, right, outFile=outFile)
+	names = []
+	for index, feat, order in zip(range(len(outFiles)),feats, lefts, rights):
+		# check feature
+		declare.is_feature("feat", feat)
+		# check left
+		declare.is_non_negative_int("left", left)
+		# check right
+		if right is None:
+			rights[index] = left
+		else:
+			declare.is_non_negative_int("right", right)
+		names.append( f"splice({feat.name},{left},{right})" )
+
+	# prepare command pattern and resources
+	cmdPattern = "splice-feats --left-context={left} --right-context={right} {feat} ark:{outFile}"
+	resources = {"feat":feats, "left":lefts, "right":rights}
+	# run 
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
+
+def decompress_feat(feat, name="decompressedFeat"):
 	'''
 	Decompress a kaldi conpressed feature whose data-type is "CM"
 	
@@ -553,7 +584,7 @@ def decompress_feat(feat):
 	This function is a cover of kaldi-io-for-python tools. 
 	For more information about it, please access to https://github.com/vesis84/kaldi-io-for-python/blob/master/kaldi_io/kaldi_io.py 
 	'''
-	assert isinstance(feat, BytesFeature), "Expected <feat> is a exkaldi bytes feature object."
+	declare.is_classes("feat", feat, bytes)
 
 	def _read_compressed_mat(fd):
 
@@ -587,7 +618,7 @@ def decompress_feat(feat):
 
 		return mat.T,rows,cols        
 	
-	with BytesIO(feat.data) as sp:
+	with BytesIO(feat) as sp:
 		newData = []
 
 		while True:
@@ -620,4 +651,4 @@ def decompress_feat(feat):
 			else:
 				raise WrongDataFormat('Miss right binary symbol.')
 
-	return BytesFeature(b''.join(newData), name=feat.name)
+	return BytesFeature(b''.join(newData), name=name)

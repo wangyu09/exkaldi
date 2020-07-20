@@ -23,6 +23,7 @@ import subprocess
 
 from exkaldi.version import WrongPath, UnsupportedType, WrongDataFormat, WrongOperation
 from exkaldi.utils.utils import run_shell_command, type_name
+from exkaldi.utils import declare
 from exkaldi.core.archieve import Transcription, NumpyProbability
 from exkaldi.nn.nn import softmax
 
@@ -38,20 +39,18 @@ def convert_field(prob, originVocabs, targetVocabs, retainOOV=False):
     Return:
         An new exkaldi probability object and a list of new target vocabulary.  
     '''	
-    assert isinstance(originVocabs, list), f"<originVocabs> must be a list of vocabulary but got {originVocabs}."
-    assert isinstance(targetVocabs, list), f"<targetVocabs> must be a list of vocabulary but got {targetVocabs}."
+    declare.is_classes("originVocabs", originVocabs, list)
+    declare.is_classes("targetVocabs", targetVocabs, list)
+    assert len(targetVocabs) > 0, f"Target vocabulary is void."
 
+    declare.is_probability("prob", prob)
     if type_name(prob) == "BytesProbability":
         prob = prob.to_numpy()
-    elif type_name(prob) == "NumpyProbability":
-        pass
-    else:
-        raise UnsupportedType(f"<prob> should be an exkaldi probability object but got {type_name(prob)}.")
+    elif type_name(prob) == "ArkIndexTable":
+        prob = prob.read_record("prob").to_numpy()
     
     probDim = prob.dim
-    if len(originVocabs) != probDim:
-        raise WrongDataFormat(f"The dimensibality of probability {probDim} does not match the numbers of words {len(originVocabs)}.")
-    assert len(targetVocabs) > 0, f"Target vocabulary is void."
+    declare.equal( "the dimension of probability", probdim, "the number of words", len(originVocabs))
 
     origin_w2i = dict( (w,i) for i,w in enumerate(originVocabs) )
     
@@ -72,7 +71,8 @@ def convert_field(prob, originVocabs, targetVocabs, retainOOV=False):
 
     results = {}
     for utt, pb in prob.items:
-        assert isinstance(pb, np.ndarray) and len(pb.shape)==2, "Unsupported probability matrix shape."
+        declare.is_classes("prob", prob, np.ndarray)
+        declare.is_classes("the rank of matrix shape", len(pb.shape), "expected rank", 2)
         if retainOOV is True:
             padding = np.min(pb, axis=1)
         new = np.zeros(shape=(pb.shape[0], len(retainIDs)), dtype=np.float32)
@@ -105,21 +105,20 @@ def ctc_greedy_search(prob, vocabs, blankID=None):
     Return:
         An exkaldi Transcription object of decoding results.  
     '''
-    assert isinstance(vocabs, list), f"<vocabs> must be a list of vocabulary but got {vocabs}."
+    declare.is_classes("vocabs", vocabs, list)
 
+    declare.is_probability("prob", prob)
     if type_name(prob) == "BytesProbability":
         prob = prob.to_numpy()
-    elif type_name(prob) == "NumpyProbability":
-        pass
-    else:
-        raise UnsupportedType(f"<prob> should be an exkaldi probability object but got {type_name(prob)}.")
+    elif type_name(prob) == "ArkIndexTable":
+        prob = prob.read_record("prob").to_numpy()
     
     probDim = prob.dim
     if len(vocabs) == probDim:
         if blankID is None:
             blankID = probDim - 1
-        else:
-            assert isinstance(blankID, int) and 0 <= blankID < probDim, f"BlankID {blankID} is out of range of int sequences from 0 to {probDim-1}."
+        declare.is_positive_int("blankID", blackID)
+        declare.in_boundary("blankID", blackID, 0, probDim-1)
     elif len(vocabs) == probDim - 1:
         if blankID == None:
             blankID = probDim - 1
@@ -130,7 +129,8 @@ def ctc_greedy_search(prob, vocabs, blankID=None):
 
     results = Transcription(name="bestPathResult")
     for utt, pb in prob.items:
-        assert isinstance(pb, np.ndarray) and len(pb.shape)==2, "Unsupported probability matrix formatation."
+        declare.is_classes("prob", prob, np.ndarray)
+        declare.is_classes("the rank of matrix shape", len(pb.shape), "expected rank", 2)      
         best_path = np.argmax(pb, 1)
         best_chars_collapsed = [ vocabs[ID] for ID, _ in groupby(best_path) if ID != blankID ]
         try:
@@ -158,19 +158,16 @@ def ctc_prefix_beam_search(prob, vocabs, blankID=None, beam=5, cutoff=0.999, str
     Return:
         An exkaldi Transcription object of decoding results.  
     '''
-    assert isinstance(vocabs, (list, tuple)), f"<vocabs> must be a list of vocabulary but got {vocabs}."
+    declare.is_classes("vocabs", vocabs, [tuple,list])
 
-    if type_name(prob) == "BytesPostProbability":
+    declare.is_probability("prob", prob)
+    if type_name(prob) == "BytesProbability":
         prob = prob.to_numpy()
-    elif type_name(prob) == "NumpyPostProbability":
-        pass
-    else:
-        raise UnsupportedType(f"<prob> should be an exkaldi probability object but got {type_name(prob)}.")	
+    elif type_name(prob) == "ArkIndexTable":
+        prob = prob.read_record("prob").to_numpy() 
 
     if lmFile is not None:
-        assert isinstance(lmFile, str) and len(lmFile) > 0, "Language model file path is unavaliable."
-        if not os.path.isfile(lmFile):
-            raise WrongPath(f"No such file:{lmFile}.")
+        declare.is_file("lmFile", lmFile)
     else:
         lmFile = "none"
 
@@ -178,8 +175,9 @@ def ctc_prefix_beam_search(prob, vocabs, blankID=None, beam=5, cutoff=0.999, str
     if len(vocabs) == probDim:
         if blankID is None:
             blankID = probDim - 1
-        else:
-            assert isinstance(blankID, int) and 0 <= blankID < probDim, f"BlankID {blankID} is out of range of int sequences from 0 to {probDim-1}."
+        declare.is_positive_int("blankID", blackID)
+        declare.in_boundary("blankID", blackID, 0, probDim-1)
+
     elif len(vocabs) == probDim - 1:
         if blankID == None:
             blankID = probDim - 1
@@ -198,7 +196,8 @@ def ctc_prefix_beam_search(prob, vocabs, blankID=None, beam=5, cutoff=0.999, str
     sources = [vocabs.encode(),]
     uttTemp = []
     for utt, pb in prob.items:
-        assert isinstance(pb, np.ndarray) and len(pb.shape)==2, "Unsupported probability matrix formatation."
+        declare.is_classes("prob", prob, np.ndarray)
+        declare.is_classes("the rank of matrix shape", len(pb.shape), "expected rank", 2)
         pb = softmax(pb, axis=1)
         sources.append( f" {pb.shape[0]} ".encode() + pb.astype("float32").tobytes() )
 

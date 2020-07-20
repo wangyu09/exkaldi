@@ -21,10 +21,12 @@ import os
 import re
 import subprocess
 
-from exkaldi.version import version as ExkaldiInfo
+from exkaldi.version import info as ExkaldiInfo
 from exkaldi.version import WrongPath, UnsupportedType, WrongDataFormat, KaldiProcessError, WrongOperation
 from exkaldi.utils.utils import type_name, flatten, run_shell_command
-from exkaldi.core.load import load_trans
+from exkaldi.utils.utils import FileHandleManager
+from exkaldi.utils import declare
+from exkaldi.core.load import load_transcription
 from exkaldi.nn.nn import pure_edit_distance
 
 def wer(ref, hyp, ignore=None, mode='all'):
@@ -38,70 +40,52 @@ def wer(ref, hyp, ignore=None, mode='all'):
 	Return:
 		a namedtuple of score information.
 	'''
-	assert mode in ['all', 'present'], 'Expected <mode> to be "present" or "all".'
-	ExkaldiInfo.vertify_kaldi_existed()
+	declare.is_potential_transcription("ref", ref)
+	declare.is_potential_transcription("hyp", hyp)
+	declare.is_instances("mode", mode, ['all', 'present'])
+	declare.kaldi_existed()
+	if ignore is not None:
+		declare.is_valid_string("ignore", ignore)
 
-	hypTemp = tempfile.NamedTemporaryFile("w+", suffix=".txt", encoding="utf-8")
-	refTemp = tempfile.NamedTemporaryFile("w+", suffix=".txt", encoding="utf-8")
-	try:
+	with FileHandleManager() as fhm:
+
+		hypTemp = fhm.create("w+", suffix=".txt", encoding="utf-8")
+		refTemp = fhm.create("w+", suffix=".txt", encoding="utf-8")
+
 		if ignore is None:
+
 			if type_name(hyp) == "Transcription":
 				hyp.save(hypTemp)
-				hypTemp.seek(0)
-				hypFileName = hypTemp.name
-			elif isinstance(hyp, str):
-				if not os.path.isfile(hyp):
-					raise WrongPath(f"No such file:{hyp}.")
-				else:
-					hypFileName = hyp
-			else:
-				raise UnsupportedType('<hyp> should be exkaldi Transcription object or file path.')
+				hyp = hypTemp.name
 
 			if type_name(ref) == "Transcription":
 				ref.save(refTemp)
-				refTemp.seek(0)
-				refFileName = refTemp.name
-			elif isinstance(ref, str):
-				if not os.path.isfile(ref):
-					raise WrongPath(f"No such file:{ref}.")
-				else:
-					refFileName = ref
-			else:
-				raise UnsupportedType('<ref> should be exkaldi Transcription object or file path.')
+				ref = refTemp.name
 
-			cmd = f'compute-wer --text --mode={mode} ark:{refFileName} ark,p:{hypFileName}'
+			cmd = f'compute-wer --text --mode={mode} ark:{ref} ark,p:{hyp}'
 			scoreOut, scoreErr, _ = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 		else:
+			
 			if type_name(hyp) == "Transcription":
 				hyp = hyp.save()
-			elif isinstance(hyp, str):
-				if not os.path.isfile(hyp):
-					raise WrongPath(f"No such file:{hyp}.")
-				else:
-					with open(hyp, "r", encoding="utf-8") as fr:
-						hyp = fr.read()
 			else:
-				raise UnsupportedType('<hyp> should be exkaldi Transcription object or file path.')
+				with open(hyp, "r", encoding="utf-8") as fr:
+					hyp = fr.read()
 			
 			cmd = f'sed "s/{ignore} //g" > {hypTemp.name}'
-			hypOut, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=hyp.encode())
+			hypOut, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=hyp)
 			if len(hypOut) == 0:
 				print(err.decode())
 				raise WrongDataFormat("<hyp> has wrong data formation.")
 
 			if type_name(ref) == "Transcription":
 				ref = ref.save()
-			elif isinstance(ref, str):
-				if not os.path.isfile(ref):
-					raise WrongPath(f"No such file:{ref}.")
-				else:
-					with open(ref, "r", encoding="utf-8") as fr:
-						ref = fr.read()
 			else:
-				raise UnsupportedType('<ref> should be exkaldi Transcription object or file path.')
+				with open(ref, "r", encoding="utf-8") as fr:
+					ref = fr.read()
 			
 			cmd = f'sed "s/{ignore} //g" > {refTemp.name}'
-			refOut, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=hyp.encode())
+			refOut, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=ref)
 			if cod != 0 or len(refOut) == 0:
 				print(err.decode())
 				raise WrongDataFormat("<ref> has wrong data formation.")
@@ -109,14 +93,9 @@ def wer(ref, hyp, ignore=None, mode='all'):
 			cmd = f'compute-wer --text --mode={mode} ark:{refTemp.name} ark,p:{hypTemp.name}'
 			scoreOut, scoreErr, _ = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-	finally:
-		hypTemp.close()
-		refTemp.close()
-	
 	if len(scoreOut) == 0:
 		print(scoreErr.decode())
 		raise KaldiProcessError("Failed to compute WER.")
-
 	else:
 		out = scoreOut.decode().split("\n")
 		pattern1 = '%WER (.*) \[ (.*) \/ (.*), (.*) ins, (.*) del, (.*) sub \]'
@@ -149,25 +128,18 @@ def edit_distance(ref, hyp, ignore=None, mode='present'):
 	Return:
 		a namedtuple object including score information.	
 	'''
-	if type_name(ref) == "Transcription":
-		pass
-	elif isinstance(ref, str):
-		if not os.path.isfile(ref):
-			raise WrongPath(f"No such file:{ref}.")
-		else:
-			ref = load_trans(ref)
-	else:
-		raise UnsupportedType('<ref> should be exkaldi Transcription object or file path.')
+	declare.is_potential_transcription("ref", ref)
+	declare.is_potential_transcription("hyp", hyp)
+	declare.is_instances("mode", mode, ['all', 'present'])
+	if ignore is not None:
+		declare.is_valid_string("ignore", ignore)
 
-	if type_name(hyp) == "Transcription":
-		pass
-	elif isinstance(hyp, str):
-		if not os.path.isfile(hyp):
-			raise WrongPath(f"No such file:{hyp}.")
-		else:
-			hyp = load_trans(hyp)
-	else:
-		raise UnsupportedType('<hyp> should be exkaldi Transcription object or file path.')
+
+	if isinstance(ref, str):
+		ref = load_transcription(ref)
+
+	if isinstance(hyp, str):
+		hyp = load_transcription(hyp)
 
 	allED = 0
 	words = 0

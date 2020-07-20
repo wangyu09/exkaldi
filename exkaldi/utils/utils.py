@@ -23,9 +23,12 @@ from glob import glob
 from collections import namedtuple
 from collections.abc import Iterable
 import numpy as np
+import tempfile
+import time
 
-from exkaldi.version import version as ExkaldiInfo
+from exkaldi.version import info as ExkaldiInfo
 from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, KaldiProcessError, ShellProcessError, UnsupportedType
+from exkaldi.utils import declare
 
 def type_name(obj):
 	'''
@@ -41,36 +44,82 @@ def run_shell_command(cmd, stdin=None, stdout=None, stderr=None, inputs=None, en
 	Run a shell command.
 
 	Args:
-		<cmd>: a string or list.
+		<cmd>: a string.
 		<inputs>: a string or bytes.
 		<env>: If None, use exkaldi.version.ENV defaultly.
 
 	Return:
 		out, err, returnCode
 	'''
-	if isinstance(cmd, str):
-		shell = True
-	elif isinstance(cmd, list):
-		shell = False
-	else:
-		raise UnsupportedType("<cmd> should be a string,  or a list of commands and its' options.")
+	declare.is_valid_string("cmd", cmd)
 	
 	if env is None:
 		env = ExkaldiInfo.ENV
 
 	if inputs is not None:
+		declare.is_classes("inputs", inputs, [str,bytes])
 		if isinstance(inputs, str):
 			inputs = inputs.encode()
-		elif isinstance(inputs, bytes):
-			pass
-		else:
-			raise UnsupportedType(f"Expected <inputs> is string or bytes object but got {type_name(inputs)}.")
 
-	p = subprocess.Popen(cmd, shell=shell, stdin=stdin, stdout=stdout, stderr=stderr, env=env)
+	p = subprocess.Popen(cmd, shell=True, stdin=stdin, stdout=stdout, stderr=stderr, env=env)
 	(out, err) = p.communicate(input=inputs)
-	p.wait()
 
 	return out, err, p.returncode
+
+def run_shell_command_parallel(cmds, env=None, timeout=ExkaldiInfo.timeout):
+	'''
+	Run shell commands with mutiple processes.
+	In this mode, we don't allow the input and output streams are pipe lines.
+	If you mistakely appoint buffer to be input or output stream, we set time out error to avoid dead lock.
+	So you can change the time out value into a larger one to deal with large courpus as long as you rightly apply files as the input and output streams. 
+
+	Args:
+		<cmds>: a list of cmds.
+		<env>: If None, use exkaldi.version.ENV defaultly.
+		<timeout>: a int value.
+
+	Return:
+		a list of pairs: return code and error information.
+	'''
+	declare.is_classes("cmds", cmds, [tuple,list])
+	declare.is_positive_int("timeout", timeout)
+	
+	if env is None:
+		env = ExkaldiInfo.ENV
+
+	processManager = {}
+	for index,cmd in enumerate(cmds):
+		declare.is_valid_string("cmd", cmd)
+		processManager[index] = subprocess.Popen(cmd, shell=True, stderr=subprocess.PIPE, env=env)
+
+	runningProcess = len(processManager)
+	errcod = {}
+	timestep = 0.01
+	timeCounter = 0
+	while True:
+		if timeCounter > timeout:
+			break
+		for index, p in processManager.items():
+			if p is None:
+				continue
+			elif p.poll() is not None:
+				runningProcess -= 1
+				errcod[index] = (p.returncode, p.stderr.read())
+				processManager[index] = None
+		if runningProcess <= 0:
+			break
+		else:
+			timeCounter += timestep
+			time.sleep(timestep)
+
+	if runningProcess > 0:
+		for index, p in processManager.items():
+			if p.poll() is None:
+				p.kill()
+				p.wait()
+				errcod[index] = (-9, b"Time Out Error: Process was killed!")
+
+	return list(errcod.values())
 
 def make_dependent_dirs(path, pathIsFile=True):
 	'''
@@ -80,7 +129,9 @@ def make_dependent_dirs(path, pathIsFile=True):
 		<path>: a file path or folder path.
 		<pathIsFile>: declare <path> if is a file path or folder path.
 	'''
-	assert isinstance(path, str), "<path> should be a string."
+	declare.is_valid_string("path", path)
+	declare.is_bool("pathIsFile", pathIsFile)
+
 	path = os.path.abspath(path.strip())
 
 	if pathIsFile:
@@ -131,7 +182,7 @@ def check_config(name, config=None):
 		Or return True or False.
 		Or None if <name> is unavaliable.
 	'''
-	assert isinstance(name, str), "<name> should be a name-like string."
+	declare.is_valid_string("name", name)
 
 	try:
 		module = importlib.import_module(f'exkaldi.config.{name}')
@@ -172,11 +223,9 @@ def split_txt_file(filePath, chunks=2):
 		<chunks>: chunk size.
 	Return:
 		a list of name of chunk files.
-	'''    
-	assert isinstance(chunks, int) and chunks > 1, "Expected <chunks> is int value and larger than 1."
-
-	if not os.path.isfile(filePath):
-		raise WrongPath(f"No such file:{filePath}.")
+	'''
+	declare.is_file("filePath", filePath)
+	declare.in_boundary("chunks", chunks, minV=2)
 
 	with open(filePath, 'r', encoding='utf-8') as fr:
 		data = fr.readlines()
@@ -220,76 +269,6 @@ def split_txt_file(filePath, chunks=2):
 	
 	return files
 
-def utt2spk_to_spk2utt(utt2spkFile, outFile):
-	'''
-	Transform utt2spk file to spk2utt file.
-
-	Args:
-		<utt2spkFile>: file name.
-		<outFile>: file name.
-	'''
-	assert isinstance(utt2spkFile, str), f"<utt2spkFile> should be a string but got: {type_name(utt2spkFile)}."
-	assert isinstance(outFile, str), f"<outFile> should be a string but got: {type_name(outFile)}."
-
-	if not os.path.isfile(utt2spkFile):
-		raise WrongPath(f"No such file: {utt2spkFile}.")
-	
-	spk2utt = {}
-	with open(utt2spkFile, "r", encoding="utf-8") as fr:
-		lines = fr.readlines()
-	for index,line in enumerate(lines,start=1):
-		line = line.strip().split()
-		if len(line) == 0:
-			continue
-		else:
-			if len(line) != 2:
-				raise WrongDataFormat(f"Mismatching between utt and spk: {line}, line {index}.")
-			utt, spk = line[0], line[1]
-			if spk not in spk2utt.keys():
-				spk2utt[spk] = f"{utt}"
-			else:
-				spk2utt[spk] += f" {utt}"
-
-	with open(outFile, "w") as fw:
-		fw.write( "\n".join(map(lambda spk,utts:spk+" "+utts, spk2utt.items())) )
-	
-	return os.path.abspath(outFile)
-
-def spk2utt_to_utt2spk(spk2uttFile, outFile):
-	'''
-	Transform spk2utt file to utt2spk file.
-
-	Args:
-		<spk2uttFile>: file name.
-		<outFile>: file name.
-	'''
-	assert isinstance(spk2uttFile, str), f"<spk2uttFile> should be a string but got: {type_name(spk2uttFile)}."
-	assert isinstance(outFile, str), f"<outFile> should be a string but got: {type_name(outFile)}."
-
-	if not os.path.isfile(spk2uttFile):
-		raise WrongPath(f"No such file: {spk2uttFile}.")
-	
-	utt2spk = {}
-	with open(spk2uttFile, "r", encoding="utf-8") as fr:
-		lines = fr.readlines()
-	for index,line in enumerate(lines,start=1):
-		line = line.strip().split()
-		if len(line) == 0:
-			continue
-		else:
-			if len(line) < 2:
-				raise WrongDataFormat(f"Mismatching between utt and spk: {line}.")
-			spk = line[0]
-			for utt in line[1:]:
-				if utt in utt2spk.keys():
-					raise WrongDataFormat(f"utt:{utt} is repeated in line {index}.")
-				utt2spk[utt] = spk
-
-	with open(outFile, "w") as fw:
-		fw.write( "\n".join(map(lambda utt,spk:utt+" "+spk, utt2spk.items())) )
-	
-	return os.path.abspath(outFile)
-
 def compress_gz_file(filePath, overWrite=False):
 	'''
 	Compress a file to gz file.
@@ -298,16 +277,12 @@ def compress_gz_file(filePath, overWrite=False):
 		<filePath>: file path.
 		<overWrite>: If True, overwrite gz file when it is existed.
 	Return:
-		the absolute path of compressed file.
+		compressed file path.
 	'''
-	assert isinstance(filePath, str), f"<filePath> must be a string but got {type_name(filePath)}."
-	filePath = filePath.strip()
-	if not os.path.isfile(filePath):
-		raise WrongPath(f"No such file:{filePath}.")
-
+	declare.is_file("filePath", filePath)
 	outFile = filePath + ".gz"
 	if overWrite is True and os.path.isfile(outFile):
-		os.remove(outFile) 
+		os.remove(outFile)
 
 	cmd = f"gzip {filePath}"
 	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
@@ -316,7 +291,7 @@ def compress_gz_file(filePath, overWrite=False):
 		print(err.decode())
 		raise ShellProcessError("Failed to compress file.")
 	else:
-		return os.path.abspath(outFile)
+		return outFile
 
 def decompress_gz_file(filePath, overWrite=False):
 	'''
@@ -325,13 +300,11 @@ def decompress_gz_file(filePath, overWrite=False):
 	Args:
 		<filePath>: file path.
 	Return:
-		the absolute path of decompressed file.
+		decompressed file path.
 	'''
-	assert isinstance(filePath, str), f"<filePath> must be a string but got {type_name(filePath)}."
-	filePath = filePath.rstrip()
-	if not os.path.isfile(filePath):
-		raise WrongPath(f"No such file:{filePath}.")
-	elif not filePath.endswith(".gz"):
+	declare.is_file("filePath", filePath)
+
+	if not filePath.endswith(".gz"):
 		raise WrongOperation(f"{filePath}: Unknown suffix.")
 
 	outFile = filePath[:-3]
@@ -356,7 +329,7 @@ def flatten(item):
 	Return:
 		a list of flattened items.
 	'''
-	assert isinstance(item, Iterable), "<item> is not a iterable object."
+	declare.belong_classes("item", item, Iterable)
 
 	new = []
 	for i in item:
@@ -385,28 +358,172 @@ def flatten(item):
 
 	return new
 
-def list_files(fileName):
+def list_files(filePaths):
 	'''
-	List file paths.
+	List files by a normal grammar string.
 
 	Args:
-		<fileName>: a string.
+		<filePaths>: a string or list or tuple object.
 	
 	Return:
 		A list of file paths.
 	'''
-	assert isinstance(fileName, str), f"<fileName> should be string but got: {fileName}."
+	declare.is_classes("filePaths", filePaths, [str,list,tuple])
+	def list_one_record(target):
+		declare.is_valid_string("filePaths",target)
+		cmd = f"ls {target}"
+		out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE)
+		if len(out) == 0:
+			return []
+		else:
+			out = out.decode().strip().split("\n")
+			newOut = [ o for o in out if os.path.isfile(o) ]
+			return newOut
 
-	cmd = f"ls {fileName}"
-	out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE)
-
-	if len(out) == 0:
-		raise WrongPath(f"No such file: {fileName}.")
+	if isinstance(filePaths, str):
+		outFiles = list_one_record(filePaths)
 	else:
-		out = out.decode().strip()
-		return out.split("\n")
+		outFiles = []
+		for m in filePaths:
+			outFiles.extend( list_one_record(m) )
+	
+	if len(outFiles) == 0:
+		raise WrongPath(f"No any files have been found through the provided file paths: {filePaths}.")
+	
+	return outFiles
 
+class FileHandleManager:
+	'''
+	A class to create and manage opened file handles.
+	A new FileHandleManager object should be instantiated bu python "with" grammar.
+	'''
+	def __init__(self):
+		self.__inventory = {}
+		self.__safeFlag = False
 
+	@property
+	def view(self):
+		'''
+		Return all handle names.
+		'''
+		return list(self.__inventory.keys())
 
+	def create(self, mode, suffix=None, encoding=None, name=None):
+		'''
+		Creat a temporary file and return the handle.
 
+		Args:
+			<name>: a string. After named this handle exclusively, you can call its name to get it again.
+					If None, we will use the file name as its default name.
+		
+		Return:
+			a file handle.
+		'''
+		self.verify_safety()
 
+		if suffix is not None:
+			declare.is_valid_string("suffix", suffix)
+	
+		if name is not None:
+			declare.is_valid_string("name", name)
+			assert name not in self.__inventory.keys(), f"<name> has been existed. We hope it be exclusive: {name}."
+		
+		handle = tempfile.NamedTemporaryFile(mode, prefix="exkaldi_", suffix=suffix, encoding=encoding)
+
+		if name is None:
+			self.__inventory[handle.name] = handle
+		else:
+			self.__inventory[name] = handle
+
+		return handle
+
+	def open(self, filePath, mode, encoding=None, name=None):
+		'''
+		Open a regular file and return the handle.
+
+		Args:
+			<name>: a string. After named this handle exclusively, you can call its name to get it again.
+					If None, we will use the file name as its default name.
+					We allow to open the same file in mutiple times as long as you name them differently.
+		
+		Return:
+			a file handle.
+		'''
+		self.verify_safety()
+		
+		if name is not None:
+			declare.is_valid_string("name", name)
+			assert name not in self.__inventory.keys(), f"<name> has been existed. We hope it be exclusive: {name}."
+		else:
+			if filePath in self.__inventory.keys():
+				raise WrongOperation(f"File has been opened already: {filePath}. If you still want to open it to get another handle, please give it an exclusive name.")
+			name = filePath
+
+		declare.is_file("filePath", filePath)
+
+		handle = open(filePath, mode, encoding=encoding)
+
+		self.__inventory[name] = handle
+
+		return handle
+
+	def call(self, name):
+		'''
+		Get the file handle again by call its name.
+		If unexisted, return None.
+		'''
+		declare.is_valid_string("name", name)
+		try:
+			return self.__inventory[name]
+		except KeyError:
+			return None
+
+	def close(self, name=None):
+		'''
+		Close file handle.
+		'''
+		if name is None:
+			for t in self.__inventory.values():
+				try:
+					t.close()
+				except Exception:
+					pass
+		else:
+			declare.is_valid_string("name", name)
+			if name in self.__inventory.keys():
+				try:
+					self.__inventory[name].close()
+				except Exception:
+					pass
+
+	def __enter__(self):
+		self.__safeFlag = True
+		return self
+	
+	def __exit__(self, type, value, trace):
+		self.close()
+	
+	def verify_safety(self):
+		if self.__safeFlag is False:
+			raise WrongOperation("Please run the file handle manager under the 'with' grammar.")
+
+def view_kaldi_usage(toolName):
+	'''
+	View the help information of specified kaldi command.
+
+	Args:
+		<toolName>: kaldi tool name.
+	'''
+	declare.is_valid_string("toolName", toolName)
+	cmd = toolName.strip().split()
+	assert len(cmd) == 1, f"<toolName> must only include one command name but got: {toolName}."
+	cmd = cmd[0]
+	cmd += " --help"
+
+	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+	
+	if cod != 0:
+		print(err.decode())
+		raise ShellProcessError(f"Failed to get kaldi tool info: {toolName}.")
+	else:
+		print(err.decode())
