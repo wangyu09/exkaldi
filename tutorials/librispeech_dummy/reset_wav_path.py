@@ -13,8 +13,8 @@ for name in ["train","test"]:
         line = line.strip().split()
         if len(line) < 2:
             continue
-        tempPath = line[-1].split("/")
-        line[-1] =  os.path.join(root, "wav", tempPath[-1])
+        wavFileName = os.path.basename(line[-1])
+        line[-1] =  os.path.join(root, "wav", wavFileName)
         lines[index] = " ".join(line)
 
     with open(wavScpFile, "w") as fw:
