@@ -24,7 +24,7 @@ import pickle
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, KaldiProcessError, ShellProcessError, UnsupportedType
 from exkaldi.utils.utils import make_dependent_dirs, run_shell_command, type_name
-from exkaldi.core.achivements import ListTable
+from exkaldi.core.archieve import ListTable
 
 class LexiconBank:
 	'''

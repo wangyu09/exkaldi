@@ -23,25 +23,25 @@ from collections import namedtuple
 
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import UnsupportedType, WrongOperation, KaldiProcessError, WrongDataFormat
-from exkaldi.utils.utils import run_shell_command, type_name
-from exkaldi.core.achivements import BytesFeature
+from exkaldi.utils.utils import run_shell_command, type_name, list_files
+from exkaldi.core.archieve import BytesFeature, ScriptTable
 
-def tuple_data(achivements, frameLevel=False):
+def tuple_data(archieve, frameLevel=False):
 	'''
-	Tuple feature or alignment achivements in "utterance" level or "frame" level.
+	Tuple feature or alignment archieve in "utterance" level or "frame" level.
 
 	Args:
-		<achivements>: exkaldi feature or alignment objects.
+		<archieve>: exkaldi feature or alignment objects.
 		<framelevel>: If True, tuple data in frame level. Or in utterance level.
 	Return:
 		List of tupled data.
 	'''
-	assert isinstance(achivements, (tuple,list)) and len(achivements)>1, "<achivements> should has mutiple items."
+	assert isinstance(archieve, (tuple,list)) and len(archieve)>1, "<archieve> should has mutiple items."
 	
 	fields = {}
-	for index,data in enumerate(achivements):
+	for index,data in enumerate(archieve):
 		if type_name(data) in ["BytesFeature", "BytesCMVNStatistics", "BytesPostProbability", "BytesAlignmentTrans"]:
-			achivements[index] = data.to_bytes()
+			archieve[index] = data.to_bytes()
 		elif type_name(data) in ["NumpyFeature", "NumpyCMVNStatistics", "NumpyPostProbability", 
 								 "NumpyAlignment", "NumpyAlignmentTrans", "NumpyAlignmentPhone", "NumpyAlignmentPdf"]:
 			pass
@@ -61,7 +61,7 @@ def tuple_data(achivements, frameLevel=False):
 		else:
 			templet = namedtuple(typename="TupledData", field_names=["uttID",]+fieldNames)
 	except ValueError as e:
-		print('While tuple data, use "name" of achivements as identified symbols so they are expected Python valid identifiers.')
+		print('While tuple data, use "name" of archieve as identified symbols so they are expected Python valid identifiers.')
 		print('You can use ".rename()" method to rename it and try this function again.')
 		raise e
 
@@ -97,7 +97,7 @@ def tuple_data(achivements, frameLevel=False):
 
 		return result
 
-	uttIDs = achivements[0].utts
+	uttIDs = archieve[0].utts
 	result = []
 	for utt in uttIDs:
 		oneRecord = []
@@ -160,3 +160,82 @@ def compute_postprob_norm(ali, posrProbDim):
 		counts = np.array(out, dtype=np.int32)
 		countBias = np.log(counts/np.sum(counts))
 		return countBias
+
+def generate_scp_from_ark(arkFile):
+	'''
+	Generate a script-file table from a archive table.
+
+	Args:
+		<arkFile>: a kaldi archive table file path.
+	
+	Return:
+		A exkaldi ScriptTable object.
+	'''
+	arkFileList = list_files(arkFile)
+
+	def __read_one_record(fp):
+		'''
+		Read a utterance.
+		'''
+		utt = ''
+		while True:
+			char = fp.read(1).decode()
+			if (char == '') or (char == ' '):break
+			utt += char
+		utt = utt.strip()
+		if utt == '':
+			if fp.read() == b'':
+				return (None, None)
+			else:
+				fp.close()
+				raise WrongDataFormat("Miss utterance ID before utterance. This may not be Kaldi archeve table file.")
+		binarySymbol = fp.read(2).decode()
+		if binarySymbol == '\0B':
+			
+			dataSize = fp.read(1).decode()
+
+			if dataSize == '\4':
+				frames = int(np.frombuffer(fp.read(4), dtype='int32', count=1)[0])
+				if frames == 0:
+					buf = b""
+				else:
+					buf = fp.read(frames * 5)
+				
+				return (utt, frames*5)
+			else:
+				dataType = dataSize + fp.read(2).decode() 
+				if dataType == 'CM ':
+					fp.close()
+					raise UnsupportedType("Unsupported to generate script table from compressed archive table. Please decompress it firstly.")                    
+				elif dataType == 'FM ':
+					sampleSize = 4
+				elif dataType == 'DM ':
+					sampleSize = 8
+				else:
+					fp.close()
+					raise WrongDataFormat(f"This may not be Kaldi archeve table file.")
+				s1,rows,s2,cols = np.frombuffer(fp.read(10), dtype="int8, int32, int8, int32", count=1)[0]
+				rows = int(rows)
+				cols = int(cols)
+				buf = fp.read(rows * cols * sampleSize)
+
+				return (utt, rows * cols * sampleSize)
+		else:
+			fp.close()
+			raise WrongDataFormat("Miss binary symbol before utterance. This may not be Kaldi archeve table file.")
+
+	scpTable = ScriptTable()
+	for arkFile in arkFileList:
+		startIndex = 0
+		with open(arkFile, "rb") as fr:
+			while True:
+				utt, buffSize = __read_one_record(fr)
+				if utt is None:
+					break
+				else:
+					if utt in scpTable.keys():
+						raise WrongDataFormat(f"Utterance ID: {utt} existed in mutiple files.")
+					scpTable[utt] = f"{arkFile}:{startIndex}"
+					startIndex += buffSize
+	
+	return scpTable

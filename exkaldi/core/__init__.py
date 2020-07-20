@@ -1,34 +1,34 @@
 from __future__ import absolute_import
 
-from exkaldi.core import achivements
+from exkaldi.core import archieve
 from exkaldi.core import feature
 from exkaldi.core import load
 from exkaldi.core import others
 
 # Kaldi Script Table
-from exkaldi.core.achivements import ListTable
-from exkaldi.core.achivements import ScriptTable
-from exkaldi.core.achivements import Transcription
-from exkaldi.core.achivements import Metric
+from exkaldi.core.archieve import ListTable
+from exkaldi.core.archieve import ScriptTable
+from exkaldi.core.archieve import Transcription
+from exkaldi.core.archieve import Metric
 
 # Kaldi Achivement Table (Bytes Format)
-from exkaldi.core.achivements import BytesFeature
-from exkaldi.core.achivements import BytesCMVNStatistics
-from exkaldi.core.achivements import BytesProbability
-from exkaldi.core.achivements import BytesAlignmentTrans
-from exkaldi.core.achivements import BytesFmllrMatrix
+from exkaldi.core.archieve import BytesFeature
+from exkaldi.core.archieve import BytesCMVNStatistics
+from exkaldi.core.archieve import BytesProbability
+from exkaldi.core.archieve import BytesAlignmentTrans
+from exkaldi.core.archieve import BytesFmllrMatrix
 
 # Kaldi Achivement Table (Numpy Format)
-from exkaldi.core.achivements import NumpyFeature
-from exkaldi.core.achivements import NumpyCMVNStatistics
-from exkaldi.core.achivements import NumpyProbability
-from exkaldi.core.achivements import NumpyAlignment
-from exkaldi.core.achivements import NumpyAlignmentTrans
-from exkaldi.core.achivements import NumpyAlignmentPhone
-from exkaldi.core.achivements import NumpyAlignmentPdf
-from exkaldi.core.achivements import NumpyFmllrMatrix
+from exkaldi.core.archieve import NumpyFeature
+from exkaldi.core.archieve import NumpyCMVNStatistics
+from exkaldi.core.archieve import NumpyProbability
+from exkaldi.core.archieve import NumpyAlignment
+from exkaldi.core.archieve import NumpyAlignmentTrans
+from exkaldi.core.archieve import NumpyAlignmentPhone
+from exkaldi.core.archieve import NumpyAlignmentPdf
+from exkaldi.core.archieve import NumpyFmllrMatrix
 
-# Load Achivements
+# Load archieve
 from exkaldi.core.load import load_ali
 from exkaldi.core.load import load_feat
 from exkaldi.core.load import load_cmvn

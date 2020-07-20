@@ -25,14 +25,14 @@ import time, datetime
 from collections import namedtuple
 import numpy as np
 
-from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, BytesAlignmentTrans, BytesFmllrMatrix
+from exkaldi.core.archieve import BytesArchieve, Transcription, ListTable, BytesAlignmentTrans, BytesFmllrMatrix
 from exkaldi.core.load import load_ali
 from exkaldi.core.feature import transform_feat, use_fmllr
 from exkaldi.utils import run_shell_command, check_config, make_dependent_dirs, type_name, list_files
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, KaldiProcessError, UnsupportedType, WrongOperation, WrongDataFormat
 
-class DecisionTree(BytesAchievement):
+class DecisionTree(BytesArchieve):
 
 	def __init__(self, data=b"", contextWidth=3, centralPosition=1, lexicons=None, name="tree"):
 		super().__init__(data, name)
@@ -354,7 +354,7 @@ class DecisionTree(BytesAchievement):
 				values.append(value)
 			return namedtuple("TreeInfo",names)(*values)
 
-class BaseHMM(BytesAchievement):
+class BaseHMM(BytesArchieve):
 
 	def __init__(self, data=b"", name="hmm", lexicons=None):
 		super().__init__(data, name)
@@ -486,7 +486,7 @@ class BaseHMM(BytesAchievement):
 		else:
 			raise UnsupportedType(f"Expected exkaldi feature object but got {type_name(feat)}.")
 
-		assert isinstance(trainGraphFile, str), f"Expected a path-like string but got {type_name(trainGraphsFile)}."
+		assert isinstance(trainGraphFile, str), f"Expected a path-like string but got {type_name(trainGraphFile)}."
 		if not os.path.isfile(trainGraphFile):
 			raise WrongPath(f"No such file:{trainGraphFile}.")		
 

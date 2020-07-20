@@ -25,7 +25,7 @@ import math
 import sys
 
 from exkaldi.utils.utils import check_config, make_dependent_dirs, type_name, run_shell_command
-from exkaldi.core.achivements import BytesAchievement, Metric
+from exkaldi.core.archieve import BytesArchieve, Metric
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, KaldiProcessError, ShellProcessError, KenlmProcessError, UnsupportedType, WrongOperation, WrongDataFormat
 
@@ -238,7 +238,7 @@ def arpa_to_binary(arpaFile, outFile):
 	else:
 		return os.path.abspath(outFile)
 
-class KenNGrams(BytesAchievement):
+class KenNGrams(BytesArchieve):
 	'''
 	This is a wrapper of kenlm.Model, and we only support n-grams model with binary format.
 	'''

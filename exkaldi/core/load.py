@@ -27,10 +27,10 @@ from io import BytesIO
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, UnsupportedType, ShellProcessError, KaldiProcessError
 from exkaldi.utils.utils import run_shell_command, type_name, list_files
-from exkaldi.core.achivements import BytesMatrix, BytesFeature, BytesCMVNStatistics, BytesProbability, BytesAlignmentTrans
-from exkaldi.core.achivements import NumpyMatrix, NumpyFeature, NumpyCMVNStatistics, NumpyProbability, NumpyAlignmentTrans
-from exkaldi.core.achivements import NumpyAlignment, NumpyAlignmentPhone, NumpyAlignmentPdf
-from exkaldi.core.achivements import Transcription
+from exkaldi.core.archieve import BytesMatrix, BytesFeature, BytesCMVNStatistics, BytesProbability, BytesAlignmentTrans
+from exkaldi.core.archieve import NumpyMatrix, NumpyFeature, NumpyCMVNStatistics, NumpyProbability, NumpyAlignmentTrans
+from exkaldi.core.archieve import NumpyAlignment, NumpyAlignmentPhone, NumpyAlignmentPdf
+from exkaldi.core.archieve import Transcription
 
 def __read_data_from_file(fileName, useSuffix=None):
 	'''

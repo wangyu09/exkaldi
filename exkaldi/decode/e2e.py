@@ -23,7 +23,7 @@ import subprocess
 
 from exkaldi.version import WrongPath, UnsupportedType, WrongDataFormat, WrongOperation
 from exkaldi.utils.utils import run_shell_command, type_name
-from exkaldi.core.achivements import Transcription, NumpyProbability
+from exkaldi.core.archieve import Transcription, NumpyProbability
 from exkaldi.nn.nn import softmax
 
 def convert_field(prob, originVocabs, targetVocabs, retainOOV=False):

@@ -27,7 +27,7 @@ import struct
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, UnsupportedType, KaldiProcessError, WrongOperation, ShellProcessError, WrongDataFormat
 from exkaldi.utils.utils import run_shell_command, type_name, check_config
-from exkaldi.core.achivements import BytesFeature, BytesCMVNStatistics, ScriptTable
+from exkaldi.core.archieve import BytesFeature, BytesCMVNStatistics, ScriptTable
 
 def __compute_feature(wavFile, kaldiTool, useSuffix=None, name="feat"):
 

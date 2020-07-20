@@ -714,7 +714,7 @@ class BytesDataIndex(ListTable):
 '''BytesAchivement class group'''
 '''Designed for binary objects in kaldi, such as Kaldi binary archivement table (in Bytes Format), lattice, HMM-GMM, decision tree and so on'''
 ## Base class
-class BytesAchievement:
+class BytesArchieve:
 
 	def __init__(self, data=b'', name=None):
 		if data != None:
@@ -753,7 +753,7 @@ class BytesAchievement:
 		self.__name = newName
 
 ## Base class: for Matrix Data achivements
-class BytesMatrix(BytesAchievement):
+class BytesMatrix(BytesArchieve):
 	'''
 	A base class of bytes feature, cmvn statistics, post probability data.
 	'''
@@ -2027,7 +2027,7 @@ class BytesFmllrMatrix(BytesMatrix):
 		return BytesFmllrMatrix(result.data, name=result.name, indexTable=result.utt_index)
 
 ## Base class: for Vector Data achivements
-class BytesVector(BytesAchievement):
+class BytesVector(BytesArchieve):
 	'''
 	A base class to hold kaldi vector data such as alignment.  
 	'''
@@ -2678,7 +2678,7 @@ class BytesAlignmentTrans(BytesVector):
 '''NumpyAchivement class group'''
 '''Designed for Kaldi binary archivement table (in Numpy Format)'''
 ## Base Class
-class NumpyAchievement:
+class NumpyArchieve:
 
 	def __init__(self, data={}, name=None):
 		if data is not None:
@@ -2717,7 +2717,7 @@ class NumpyAchievement:
 		self.__name = newName
 
 ## Base Class: for Matrix Data Achivements 
-class NumpyMatrix(NumpyAchievement):
+class NumpyMatrix(NumpyArchieve):
 
 	def __init__(self, data={}, name=None):
 		if isinstance(data, NumpyMatrix):

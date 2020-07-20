@@ -26,11 +26,11 @@ import numpy as np
 from exkaldi.version import version as ExkaldiInfo
 from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, KaldiProcessError, UnsupportedType
 from exkaldi.utils.utils import run_shell_command, make_dependent_dirs, type_name, check_config, list_files
-from exkaldi.core.achivements import BytesAchievement, Transcription, ListTable, BytesAlignmentTrans, NumpyAlignmentTrans, Metric
+from exkaldi.core.archieve import BytesArchieve, Transcription, ListTable, BytesAlignmentTrans, NumpyAlignmentTrans, Metric
 from exkaldi.nn.nn import log_softmax
 from exkaldi.hmm.hmm import load_hmm
 
-class Lattice(BytesAchievement):
+class Lattice(BytesArchieve):
 	'''
 	Usage:  obj = KaldiLattice() or obj = KaldiLattice(lattice,hmm,wordSymbol)
 
@@ -742,8 +742,23 @@ def gmm_decode(feat, hmm, HCLGFile, wordSymbolTable, beam=10, latBeam=8, acwt=1,
 		wordsTemp.close()
 		modelTemp.close()
 
-def nn_align(hmm, prob, trainGraphFile, transitionScale=1.0, acousticScale=0.1, 
-				selfloopScale=0.1, beam=10, retry_beam=40, name="ali"):
+def compile_align_graph(hmm, tree, transcription, LFile, outFile, lexicons=None):
+	'''
+	Compile graph for training or aligning.
+		<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
+					In this step, we will use "context_indep" lexicon.
+	'''
+	if isinstance(hmm,str):
+		assert os.path.isfile(hmm), f"No such file: {hmm}."
+		assert type_name(lexicons) == "LexiconBank", "Expected <lexicons> is provided in this case."
+		hmm = load_hmm(hmm, lexicons=lexicons)
+	else:
+		assert type_name(hmm) in ["BaseHMM","MonophoneHMM","TriphoneHMM"], f"<hmm> should be exkaldi HMM object but got: {hmm}."
+
+	return hmm.compile_train_graph(tree, transcription, LFile, outFile)
+
+def nn_align(hmm, prob, alignGraphFile=None, tree=None, transcription=None, Lfile=None, transitionScale=1.0, acousticScale=0.1, 
+				selfloopScale=0.1, beam=10, retry_beam=40, lexicons=None, name="ali"):
 	'''
 	Align the neural network acoustic output probability.
 	'''
@@ -755,6 +770,8 @@ def nn_align(hmm, prob, trainGraphFile, transitionScale=1.0, acousticScale=0.1,
 		raise UnsupportedType(f"Expected <prob> is an exkaldi probability object but got: {type_name(prob)}.")
 
 	hmmTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
+	treeTemp = tempfile.NamedTemporaryFile("wb+", suffix=".tree")
+	disambigTemp = tempfile.NamedTemporaryFile("w+", suffix="_disambig.int", encoding="utf-8")
 	try:
 		if isinstance(hmm,str):
 			assert os.path.isfile(hmm), f"No such file: {hmm}."
@@ -764,9 +781,42 @@ def nn_align(hmm, prob, trainGraphFile, transitionScale=1.0, acousticScale=0.1,
 			hmmTemp.write(hmm.data)
 			hmmTemp.seek(0)
 			hmmFile = hmmTemp.name
-		
-		cmd = f"align-compiled-mapped --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
-		cmd += f"--beam={beam} --retry-beam={retry_beam} {hmmFile} ark:{trainGraphFile} ark:- ark:-"
+
+		if alignGraphFile is None:
+			assert None not in [tree,transcription,Lfile], "When align graph is not provided, all of <tree>, <transcription> and <Lfile> is necessary."
+			assert isinstance(transcription,str) and os.path.isfile(transcription), "Transcription is not a file name or does not exist."
+			assert isinstance(Lfile,str) and os.path.isfile(Lfile), "Lexicon fst is not a file name or does not exist."
+			
+			if lexicons is not None:
+				assert type_name(lexicons) == "LexiconBank", "<lexicons> is necessary."
+			else:
+				if isinstance(hmm,str) or hmm.lex is None:
+					raise WrongOperation("<lexicons> is necessary in this case.")
+				else:
+					lexicons = hmm.lex
+			
+			if type_name(tree) == "DecisionTree":
+				treeTemp.write(tree.data)
+				treeTemp.seek(0)
+				treeFile = treeTemp.name
+			else:
+				assert isinstance(tree, str) and os.path.isfile(tree), "Tree is not a file name or does not exist."
+				treeFile = tree
+			
+			lexicons.dump_dict(name="disambig", outFile=disambigTemp, dumpInt=True)
+			
+			cmd = f"align-mapped --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
+			cmd += f"--beam={beam} --retry-beam={retry_beam} "
+			cmd += f"--read-disambig-syms={disambigTemp.name} "
+			cmd += f"{treeFile} {hmmFile} {Lfile} ark:- ark:{transcription} ark:-"
+
+		else:
+			assert tree is None and transcription is None and Lfile is None, "When use compiled align graph, any of <tree>, <transcription> and <Lfile> is invalid."
+			assert isinstance(alignGraphFile,str) and os.path.isfile(alignGraphFile), "Align graph is not a file name or does not exist."
+
+			cmd = f"align-compiled-mapped --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
+			cmd += f"--beam={beam} --retry-beam={retry_beam} "
+			cmd += f"{hmmFile} ark:{alignGraphFile} ark:- ark:-"
 
 		out,err,cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=prob.data)
 
@@ -778,20 +828,91 @@ def nn_align(hmm, prob, trainGraphFile, transitionScale=1.0, acousticScale=0.1,
 	
 	finally:
 		hmmTemp.close()
+		treeTemp.close()
+		disambigTemp.close()
 
-def gmm_align(hmm, feat, trainGraphFile, transitionScale=1.0, acousticScale=0.1, 
+def gmm_align(hmm, feat, alignGraphFile=None, tree=None, transcription=None, Lfile=None, transitionScale=1.0, acousticScale=0.1, 
 				selfloopScale=0.1, beam=10, retry_beam=40, boost_silence=1.0, careful=False, name="ali", lexicons=None):
-		'''
-		Align acoustic feature with kaldi vertibi algorithm.
-			<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
-						In this step, we will use "context_indep" lexicon.
-		'''
+	'''
+	Align acoustic feature with kaldi vertibi algorithm.
+		<lexicons>: None. If no any lexicons provided in DecisionTree, this is expected.
+					In this step, we will use "context_indep" lexicon.
+	'''
+	if type_name(feat) == "BytesFeature":
+		feat = feat.sort(by="utt")
+	elif type_name(feat) == "NumpyFeature":
+		feat = feat.sort(by="utt").to_bytes()
+	else:
+		raise UnsupportedType(f"Expected exkaldi feature object but got {type_name(feat)}.")
+
+	hmmTemp = tempfile.NamedTemporaryFile("wb+", suffix=".mdl")
+	treeTemp = tempfile.NamedTemporaryFile("wb+", suffix=".tree")
+	disambigTemp = tempfile.NamedTemporaryFile("w+", suffix="_disambig.int", encoding="utf-8")
+
+	try:
 		if isinstance(hmm,str):
 			assert os.path.isfile(hmm), f"No such file: {hmm}."
-			assert type_name(lexicons) == "LexiconBank", "Expected <lexicons> is provided in this case."
-			hmm = load_hmm(hmm, lexicons=lexicons)
+			assert type_name(lexicons) == "LexiconBank", "<lexicons> is necessary in this case."
+			optionSilence = ":".join(lexicons("optional_silence", True))
+
+			cmd = f'gmm-boost-silence --boost={boost_silence} {optionSilence} {hmm} {hmmTemp.name}'
+			out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
 		else:
 			assert type_name(hmm) in ["BaseHMM","MonophoneHMM","TriphoneHMM"], f"<hmm> should be exkaldi HMM object but got: {hmm}."
+			if lexicons is None:
+				assert hmm.lex is not None, "<lexicons> is necessary in this case."
+				lexicons = hmm.lex
+			else:
+				assert type_name(lexicons) == "LexiconBank", f"<lexicons> should be exkaldi LexiconBank object but got: {type_name(lexicons)}."
+
+			optionSilence = ":".join(lexicons("optional_silence", True))
+
+			cmd = f'gmm-boost-silence --boost={boost_silence} {optionSilence} - {hmmTemp.name}'
+			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=hmm.data)
 		
-		return hmm.align(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, 
-						beam, retry_beam, boost_silence, careful, name, lexicons)
+		if (isinstance(cod,int) and cod != 0 ) or os.path.getsize(hmmTemp.name) == 0:
+			print(err.decode())
+			raise KaldiProcessError("Generate new HMM defeated.")
+		hmmTemp.ssek(0)
+
+		if alignGraphFile is None:
+			assert None not in [tree,transcription,Lfile], "When align graph is not provided, all of <tree>, <transcription> and <Lfile> is necessary."
+			assert isinstance(transcription,str) and os.path.isfile(transcription), "Transcription is not a file name or does not exist."
+			assert isinstance(Lfile,str) and os.path.isfile(Lfile), "Lexicon fst is not a file name or does not exist."
+
+			if type_name(tree) == "DecisionTree":
+				treeTemp.write(tree.data)
+				treeTemp.seek(0)
+				treeFile = treeTemp.name
+			else:
+				assert isinstance(tree, str) and os.path.isfile(tree), "Tree is not a file name or does not exist."
+				treeFile = tree
+			
+			lexicons.dump_dict(name="disambig", outFile=disambigTemp, dumpInt=True)				
+			
+			cmd = f'gmm-align --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} '
+			cmd += f'--beam={beam} --retry-beam={retry_beam} --careful={careful} '
+			cmd += f'{treeFile} {hmmTemp.name} {Lfile} ark:- ark:{transcription} ark:-'
+
+		else:
+			assert tree is None and transcription is None and Lfile is None, "When use compiled align graph, any of <tree>, <transcription> and <Lfile> is invalid."
+			assert isinstance(alignGraphFile,str) and os.path.isfile(alignGraphFile), "Align graph is not a file name or does not exist."
+
+			cmd = f"gmm-align-compiled --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
+			cmd += f"--beam={beam} --retry-beam={retry_beam} --careful={careful} "
+			cmd += f"{hmmTemp.name} ark:{alignGraphFile} ark:- ark:-"
+
+		out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=feat.data)
+
+		if (isinstance(cod,int) and cod != 0):
+			print(err.decode())
+			raise KaldiProcessError("Failed to align feature.")
+		
+		return BytesAlignmentTrans(out, name=name)
+	
+	finally:
+		hmmTemp.close()
+		treeTemp.close()
+		disambigTemp.close()
+	
