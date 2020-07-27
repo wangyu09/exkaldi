@@ -36,7 +36,7 @@ class UnsupportedKaldiVersion(Exception): pass
 
 _MAJOR_VERSION = '1'
 _MINOR_VERSION = '3'
-_PATCH_VERSION = '0'
+_PATCH_VERSION = '1'
 
 _EXPECTED_KALDI_VERSION = "5.5"
 
@@ -109,11 +109,11 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 			out, err = p.communicate()
 			if out == b'':
 				print("Warning: Kaldi root directory was not found in system PATH. You can assign it:")
-				print("exkaldi.version.assign_kaldi_root( yourPath )")
+				print("exkaldi.version.reset_kaldi_root( yourPath )")
 				print("If not, ERROR will occur when implementing parts of core functions.")
 			else:
 				self.__KALDI_ROOT = out.decode().strip()[0:-23]
-				self.assign_kaldi_root(self.__KALDI_ROOT) # In order to reset the environment
+				self.reset_kaldi_root(self.__KALDI_ROOT) # In order to reset the environment
 
 		return self.__KALDI_ROOT
 	
@@ -131,7 +131,7 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 		# ENV is a dict object, so deepcopy it.
 		return copy.deepcopy(self.__ENV)
 
-	def assign_kaldi_root(self, path):
+	def reset_kaldi_root(self, path):
 		'''
 		Set the root directory of Kaldi toolkit and add it to system PATH manually.
 		And it will also make a default log folder.

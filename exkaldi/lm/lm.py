@@ -43,7 +43,7 @@ def train_ngrams_srilm(lexicons, order, text, outFile, config=None):
 		<config>: configures, a Python dict object.
 
 	You can use .check_config("train_ngrams_srilm") function to get configure information that you can set.
-	Also you can run shell command "lmplz" to look their meaning.
+	Also you can run shell command "ngram-count" to look their meaning.
 	'''
 	declare.is_positive_int("order", order)
 	declare.smaller("order", order, "max order", 9)
@@ -224,9 +224,14 @@ def arpa_to_binary(arpaFile, outFile):
 		<arpaFile>: ARPA file path.
 		<outFile>: output binary file path.
 	Return:
-		Then absolute path of output file.
+		output file name with suffix ".binary".
 	'''
 	declare.is_file("arpaFile", arpaFile)
+	declare.is_valid_string("outFile", outFile)
+	outFile = outFile.strip()
+	if not outFile.endswith(".binary"):
+		outFile += ".binary"
+
 	declare.is_valid_file_name("outFile", outFile)
 	make_dependent_dirs(outFile)
 
@@ -239,7 +244,7 @@ def arpa_to_binary(arpaFile, outFile):
 		raise KenlmProcessError("Failed to tansform ARPA to binary format.")
 	
 	else:
-		return os.path.abspath(outFile)
+		return outFile
 
 class KenNGrams(BytesArchieve):
 	'''
@@ -255,18 +260,22 @@ class KenNGrams(BytesArchieve):
 		
 		super(KenNGrams, self).__init__(data=b"kenlm", name=name)
 		self.__model = kenlm.Model(filePath)
+		self._path = None
 
 	@property
 	def path(self):
 		'''
 		Gen the model file path.
 		'''
-		return self.__model.path
+		if self._path is None:
+			return self.__model.path
+		else:
+			return self._path
 
 	@property
 	def order(self):
 		'''
-		Gen the maxinum value of order.
+		Get the maxinum value of order.
 		'''
 		return self.__model.order
 
@@ -343,7 +352,7 @@ class KenNGrams(BytesArchieve):
 
 	def perplexity(self, transcription):
 		'''
-		Score transcription.
+		Compute perplexity of transcription.
 
 		Args:
 			<transcription>: file path or exkaldi Transcription object.
@@ -361,3 +370,31 @@ class KenNGrams(BytesArchieve):
 			scores[uttID] = self.perplexity_sentence(txt)
 
 		return Metric(scores, name=f"LMperplexity({transcription.name})")
+
+def load_ngrams(target, name="gram"):
+	'''
+	Load a ngrams from arpa or binary language model file.
+
+	Args:
+		<target>: file path with suffix .arpa or .binary.
+	
+	Return:
+		KenNGrams object
+	'''
+	declare.is_file("target", target)
+	
+	with FileHandleManager() as fhm:
+
+		if target.endswith(".arpa"):
+			modelTemp = fhm.create("wb+", suffix=".binary")
+			arpa_to_binary(target, modelTemp.name)
+			modelTemp.seek(0)
+			model = KenNGrams(modelTemp.name, name=name)
+
+		elif not target.endswith(".binary"):
+			raise UnsupportedType(f"Unknown suffix. Language model file should has a suffix .arpa or .binary but got: {target}.")
+			model = KenNGrams(target, name=name)
+
+		model._path = target
+		return model
+

@@ -173,7 +173,7 @@ def compute_fbank(target, rate=16000, frameWidth=25, frameShift=10,
 		<name>: the name of feature.
 		<outFile>: output file name.
 		
-		Some usual options can be assigned directly. If you want use more, set <config> = your-configure, but if you do this, these usual configures we provided will be ignored.
+		Some usual options can be assigned directly. If you want use more, set <config> = your-configure.
 		You can use .check_config('compute_fbank') function to get configure information that you can set.
 		Also you can run shell command "compute-fbank-feats" to look their meaning.
 
@@ -217,7 +217,7 @@ def compute_plp(target, rate=16000, frameWidth=25, frameShift=10,
 				melBins=23, featDim=13, windowType='povey', useSuffix=None,
 				config=None, name="plp", outFile=None):
 	'''
-	Compute fbank feature.
+	Compute plp feature.
 
 	Share Args:
 		Null
@@ -295,7 +295,7 @@ def compute_spectrogram(target, rate=16000, frameWidth=25, frameShift=10,
 		<name>: the name of feature.
 		<outFile>: output file name.
 
-		Some usual options can be assigned directly. If you want use more, set <config> = your-configure, but if you do this, these usual configures we provided will be ignored.
+		Some usual options can be assigned directly. If you want use more, set <config> = your-configure.
 		You can use .check_config('compute_spectrogram') function to get configure information that you can set.
 		Also you can run shell command "compute-spectrogram-feats" to look their meaning.
 
@@ -554,7 +554,7 @@ def splice_feature(feat, left, right=None, outFile=None):
 	'''
 	feats, lefts, rights, outFiles = check_mutiple_resources(feat, left, right, outFile=outFile)
 	names = []
-	for index, feat, order in zip(range(len(outFiles)),feats, lefts, rights):
+	for index, feat, left, right in zip(range(len(outFiles)),feats, lefts, rights):
 		# check feature
 		declare.is_feature("feat", feat)
 		# check left
@@ -568,7 +568,7 @@ def splice_feature(feat, left, right=None, outFile=None):
 
 	# prepare command pattern and resources
 	cmdPattern = "splice-feats --left-context={left} --right-context={right} {feat} ark:{outFile}"
-	resources = {"feat":feats, "left":lefts, "right":rights}
+	resources = {"feat":feats, "left":lefts, "right":rights, "outFile":outFiles}
 	# run 
 	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
 

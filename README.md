@@ -46,7 +46,7 @@ wavFile = "wav.scp"
 feat = Exkaldi.compute_mfcc(wavFile, rate=16000, name="dummy_mfcc")
 ```
 The returned object: ___feat___ would be an Exkaldi __BytesFeature__ object.
-Implementing parallel processes is easy in Exkaldi because you only need to give the function mutiple resources. For example:
+Implementing parallel processes is easy in Exkaldi because you only need to give the function mutiple resources. Exkaldi will decide a parallel strategy and assign these recources automatically. For example:
 ```
 # Parallel processes
 wavFiles = ["wav_0.scp", "wav_1.scp"]
@@ -105,7 +105,8 @@ The data is from librispeech train_100_clean dataset. This tutorial includes:
 5. Compile WFST decoding graph.  
 6. Decode based on GMM-HMM and DNN-HMM.  
 7. Process lattice and compute score WER.  
-This ASR symtem built here is just a dummy model, and we have done some normal experiments in [Exkaldi/examples](examples). Check the source code to look more information about Exkaldi APIs.
+
+This ASR symtem built here is just a dummy model, and we have done some formal experiments in [Exkaldi/examples](examples). Check the source code to look more information about Exkaldi APIs.
 
 ## Experiments
 

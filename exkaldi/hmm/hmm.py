@@ -29,7 +29,7 @@ from exkaldi.version import WrongPath, KaldiProcessError, UnsupportedType, Wrong
 from exkaldi.core.archieve import BytesArchieve, Transcription, ListTable, BytesAlignmentTrans, BytesFmllrMatrix
 from exkaldi.core.load import load_ali, load_index_table, load_transcription, load_list_table
 from exkaldi.core.feature import transform_feat, use_fmllr
-from exkaldi.core.common import check_mutiple_resources, run_kaldi_commands_parallel
+from exkaldi.core.common import check_mutiple_resources, run_kaldi_commands_parallel, merge_archieves, utt_to_spk
 from exkaldi.utils.utils import run_shell_command, run_shell_command_parallel, check_config, make_dependent_dirs, type_name, list_files
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
@@ -274,25 +274,25 @@ class DecisionTree(BytesArchieve):
 		endtime = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 		print(f"End Time: {endtime}")
 
-	def save(self, outFile="tree"):
+	def save(self, fileName="tree"):
 		'''
 		Save tree to file.
 
 		Args:
-			<outFile>: a string or file handle.
+			<fileName>: a string or file handle.
 		'''
-		declare.is_valid_file_name_or_handle("outFile", outFile)
+		declare.is_valid_file_name_or_handle("fileName", fileName)
 
-		if isinstance(outFile, str):
-			make_dependent_dirs(outFile, pathIsFile=True)
-			with open(outFile,"wb") as fw:
+		if isinstance(fileName, str):
+			make_dependent_dirs(fileName, pathIsFile=True)
+			with open(fileName,"wb") as fw:
 				fw.write(self.data)
-			return outFile
+			return fileName
 		else:
-			outFile.truncate()
-			outFile.write(self.data)
-			outFile.seek(0)
-			return outFile
+			fileName.truncate()
+			fileName.write(self.data)
+			fileName.seek(0)
+			return fileName
 
 	def load(self, target):
 		'''
@@ -735,7 +735,7 @@ class MonophoneHMM(BaseHMM):
 		if type_name(feat) == "NumpyFeature":
 			feat = feat.to_bytes()
 		elif type_name(feat) == "ArkIndexTable":
-			feat = feat.read_record(arkType="feat")
+			feat = feat.fetch(arkType="feat")
 		
 		with FileHandleManager() as fhm:
 
@@ -770,7 +770,7 @@ class MonophoneHMM(BaseHMM):
 				initialBeam=6, beam=10, retryBeam=40,
 				boostSilence=1.0, careful=False, power=0.25, minGaussianOccupancy=10, lexicons=None):
 		'''
-		This is a high-level APi to train the HMM-GMM model.
+		This is a high-level API to train the HMM-GMM model.
 
 		Share Args:
 			<LFile>: L.fst file path.
@@ -795,6 +795,8 @@ class MonophoneHMM(BaseHMM):
 			<feat>: exkaldi feature or index table object.
 			<transcription>: exkaldi transcription object or file name (text format).
 
+		Return:
+			an index table object of final alignment.
 		'''
 		assert not self.is_void, f"Please initialize this model firstly."
 
@@ -817,31 +819,38 @@ class MonophoneHMM(BaseHMM):
 			declare.is_lexicon_bank("lexicons", lexicons)
 
 		print("Convert transcription to int value format.")
-		if not isinstance(transcription, (list,tuple)):
-			transcription = [transcription,]
-		for i, trans in enumerate(transcription):
-			transcription[i] = transcription_to_int(trans, symbolTable=lexicons, unkSymbol=lexicons("oov"))
-			transcription[i].save( os.path.join(tempDir, f"{i}_train_text.int") )
+		if isinstance(transcription, (list,tuple)):
+			for i, trans in enumerate(transcription):
+				transcription[i] = transcription_to_int(trans, symbolTable=lexicons, unkSymbol=lexicons("oov"))
+				transcription[i].save( os.path.join(tempDir, f"{i}_train_text.int") )
+		else:
+			transcription = transcription_to_int(transcription, symbolTable=lexicons, unkSymbol=lexicons("oov"))
+			transcription.save( os.path.join(tempDir, f"train_text.int") )
 
 		print('Compiling training graph.')
-		trainGraphFile = os.path.join(tempDir, "train_graph")
-		trainGraphFile = self.compile_train_graph(tree=self.tree, transcription=transcription, LFile=LFile, outFile=trainGraphFile, lexicons=lexicons)
+		trainGraphFile = self.compile_train_graph(tree=self.tree, transcription=transcription, LFile=LFile,
+													outFile=os.path.join(tempDir,"train_graph"), lexicons=lexicons
+												)
 
 		declare.is_positive_int("maxIterInc", maxIterInc)
 		incgauss = (totgauss - exNumgauss)//maxIterInc
 		search_beam = initialBeam
-
+		
 		for i in range(0, numIters+1, 1):
 			
 			print(f"Iter >> {i}")
 			iterStartTime = time.time()
+			# 1. align
 			if i == 0:
 				print('Aligning data equally')
-				ali = self.align_equally(feat, trainGraphFile)
+				ali = self.align_equally(feat, trainGraphFile, outFile=os.path.join(tempDir,"train.ali"))
 			elif (realignIter is None) or (i in realignIter):
 				print("Aligning data")
 				del ali
-				ali = self.align(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, search_beam, retryBeam, boostSilence, careful, lexicons=lexicons)
+				ali = self.align(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, 
+									search_beam, retryBeam, boostSilence, careful, lexicons=lexicons, 
+									outFile=os.path.join(tempDir,"train.ali"),
+								)
 			else:
 				print("Skip aligning")
 
@@ -851,7 +860,7 @@ class MonophoneHMM(BaseHMM):
 			if isinstance(_statsFiles, list):
 				sum_gmm_stats(_statsFiles, statsFile)
 
-			print("Update GMM parameter")
+			print("Update GMM parameters")
 			gaussianOccupancy = 3 if i == 0 else minGaussianOccupancy
 			self.update(statsFile, exNumgauss, power, gaussianOccupancy)
 
@@ -867,30 +876,26 @@ class MonophoneHMM(BaseHMM):
 
 		print('Align last time with final model.')
 		del ali
-		ali = self.align(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, search_beam, retryBeam, boostSilence, careful)
-		if isinstance(ali, (list,tuple)):
-			aliFiles = []
-			aliIndexs = []
-			for i, a in enumerate(ali):
-				fileName = os.path.join(tempDir,f"{i}_final.ali")
-				aliFiles.append(fileName)
-				indexTable = a.save(fileName, returnIndexTable=True)
-				aliIndexs.append(indexTable)
-		else:
-			aliFiles = os.path.join(tempDir,f"final.ali")
-			aliIndexs = ali.save(aliFiles, returnIndexTable=True)
+		for tempAliFile in list_files(os.path.join(tempDir,f"*train.ali")):
+			os.remove(tempAliFile)
 
+		ali = self.align(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, 
+							search_beam, retryBeam, boostSilence, careful, 
+							outFile=os.path.join(tempDir,"final.ali"),
+						)
+		if isinstance(ali, list):
+			ali = merge_archieves(ali)
 		treeFile = os.path.join(tempDir, "tree")
 		self.tree.save(treeFile)
 
 		print('Done to train the monophone model.')
 		print(f"Saved Final Model: {modeLFile}")
-		print(f"Saved Alignments: {aliFiles}")
+		print(f"Saved Alignments: ", ",".join(list_files(os.path.join(tempDir,"*final.ali"))))
 		print(f"Saved tree: {treeFile}")
 		endtime = datetime.datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
 		print(f"End Time: {endtime}")
 
-		return aliIndexs
+		return ali
 
 class TriphoneHMM(BaseHMM):
 
@@ -1019,21 +1024,14 @@ class TriphoneHMM(BaseHMM):
 			declare.is_file("ldaMatFile", ldaMatFile)
 			print("Do LDA + MLLT training.")
 			assert fmllrTransMat is None, "SAT training is not expected now."
-			trainFeat = transform_feat(feat, ldaMatFile)
+			trainFeat = transform_feat(feat, ldaMatFile, outFile=os.path.join(tempDir,"lda_feat.ark"))
 		elif fmllrTransMat is not None:
 			print("Do SAT. Transform to fMLLR feature. <spk2utt> and <utt2spk> files are expected on this case.")
 			declare.is_potential_list_table("spk2utt", spk2utt)
 			declare.is_potential_list_table("utt2spk", utt2spk)
-			trainFeat = use_fmllr(feat, fmllrTransMat, utt2spk)
+			trainFeat = use_fmllr(feat, fmllrTransMat, utt2spk, outFile=os.path.join(tempDir,"fmllr_feat.ark"))
 		else:
 			trainFeat = feat
-		
-		if initialAli is not None:
-			declare.is_alignment("initialAli", initialAli)
-			if type_name(initialAli) == "NumpyAlignmentTrans":
-				initialAli = initialAli.to_bytes()
-			elif type_name(initialAli) == "ArkIndexTable":
-				initialAli = ali.read_record("ali")
 
 		exNumgauss = self.info.gaussians
 		declare.larger("total number of gaussian", totgauss, "current number", exNumgauss)
@@ -1045,38 +1043,44 @@ class TriphoneHMM(BaseHMM):
 		print(f"Start Time: {starttime}")
 
 		print("Convert transcription to int value format.")
-		if not isinstance(transcription, (list,tuple)):
-			transcription = [transcription,]
-		for i, trans in enumerate(transcription):
-			transcription[i] = transcription_to_int(trans, symbolTable=lexicons, unkSymbol=lexicons("oov"))
-			transcription[i].save( os.path.join(tempDir, f"{i}_train_text.int") )
+		if isinstance(transcription, (list,tuple)):
+			for i, trans in enumerate(transcription):
+				transcription[i] = transcription_to_int(trans, symbolTable=lexicons, unkSymbol=lexicons("oov"))
+				transcription[i].save( os.path.join(tempDir, f"{i}_train_text.int") )
+		else:
+			transcription = transcription_to_int(transcription, symbolTable=lexicons, unkSymbol=lexicons("oov"))
+			transcription.save( os.path.join(tempDir, f"train_text.int") )			
 
 		print('Compiling training graph.')
-		trainGraphFile = os.path.join(tempDir, "train_graph")
-		trainGraphFile = self.compile_train_graph(tree=tree, transcription=transcription, LFile=LFile, outFile=trainGraphFile, lexicons=lexicons)
+		trainGraphFile = self.compile_train_graph(tree=tree, transcription=transcription, LFile=LFile, 
+													outFile=os.path.join(tempDir,"train_graph"), lexicons=lexicons,
+												)
 
 		declare.is_positive_int("maxIterInc", maxIterInc)
 		incgauss = (totgauss - exNumgauss)//maxIterInc
 
-		statsFile = os.path.join(tempDir, "gmmStats.acc")
+		statsFile = os.path.join(tempDir,"gmmStats.acc")
 		for i in range(1, numIters+1, 1):
 			
 			print(f"Iter >> {i}")
 			iterStartTime = time.time()
+			# Align
 			if  i == 1:
 				if initialAli is None:
 					print("Aligning data")
 					ali = self.align(trainFeat, trainGraphFile, transitionScale, acousticScale, selfloopScale, 
 										beam, retryBeam, boostSilence, careful, lexicons=lexicons,
+										outFile=os.path.join(tempDir,"train.ali"),
 									)
 				else:
+					print("Use the provided initial alignment")
 					ali = initialAli
-					print("Use the provided alignment")
 			elif (realignIter is None) or (i in realignIter):
 				print("Aligning data")
 				del ali
 				ali = self.align(trainFeat, trainGraphFile, transitionScale, acousticScale, selfloopScale, 
 									beam, retryBeam, boostSilence, careful, lexicons=lexicons,
+									outFile=os.path.join(tempDir,"train.ali"),
 								)
 			else:
 				print("Skip aligning")
@@ -1084,34 +1088,48 @@ class TriphoneHMM(BaseHMM):
 			if ldaMatFile is not None:
 				if mlltIter is None or (i in mlltIter):
 					print("Accumulate MLLT statistics")
-					accFile = os.path.join(tempDir, "mllt.acc")
-					accFile = accumulate_MLLT_stats(ali, lexicons, self, trainFeat, outFile=accFile)
+					accFile = accumulate_MLLT_stats(ali, lexicons, self, trainFeat, outFile=os.path.join(tempDir,"mllt.acc"))
 					print("Estimate MLLT matrix")
-					matFile = os.path.join(tempDir, "mllt.mat")
-					estimate_MLLT_matrix(accFile, outFile=matFile)
+					matFile = estimate_MLLT_matrix(accFile, outFile=os.path.join(tempDir,"mllt.mat"))
 					print("Transform GMM means")
 					self.transform_gmm_means(matFile)
 					print("Compose new LDA-MLLT transform matrix")
-					newTransMat = os.path.join(tempDir, "trans.mat")
-					compose_transform_matrixs(ldaMatFile, matFile, outFile=newTransMat)
+					newTransMat = compose_transform_matrixs(ldaMatFile, matFile, outFile=os.path.join(tempDir,"trans.mat"))
 					print("Transform feature")
-					trainFeat = transform_feat(feat, newTransMat)
+					trainFeat = transform_feat(feat,newTransMat,outFile=os.path.join(tempDir,"lda_feat.ark"))
 					ldaMatFile = newTransMat
 				else:
 					print("Skip tansform feature")
 			elif fmllrTransMat is not None:
 				if fmllrIter is None or (i in fmllrIter):
 					print("Estimate fMLLR matrix")
+					# If used parallel process, merge ali and feature
+					if isinstance(ali,list):
+						tempAli = merge_archieves(ali)
+						tempFeat = merge_archieves(trainFeat)
+						parallel = len(ali)
+					else:
+						tempAli = ali
+						tempFeat = trainFeat
+						parallel = 1
 					fmllrTransMat = estimate_fMLLR_matrix(
-														aliOrLat = ali, 
+														aliOrLat = tempAli, 
 														lexicons = lexicons, 
 														aliHmm = self, 
-														feat = trainFeat, 
+														feat = tempFeat, 
 														spk2utt = spk2utt,
 														silenceWeight = fmllrSilWt,
+														outFile=os.path.join(tempDir,"trans.ark"),
 													)
+					# Then splice it.
+					if parallel > 1:
+						tempfmllrTrans = []
+						for i in feat:
+							spks = utt_to_spk(i.utts, utt2spk=utt2spk)
+							tempfmllrTrans.append( fmllrTransMat.subset(uttIDs=spks) )
+						fmllrTransMat = tempfmllrTrans
 					print("Transform feature")
-					trainFeat = use_fmllr(feat, fmllrTransMat, utt2spk)
+					trainFeat = use_fmllr(feat, fmllrTransMat, utt2spk, outFile=os.path.join(tempDir,"fmllr_feat.ark"))
 				else:
 					print("Skip tansform feature")
 
@@ -1132,36 +1150,31 @@ class TriphoneHMM(BaseHMM):
 		self.save(modeLFile)
 
 		print('Align last time with final model')
-		ali = self.align(trainFeat, trainGraphFile, transitionScale, acousticScale, selfloopScale, beam, retryBeam, boostSilence, careful)
-		if isinstance(ali, (list,tuple)):
-			aliFiles = []
-			aliIndexs = []
-			for i, a in enumerate(ali):
-				fileName = os.path.join(tempDir,f"{i}_final.ali")
-				aliFiles.append(fileName)
-				indexTable = a.save(fileName, returnIndexTable=True)
-				aliIndexs.append(indexTable)
-		else:
-			aliFiles = os.path.join(tempDir,f"final.ali")
-			aliIndexs = ali.save(aliFiles, returnIndexTable=True)
 		del ali
+		for tempAliFile in list_files(os.path.join(tempDir,f"*train.ali")):
+			os.remove(tempAliFile)
+
+		ali = self.align(trainFeat, trainGraphFile, transitionScale, acousticScale, 
+							selfloopScale, beam, retryBeam, boostSilence, careful,
+							outFile=os.path.join(tempDir,f"final.ali"),
+						)
+		if isinstance(ali, list):
+			ali = merge_archieves(ali)
 
 		del self.__tree
 		self.__tree = tree
 
 		print('Done to train the triphone model')
 		print(f"Saved Final Model: {modeLFile}")
-		print(f"Saved Alignment: {aliFiles}")
+		print(f"Saved Alignment: ", ",".join(list_files(os.path.join(tempDir,f"*final.ali"))) )
 		if ldaMatFile is not None:
 			print(f"Saved Feature Transform Matrix: {newTransMat}")
 		elif fmllrTransMat is not None:
-			fmllrTransFile = os.path.join(tempDir, "trans.ark")
-			fmllrTransMat.save( fmllrTransFile )
-			print(f"Saved Feature Transform Matrix: {fmllrTransFile}")
+			print(f"Saved Feature Transform Matrix: ", ",".join(list_files(os.path.join(tempDir,f"*trans.ark"))) )
 		endtime = datetime.datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
 		print(f"End Time: {endtime}")
 
-		return aliIndexs
+		return ali
 
 def load_tree(target, name="tree", lexicons=None):
 	'''
@@ -1241,9 +1254,9 @@ def __sum_statistics_files(tool, statsFiles, outFile):
 
 	cmd = f'{tool} {outFile} {statsFiles}'
 
-	out, err, _ = run_shell_command(cmd, stderr=subprocess.PIPE)
+	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
 
-	if (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
+	if cod != 0:
 		print(err.decode())
 		raise KaldiProcessError(f"Failed to sum GMM statistics.")
 	else:
@@ -1259,7 +1272,7 @@ def sum_gmm_stats(statsFiles, outFile):
 	Return:
 	 	absolute path of accumulated file.
 	'''
-	tool = "sum-gmm-stats"
+	tool = "gmm-sum-accs"
 	return __sum_statistics_files(tool, statsFiles, outFile)
 
 def sum_tree_stats(statsFiles, outFile):
@@ -1445,7 +1458,7 @@ def __accumulate_LDA_MLLT_statistics(baseCmd, alignment, lexicons, hmm, feat, ou
 	'''
 	declare.is_potential_hmm("hmm", hmm)
 	declare.is_lexicon_bank("lexicons", lexicons)
-	declare.is_positive("silenceWeight", silenceWeight)
+	declare.is_non_negative("silenceWeight", silenceWeight)
 	declare.is_non_negative_int("randPrune", randPrune)
 
 	with FileHandleManager() as fhm:
@@ -1496,7 +1509,7 @@ def accumulate_LDA_stats(alignment, lexicons, hmm, feat, outFile, silenceWeight=
 	'''
 	Kalditool = 'acc-lda'
 
-	return __accumulate_LDA_MLLT_statistics(Kalditool, alignment, lexicons, hmm, feat, silenceWeight, randPrune, outFile)
+	return __accumulate_LDA_MLLT_statistics(Kalditool, alignment, lexicons, hmm, feat, outFile, silenceWeight, randPrune)
 
 def accumulate_MLLT_stats(alignment, lexicons, hmm, feat, outFile, silenceWeight=0.0, randPrune=4):
 	'''
@@ -1515,7 +1528,7 @@ def accumulate_MLLT_stats(alignment, lexicons, hmm, feat, outFile, silenceWeight
 	'''
 	Kalditool = 'gmm-acc-mllt'
 
-	return __accumulate_LDA_MLLT_statistics(Kalditool, alignment, lexicons, hmm, feat, silenceWeight, randPrune, outFile)
+	return __accumulate_LDA_MLLT_statistics(Kalditool, alignment, lexicons, hmm, feat, outFile, silenceWeight, randPrune)
 
 def estimate_LDA_matrix(statsFiles, targetDim, outFile):
 	'''
@@ -1547,7 +1560,7 @@ def estimate_LDA_matrix(statsFiles, targetDim, outFile):
 
 def estimate_MLLT_matrix(statsFiles, outFile):
 	'''
-	Estimate the LDA transform matrix from LDA statistics.
+	Estimate the MLLT transform matrix from MLLT statistics.
 	
 	Share Args:
 		<statsFiles>: str or list ot tuple of file paths.
@@ -1612,7 +1625,9 @@ def compose_transform_matrixs(matA, matB, bIsAffine=False, utt2spk=None, outFile
 	else:
 		declare.is_fmllr_matrix("matB", matB)
 		name = [matB.name,]
+
 	resources["matB"] = [matB,]
+	cmdPattern += "{matB} "
 
 	if isinstance(matA, str):
 		try:
@@ -1624,14 +1639,21 @@ def compose_transform_matrixs(matA, matB, bIsAffine=False, utt2spk=None, outFile
 	else:
 		declare.is_fmllr_matrix("matA", matA)		
 		name.append(matA.name)
+
 	resources["matA"] = [matA,]
+	cmdPattern += "{matA} "
 
 	if outFile is None:
 		assert bothAreFiles is False, "When compose two matrix files, <outFile> is necessary."
 		resources["outFile"] = ["-",]
+		cmdPattern += "ark:{outFile} "
 	else:
 		declare.is_valid_file_name("outFile", outFile)
 		resources["outFile"] = [outFile,]
+		if bothAreFiles is True:
+			cmdPattern += "{outFile} "
+		else:
+			cmdPattern += "ark:{outFile} "
 	# run
 	results = run_kaldi_commands_parallel(resources, cmdPattern)
 	if bothAreFiles:
@@ -1639,13 +1661,13 @@ def compose_transform_matrixs(matA, matB, bIsAffine=False, utt2spk=None, outFile
 	else:
 		name = "compose({})".format(",".join(name))
 		if outFile is None:
-			return BytesFmllrMatrix(results[0][2], name=name)
+			return BytesFmllrMatrix(results[2], name=name)
 		else:
 			return load_index_table(outFile, name=name)
 
 def load_mat(matrixFile):
 	'''
-	Read a matrix from file:
+	Read a matrix from file.
 
 	Args:
 		<matrixFile>: matrix file path.
@@ -1702,12 +1724,12 @@ def estimate_fMLLR_matrix(aliOrLat, lexicons, aliHmm, feat, spk2utt, adaHmm=None
 		if isinstance(aliHmm, BaseHMM):
 			aliHmmTemp = fhm.create("wb+",suffix=".mdl")
 			aliHmm.save(aliHmmTemp)
-			aliHmm = aliHmmTemp
+			aliHmm = aliHmmTemp.name
 
 		if adaHmm is not None and isinstance(adaHmm, BaseHMM):
 			adaHmmTemp = fhm.create("wb+",suffix=".mdl")
 			adaHmm.save(adaHmmTemp)
-			adaHmm = adaHmmTemp
+			adaHmm = adaHmmTemp.name
 			adaptNewModel = True
 		else:
 			adaHmm = aliHmm

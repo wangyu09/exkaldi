@@ -1,10 +1,5 @@
 from __future__ import absolute_import
 
-from exkaldi.core import archieve
-from exkaldi.core import feature
-from exkaldi.core import load
-from exkaldi.core import common
-
 from exkaldi.core.archieve import ListTable
 from exkaldi.core.archieve import ArkIndexTable
 from exkaldi.core.archieve import Transcription
@@ -49,6 +44,9 @@ from exkaldi.core.feature import splice_feature
 from exkaldi.core.common import compute_postprob_norm
 from exkaldi.core.common import tuple_data
 from exkaldi.core.common import match_utterances
-from exkaldi.core.common import check_mutiple_resources
-from exkaldi.core.common import run_kaldi_commands_parallel 
+from exkaldi.core.common import merge_archieves
+from exkaldi.core.common import utt_to_spk
+from exkaldi.core.common import spk_to_utt
+from exkaldi.core.common import spk2utt_to_utt2spk
+from exkaldi.core.common import utt2spk_to_spk2utt
 

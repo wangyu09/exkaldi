@@ -78,16 +78,19 @@ class ListTable(dict):
 		declare.is_valid_string("name",name)
 		self.__name = name
 
-	def reset_data(self, data):
+	def reset_data(self, data=None):
 		'''
 		Reset the data.
 
 		Args:
 			<data>: a iterable object that can be converted to dict object.
 		'''
-		newData = dict(data)
-		self.clear()
-		self.update(newData)
+		if data is None:
+			self.clear()
+		else:
+			newData = dict(data)
+			self.clear()
+			self.update(newData)
 
 	def sort(self, reverse=False):
 		'''
@@ -327,6 +330,10 @@ class ArkIndexTable(ListTable):
 		spec = namedtuple("Index",["frames", "startIndex", "dataSize", "filePath"])
 		spec.__new__.__defaults__ = (None,)
 		return spec
+
+	@property
+	def utts(self):
+		return list(self.keys())
 
 	def sort(self, by="utt", reverse=False):
 		'''
@@ -646,6 +653,27 @@ class Transcription(ListTable):
 		
 		return super().save(fileName, chunks, lambda x:concat(x, discardUttID) )
 
+	def count_word(self):
+		'''
+		Count the number of word.
+
+		Return:
+			Metric object.
+		'''
+		result = Metric(name=f"count_word({self.name})")
+		for uttID, txt in self.items():
+			declare.is_valid_string("transcription", txt)
+			txt = txt.strip().split()
+			for w in txt:
+				try:
+					_ = result[w]
+				except KeyError:
+					result[w] = 1
+				else:
+					result[w] += 1
+
+		return result
+
 ## Subclass: for variable scores
 class Metric(ListTable):
 	'''
@@ -820,19 +848,6 @@ class Metric(ListTable):
 		new = dict(map( lambda x:(x[0],func(x[1])), self.data.items()))
 
 		return Metric(new, name=f"mapped({self.name})")
-
-	def save(self, fileName=None, chunks=1):
-		'''
-		Save as text file.
-
-		Args:
-			<fileName>: None, file name or file handle.
-			<discardUttID>: If True, discard the ifno of utterance IDs.
-		
-		Return:
-			file path or the contents of ListTable.
-		'''
-		return super().save(fileName, chunks, None)
 
 '''BytesArchieve class group'''
 '''Designed for Kaldi binary archieve table. It also support other objects such as lattice, HMM-GMM and decision tree'''
@@ -1200,6 +1215,7 @@ class BytesMatrix(BytesArchieve):
 
 			def save_chunk_data(chunkData, arkFileName, returnIndexTable):
 
+				make_dependent_dirs(arkFileName, pathIsFile=True)
 				with open(arkFileName, "wb") as fw:
 					fw.write(chunkData.data)
 				
@@ -2153,7 +2169,7 @@ class BytesVector(BytesArchieve):
 	'''
 	A base class to hold kaldi vector data such as alignment.  
 	'''
-	def __init__(self, data=b'', name="data", indexTable=None):
+	def __init__(self, data=b'', name="vec", indexTable=None):
 		'''
 		Args:
 			<data>: If it's BytesMatrix or ArkIndexTable object (or their subclasses), extra <indexTable> will not work.
@@ -2352,6 +2368,7 @@ class BytesVector(BytesArchieve):
 
 			def save_chunk_data(chunkData, arkFileName, returnIndexTable):
 
+				make_dependent_dirs(arkFileName, pathIsFile=True)
 				with open(arkFileName, "wb") as fw:
 					fw.write(chunkData.data)
 				
@@ -2856,7 +2873,7 @@ class NumpyMatrix(NumpyArchieve):
 	'''
 	A base class for matrix data, such as feature, cmvn statistics, post probability.
 	'''
-	def __init__(self, data={}, name=None):
+	def __init__(self, data={}, name="mat"):
 		'''
 		Args:
 			<data>: BytesMatrix or ArkIndexTable object or NumpyMatrix or dict object (or their subclasses)
@@ -3025,6 +3042,7 @@ class NumpyMatrix(NumpyArchieve):
 		if not fileName.endswith('.npy'):
 			fileName += '.npy'
 
+		make_dependent_dirs(fileName, pathIsFile=True)
 		if chunks == 1:    
 			allData = tuple(self.data.items())
 			np.save(fileName, allData)

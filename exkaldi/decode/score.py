@@ -122,7 +122,7 @@ def edit_distance(ref, hyp, ignore=None, mode='present'):
 	Compute edit-distance score.
 
 	Args:
-		<ref>, <hyp>: Transcription objects or iterable objects like list, tuple or NumPy array. It will be flattened before scoring.
+		<ref>, <hyp>: exkaldi Transcription objects.
 		<ignore>: Ignoring specific symbols.
 		<mode>: When both are Transcription objects, if mode is 'present', skip the missed utterances.
 	Return:

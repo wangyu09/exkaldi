@@ -633,7 +633,7 @@ def load_transcription(target, name="transcription"):
 		declare.is_file("target", target)
 		with open(target, "r", encoding="utf-8") as fr:
 			lines = fr.readlines()
-		result = Transcription()
+		result = Transcription(name=name)
 		for index, line in enumerate(lines, start=1):
 			t = line.strip().split(maxsplit=1)
 			if len(t) < 2:
@@ -646,7 +646,7 @@ def load_transcription(target, name="transcription"):
 		for utt, utterance in target.items():
 			declare.is_valid_string("utterance ID", utt)
 			declare.is_valid_string("utterance", utterance)
-		result = Transcription(target, name)
+		result = Transcription(target,name=name)
 
 	sampleText = result.subset(nRandom=100)
 	spaceCount = 0

@@ -600,39 +600,6 @@ def pad_sequence(data, shuffle=False, pad=0):
 
 	return newData, lengths
 
-def unpack_padded_sequence(data, lengths, batchSizeDim=1):
-
-	'''
-	Usage:  listData = unpack_padded_sequence(data,lengths)
-
-	This is a reverse operation of .pad_sequence() function. Return a list whose members are sequences.
-	We defaultly think the dimension 0 of <data> is sequence-length and the dimension 1 is batch-size.
-	If the dimension of batch-size is not 1, assign the <batchSizeDim> please.
-	'''
-	declare.is_classes("data", data, np.ndarray)
-	declare.is_classes("lengths", lengths, (list,tuple))
-	declare.is_non_negative_int("batchSizeDim", batchSizeDim)
-	declare.smaller("batchSizeDim", batchSizeDim, "the dimensions of data", len(data.shape))
-	
-	if batchSizeDim != 0:
-		dims = [ d for d in range(len(data.shape))]
-		dims.remove(batchSizeDim)
-		newDim = [batchSizeDim,*dims]
-		data = data.transpose(newDim)
-
-	assert len(data) <= len(lengths), "<lengths> is shorter than batch size."
-
-	new = []
-	for i,j in enumerate(data):
-		if isinstance(lengths[i],int):
-			new.append(j[0:lengths[i]])
-		elif isinstance(lengths[i],(list,tuple)) and len(lengths[i]) == 2:
-			new.append(j[lengths[i][0]:lengths[i][1]])
-		else:
-			raise WrongOperation("<lengths> has wrong format.")
-	
-	return new
-
 def softmax(data, axis=1):
 	'''
 	The softmax function.

@@ -57,6 +57,15 @@ def is_file(objName, obj):
     assert not os.path.isdir(obj), f"<{objName}> should be a file name but directory: {obj}."
     assert os.path.isfile(obj), f"No such file: {obj}."
 
+def is_dir(objName, obj):
+    '''
+    Verify whether or not this is a existed folder.
+    '''
+    assert isinstance(obj, str), f"<{objName}> should be a drectory name but got: {__type_name(obj)}."
+    assert len(obj) > 0, f"<{objName}> got a void string."
+    assert not os.path.isfile(obj), f"<{objName}> should be a drectory name but file: {obj}."
+    assert os.path.isdir(obj), f"No such directory: {obj}."
+
 def members_are_files(objName, obj):
     '''
     Verify whether or not these are existed files.

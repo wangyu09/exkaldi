@@ -128,22 +128,23 @@ def tuple_data(archieves, frameLevel=False):
 	
 	return result
 
-def compute_postprob_norm(ali, posrProbDim):
+## Bug 20200726
+def compute_postprob_norm(ali, postProbDim):
 	'''
 	Compute alignment counts in order to normalize acoustic model posterior probability.
 	For more help information, look at the Kaldi <analyze-counts> command.
 
 	Args:
 		<ali>: exkaldi NumpyAlignmentPhone or NumpyAlignmentPdf object.
-		<posrProbDim>: the dimensionality of posterior probability.
+		<postProbDim>: the dimensionality of posterior probability.
 	Return:
 		A numpy array of the normalization.
 	''' 
 	declare.kaldi_existed()
 	declare.is_classes("ali", ali, ["NumpyAlignmentPhone", "NumpyAlignmentPdf"])
-	declare.is_positive_int("posrProbDim", posrProbDim)
+	declare.is_positive_int("postProbDim", postProbDim)
 
-	cmd = f"analyze-counts --print-args=False --verbose=0 --binary=false --counts-dim={posrProbDim} ark:- -"
+	cmd = f"analyze-counts --binary=false --counts-dim={postProbDim} ark:- -"
 	out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=ali.data)
 	if (isinstance(cod,int) and cod != 0) or out == b"":
 		print(err.decode())
@@ -156,7 +157,7 @@ def compute_postprob_norm(ali, posrProbDim):
 
 def match_utterances(archieves):
 	'''
-	Pick up utterances whose ID has existed in all provided archieves:
+	Pick up utterances whose ID has existed in all provided archieves.
 
 	Args:
 		<archieves>, a list of exkaldi archieve objects.
@@ -291,7 +292,7 @@ def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeo
 		name = cmdPattern[nameIndexs[i]+1:nameIndexs[i+1]]
 		if name not in resources:
 			raise WrongDataFormat(f"Resource is necessary but has not been provided: {name}.")
-		prefix = "" if i == 0 else cmdPattern[nameIndexs[i]-1]
+		prefix = "" if nameIndexs[i] == 0 else cmdPattern[nameIndexs[i]-1]
 		if name in auxiliaryInfo.keys():
 			auxiliaryInfo[name][0] += 1
 			if not prefix in auxiliaryInfo[name][1]:
@@ -355,8 +356,10 @@ def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeo
 
 				# If target is an index-table, we automatically recognize it as scp-file, so you do not need appoint it.
 				elif type_name(target) == "ArkIndexTable":
+	
 					if prefix != " ":
 						raise WrongDataFormat(f"Do not need prefix such as 'ark:' or 'scp:' in command pattern before resource: {key}.")
+						
 					target = target.sort()
 					if (inputsBuffer is True) and count == 1:
 						inputsBuffer = target.save()
@@ -593,3 +596,94 @@ def spk2utt_to_utt2spk(spk2utt, outFile=None):
 	else:
 		utt2spk.save(outFile)
 		return outFile
+
+def merge_archieves(archieves):
+	'''
+	Merge mutiple archieves to one.
+	Lattice objects also support this operation.
+
+	Args:
+		<archieves>: a list or tuple of mutiple exkaldi archieve objects which are the same class.
+	
+	Return:
+		a new archieve object.
+	'''
+	declare.is_classes("archieves", archieves, (list,tuple))
+	declare.not_void("archieves", archieves)
+	
+	if type_name(archieves[0]) != "Lattice":
+		declare.belong_classes("archieves",archieves[0],[BytesMatrix,BytesVector,ListTable,NumpyMatrix,NumpyVector])
+	result = archieves[0]
+	typeName = type_name(archieves[0])
+	names = [archieves[0].name]
+
+	for ar in archieves[1:]:
+		assert type_name(ar) == typeName, f"All archieves needed to be merged must be the same class but got: {typeName}!={type_name(ar)}."
+		result += ar
+		names.append(ar.name)
+	
+	names = ",".join(names)
+	result.rename(f"merge({names})")
+	return result
+
+def spk_to_utt(spks, spk2utt):
+	'''
+	Accept a list of speakers and return their corresponding utt IDs.
+
+	Args:
+		<spks>: a list or tuple of speaker IDs.
+		<spk2utt>: spk2utt file or ListTable object.
+	
+	Return:
+		a list of utterance IDs.
+	'''
+	declare.is_classes("speaker IDs", spks, (tuple,list))
+	declare.members_are_valid_strings("speaker IDs", spks)
+	declare.is_potential_list_table("spk2utt", spk2utt)
+
+	if isinstance(spk2utt,str):
+		spk2utt = load_list_table(spk2utt)
+	
+	utts = []
+	for spk in spks:
+		try:
+			utt = spk2utt[spk]
+		except KeyError:
+			raise WrongOperation(f"Miss speaker ID {spk} in spk2utt map.")
+		else:
+			declare.is_valid_string("The value of spk2utt",utt)
+			utts.extend(utt.strip().split())
+	
+	return utts
+
+def utt_to_spk(utts, utt2spk):
+	'''
+	Accept a list of utterance IDs and return their corresponding speaker IDs.
+
+	Args:
+		<utts>: a list or tuple of utterance IDs.
+		<utt2spk>: utt2spk file or ListTable object.
+	
+	Return:
+		a list of speaker IDs.
+	'''
+	declare.is_classes("utterance IDs", utts, (tuple,list))
+	declare.members_are_valid_strings("utterance IDs", utts)
+	declare.is_potential_list_table("utt2spk", utt2spk)
+
+	if isinstance(utt2spk,str):
+		utt2spk = load_list_table(utt2spk)
+	
+	spks = []
+	for utt in utts:
+		try:
+			spk = utt2spk[utt]
+		except KeyError:
+			raise WrongOperation(f"Miss utterance ID {utt} in utt2spk map.")
+		else:
+			declare.is_valid_string("The value of utt2spk",utt)
+			spktemp = spk.strip().split(maxsplit=1)
+			assert len(spktemp) == 1, f"speaker ID in utt2spk has unexpected space: {spk}."
+			spks.append(spktemp[0])
+	
+	return list(set(spks))

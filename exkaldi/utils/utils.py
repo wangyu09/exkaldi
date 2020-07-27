@@ -93,33 +93,20 @@ def run_shell_command_parallel(cmds, env=None, timeout=ExkaldiInfo.timeout):
 		processManager[index] = subprocess.Popen(cmd, shell=True, stderr=subprocess.PIPE, env=env)
 
 	runningProcess = len(processManager)
-	errcod = {}
-	timestep = 0.01
-	timeCounter = 0
-	while True:
-		if timeCounter > timeout:
-			break
-		for index, p in processManager.items():
-			if p is None:
-				continue
-			elif p.poll() is not None:
-				runningProcess -= 1
-				errcod[index] = (p.returncode, p.stderr.read())
-				processManager[index] = None
-		if runningProcess <= 0:
-			break
+	if runningProcess == 0:
+		raise WrongOperation("<cmds> has not any command to run.")
+	dtimeout = timeout//runningProcess
+	assert dtimeout >= 1, f"<timeout> is extremely short: {timeout}."
+	for ID, p in processManager.items():
+		try:
+			out, err = p.communicate(timeout=dtimeout)
+		except subprocess.TimeoutExpired:
+			p.kill()
+			processManager[ID] = (-9, b"Time Out Error: Process was killed!")
 		else:
-			timeCounter += timestep
-			time.sleep(timestep)
+			processManager[ID] = (p.returncode, err)
 
-	if runningProcess > 0:
-		for index, p in processManager.items():
-			if p.poll() is None:
-				p.kill()
-				p.wait()
-				errcod[index] = (-9, b"Time Out Error: Process was killed!")
-
-	return list(errcod.values())
+	return list(processManager.values())
 
 def make_dependent_dirs(path, pathIsFile=True):
 	'''
@@ -322,14 +309,15 @@ def decompress_gz_file(filePath, overWrite=False):
 
 def flatten(item):
 	'''
-	Flatten a iterable object.
+	Flatten an iterable object.
 
 	Args:
 		<item>: iterable objects, string, list, tuple or NumPy array.
 	Return:
 		a list of flattened items.
 	'''
-	declare.belong_classes("item", item, Iterable)
+	if not isinstance(item,Iterable):
+		return [item,]
 
 	new = []
 	for i in item:

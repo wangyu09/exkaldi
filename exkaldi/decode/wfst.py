@@ -16,7 +16,6 @@
 # limitations under the License.
 
 """Exkaldi Decoding associates """
-import tempfile
 import copy
 import os
 import subprocess
@@ -35,13 +34,7 @@ from exkaldi.hmm.hmm import load_hmm
 from exkaldi.core.load import load_transcription
 
 class Lattice(BytesArchieve):
-	'''
-	Usage:  obj = KaldiLattice() or obj = KaldiLattice(lattice,hmm,wordSymbol)
 
-	KaldiLattice holds the lattice and its related file path: HMM file and WordSymbol file. 
-	The <lattice> can be lattice binary data or file path. Both <hmm> and <wordSymbol> are expected to be file path.
-	decode_lattice() function will return a KaldiLattice object. Aslo, you can define a empty KaldiLattice object and load its data later.
-	'''
 	def __init__(self, data=None, symbolTable=None, hmm=None, name="lat"):
 		super().__init__(data, name)
 		if symbolTable is not None:
@@ -60,7 +53,7 @@ class Lattice(BytesArchieve):
 	def hmm(self):
 		return self.__hmm
 
-	def save(self, fileName):
+	def save(self,fileName):
 		'''
 		Save lattice as .ali file. 
 		
@@ -68,24 +61,22 @@ class Lattice(BytesArchieve):
 			<fileName>: file name.
 		''' 
 		declare.not_void("lattice", self)
+		declare.is_valid_file_name_or_handle("fileName", fileName)
 
-		if isinstance(fileName, tempfile._TemporaryFileWrapper):
-			fileName.truncate()
-			fileName.write(self.data)
-			fileName.seek(0)
-			return None
-		else:
-			declare.is_valid_string("fileName", fileName)
-
+		if isinstance(fileName,str):
 			make_dependent_dirs(fileName)
 			with open(fileName, "wb") as fw:
 				fw.write(self.data)
-
+			return fileName
+		else:
+			fileName.truncate()
+			fileName.write(self.data)
+			fileName.seek(0)
 			return fileName
 
 	def get_1best(self, symbolTable=None, hmm=None, lmwt=1, acwt=1.0, phoneLevel=False, outFile=None):
 		'''
-		Get 1 best result with text formation.
+		Get 1 best result with text format.
 
 		Share Args:
 			<symbolTable>: None or file path or ListTable object or LexiconBank object.
@@ -250,7 +241,7 @@ class Lattice(BytesArchieve):
 
 	def get_nbest(self, n, symbolTable=None, hmm=None, acwt=1, phoneLevel=False, requireAli=False, requireCost=False):
 		'''
-		Get N best result with text formation.
+		Get N best result with text format.
 
 		Share Args:
 			<n>: n best results.
@@ -429,18 +420,15 @@ class Lattice(BytesArchieve):
 			return Lattice(data=out, symbolTable=self.symbolTable, hmm=self.hmm, name=newName)		
 
 	def am_rescore(self, hmm, feat):
-		"""
-		Replace the acoustic scores with new HMM-GMM model.
-		"""
 		'''
-		Determinize the lattice.
+		Replace the acoustic scores with new HMM-GMM model.
 
 		Args:
 			<hmm>: exkaldi HMM object or file path.
 			<feat>: exkaldi feature object or index table object.
 
 		Return:
-			An new Lattice object.
+			a new Lattice object.
 		'''
 		declare.kaldi_existed()
 		declare.not_void("lattice", self)
@@ -480,22 +468,31 @@ class Lattice(BytesArchieve):
 				newName = f"am_rescore({self.name})"
 				return Lattice(data=out, symbolTable=self.symbolTable, hmm=self.hmm, name=newName)
 
+	def __add__(self, other):
+		'''
+		Sum two lattices to one.
+		'''
+		declare.is_classes("other", other, Lattice)
+		name = f"plus({self.name},{other.name})"
+		return Lattice( b"".join([self.data,other.data]), hmm=self.hmm, symbolTable=self.symbolTable, name=name)
+
 def load_lat(target, name="lat"):
 	'''
 	Load lattice data.
 
 	Args:
 		<target>: bytes object, file path or exkaldi lattice object.
-		<hmm>: file path or exkaldi HMM object.
-		<wordSymbol>: file path or exkaldi LexiconBank object.
 		<name>: a string.
 	Return:
-		A exkaldi lattice object.
+		An exkaldi lattice object.
 	'''
 	declare.is_valid_string("name", name)
 
 	if isinstance(target, bytes):
 		return Lattice(target, name=name)
+	
+	elif isinstance(target, Lattice):
+		return Lattice(target.data, name=name)
 
 	elif isinstance(target, str):
 		target = list_files(target)
@@ -659,7 +656,7 @@ def gmm_decode(feat, hmm, HCLGFile, symbolTable, beam=10, latBeam=8, acwt=1,
 		<outFile>.
 
 		Some usual options can be assigned directly. If you want use more, set <config> = your-configure.
-		You can use .check_config('nn_decode') function to get configure information you could set.
+		You can use .check_config('gmm_decode') function to get configure information you could set.
 		Also run shell command "latgen-faster-mapped" to look their meaning.
 	
 	Return:
@@ -780,7 +777,7 @@ def compile_align_graph(hmm, tree, transcription, LFile, outFile, lexicons=None)
 	return hmm.compile_train_graph(tree, transcription, LFile, outFile)
 
 def nn_align(hmm, prob, alignGraphFile=None, tree=None, transcription=None, Lfile=None, transitionScale=1.0, acousticScale=0.1, 
-				selfloopScale=0.1, beam=10, retry_beam=40, lexicons=None, name="ali", outFile=None):
+				selfloopScale=0.1, beam=10, retryBeam=40, lexicons=None, name="ali", outFile=None):
 	'''
 	Align the neural network acoustic output probability.
 
@@ -798,7 +795,7 @@ def nn_align(hmm, prob, alignGraphFile=None, tree=None, transcription=None, Lfil
 		<acousticScale>.
 		<selfloopScale>.
 		<beam>.
-		<retry_beam>.
+		<retryBeam>.
 		<name>: string.
 		<outFile>: file name.
 
@@ -845,14 +842,14 @@ def nn_align(hmm, prob, alignGraphFile=None, tree=None, transcription=None, Lfil
 			disambigTemp = fhm.create("w+", suffix="_disambig.int", encoding="utf-8")
 			lexicons.dump_dict(name="disambig", outFile=disambigTemp, dumpInt=True)
 
-			parameters = check_mutiple_resources(prob, transcription, transitionScale, acousticScale, selfloopScale, beam, retry_beam, outFile=outFile)
+			parameters = check_mutiple_resources(prob, transcription, transitionScale, acousticScale, selfloopScale, beam, retryBeam, outFile=outFile)
 			baseCmds = []
-			for prob, transcription, transitionScale, acousticScale, selfloopScale, beam, retry_beam, _ in zip(*parameters):
+			for prob, transcription, transitionScale, acousticScale, selfloopScale, beam, retryBeam, _ in zip(*parameters):
 				declare.is_probability("prob", prob)
 				declare.is_potential_transcription("transcription", transcription)
 
 				cmd = f"align-mapped --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
-				cmd += f"--beam={beam} --retry-beam={retry_beam} "
+				cmd += f"--beam={beam} --retry-beam={retryBeam} "
 				cmd += f"--read-disambig-syms={disambigTemp.name} "
 				cmd += f"{tree} {hmm} {Lfile} "
 				baseCmds.append(cmd)
@@ -863,15 +860,15 @@ def nn_align(hmm, prob, alignGraphFile=None, tree=None, transcription=None, Lfil
 		else:
 			assert tree is None and transcription is None and Lfile is None, "When use compiled align graph, any of <tree>, <transcription> and <Lfile> is invalid."
 			
-			parameters = check_mutiple_resources(prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retry_beam, outFile=outFile)
+			parameters = check_mutiple_resources(prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retryBeam, outFile=outFile)
 
 			baseCmds = []
-			for prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retry_beam, _ in zip(*parameters):
+			for prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retryBeam, _ in zip(*parameters):
 				declare.is_probability("prob", prob)
 				declare.is_file("alignGraphFile", alignGraphFile)
 			
 				cmd = f"align-compiled-mapped --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
-				cmd += f"--beam={beam} --retry-beam={retry_beam} "
+				cmd += f"--beam={beam} --retry-beam={retryBeam} "
 				cmd += f"{hmm} ark:{alignGraphFile}"
 				baseCmds.append(cmd)
 			
@@ -894,16 +891,16 @@ def nn_align(hmm, prob, alignGraphFile=None, tree=None, transcription=None, Lfil
 		return results
 
 def gmm_align(hmm, feat, alignGraphFile=None, tree=None, transcription=None, Lfile=None, transitionScale=1.0, acousticScale=0.1, 
-				selfloopScale=0.1, beam=10, retry_beam=40, boost_silence=1.0, careful=False, name="ali", lexicons=None, outFile=None):
+				selfloopScale=0.1, beam=10, retryBeam=40, boostSilence=1.0, careful=False, name="ali", lexicons=None, outFile=None):
 	'''
-	Align the neural network acoustic output probability.
+	Align the feature.
 
 	Share Args:
 		<hmm>: file name or exkaldi HMM object.
 		<tree>: file name or exkaldi decision tree object.
 		<Lfile>: file name.
 		<lexicons>: exkaldi LexiconBank object.
-		<boost_silence>.
+		<_boostSilence>.
 		<careful>.
 	
 	Parallel Args:
@@ -914,7 +911,7 @@ def gmm_align(hmm, feat, alignGraphFile=None, tree=None, transcription=None, Lfi
 		<acousticScale>.
 		<selfloopScale>.
 		<beam>.
-		<retry_beam>.
+		<retryBeam>.
 		<name>: string.
 		<outFile>: file name.
 
@@ -946,7 +943,7 @@ def gmm_align(hmm, feat, alignGraphFile=None, tree=None, transcription=None, Lfi
 			else:
 				declare.is_lexicon_bank("lexicons", lexicons)
 			optionSilence = ":".join(lexicons("optional_silence", True))
-			cmd = f'gmm-boost-silence --boost={boost_silence} {optionSilence} {hmm} {hmmTemp.name}'
+			cmd = f'gmm-boost-silence --boost={boostSilence} {optionSilence} {hmm} {hmmTemp.name}'
 			out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)			
 
 		else:
@@ -961,7 +958,7 @@ def gmm_align(hmm, feat, alignGraphFile=None, tree=None, transcription=None, Lfi
 			else:
 				declare.is_lexicon_bank("lexicons", lexicons)
 			optionSilence = ":".join(lexicons("optional_silence", True))
-			cmd = f'gmm-boost-silence --boost={boost_silence} {optionSilence} - {hmmTemp.name}'
+			cmd = f'gmm-boost-silence --boost={boostSilence} {optionSilence} - {hmmTemp.name}'
 			out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=hmm.data)
 		
 		if (isinstance(cod,int) and cod != 0 ) or os.path.getsize(hmmTemp.name) == 0:
@@ -976,14 +973,14 @@ def gmm_align(hmm, feat, alignGraphFile=None, tree=None, transcription=None, Lfi
 			disambigTemp = fhm.create("w+", suffix="_disambig.int", encoding="utf-8")
 			lexicons.dump_dict(name="disambig", outFile=disambigTemp, dumpInt=True)
 
-			parameters = check_mutiple_resources(feat, transcription, transitionScale, acousticScale, selfloopScale, beam, retry_beam, careful, outFile=outFile)
+			parameters = check_mutiple_resources(feat, transcription, transitionScale, acousticScale, selfloopScale, beam, retryBeam, careful, outFile=outFile)
 			baseCmds = []
-			for feat, transcription, transitionScale, acousticScale, selfloopScale, beam, retry_beam, careful, _ in zip(*parameters):
+			for feat, transcription, transitionScale, acousticScale, selfloopScale, beam, retryBeam, careful, _ in zip(*parameters):
 				declare.is_feature("feat", feat)
 				declare.is_potential_transcription("transcription", transcription)
 
 				cmd = f"gmm-align --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
-				cmd += f"--beam={beam} --retry-beam={retry_beam} --careful={careful} "
+				cmd += f"--beam={beam} --retry-beam={retryBeam} --careful={careful} "
 				cmd += f"--read-disambig-syms={disambigTemp.name} "
 				cmd += f"{tree} {hmmTemp.name} {Lfile} "
 				baseCmds.append(cmd)
@@ -994,15 +991,15 @@ def gmm_align(hmm, feat, alignGraphFile=None, tree=None, transcription=None, Lfi
 		else:
 			assert tree is None and transcription is None and Lfile is None, "When use compiled align graph, any of <tree>, <transcription> and <Lfile> is invalid."
 			
-			parameters = check_mutiple_resources(prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retry_beam, careful, outFile=outFile)
+			parameters = check_mutiple_resources(prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retryBeam, careful, outFile=outFile)
 
 			baseCmds = []
-			for feat, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retry_beam, careful, _ in zip(*parameters):
+			for feat, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retryBeam, careful, _ in zip(*parameters):
 				declare.is_feature("feat", feat)
 				declare.is_file("alignGraphFile", alignGraphFile)
 				
 				cmd = f"gmm-align-compiled --transition-scale={transitionScale} --acoustic-scale={acousticScale} --self-loop-scale={selfloopScale} "
-				cmd += f"--beam={beam} --retry-beam={retry_beam}  --careful={careful} "
+				cmd += f"--beam={beam} --retry-beam={retryBeam}  --careful={careful} "
 				cmd += f"{hmm} ark:{alignGraphFile}"
 				baseCmds.append(cmd)
 			
