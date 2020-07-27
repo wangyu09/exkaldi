@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Exkaldi Documents</title>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+  <meta name="description" content="Description">
+  <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify/lib/themes/vue.css">
+</head>
+<body>
+  <div id="app">Loading</div>
+
+  <script>
+    window.$docsify = {
+      name: '',
+      repo:'https://github.com/wangyu09/exkaldi',
+      loadSidebar: true,
+      maxLevel: 4,
+      subMaxLevel: 2,
+      auto2top: true,
+      search: {
+        noData: {
+          '/': 'No results!'
+        },
+        paths: 'auto',
+        depth: 4,
+        placeholder: {
+          '/': 'Search'
+        }
+      },
+    }
+  </script>
+  <script src="//unpkg.com/docsify/lib/plugins/search.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify/lib/docsify.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-python.min.js"></script>
+</body>
+</html>
