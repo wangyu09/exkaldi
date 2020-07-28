@@ -12,26 +12,26 @@ Differing from other kaldi wrappers, Exkaldi have these features:
 The goal of Exkaldi is to help developers build high-performance ASR systems with Python language easily.
 
 ## The Concept of Exkaldi
-We use three data structures to discribe the Kaldi numerical data archieves: __Index Table__, __Bytes Object__ and __NumPy Array__. They all stand for the same data.  
+We use three data structures to discribe the Kaldi numerical data archives: __Index Table__, __Bytes Object__ and __NumPy Array__. They all stand for the same data.  
 
 ![three approaches](images/threeApproachs.png)  
   
-__Index Table__: hold the index information of archieve which has been saved in files.  
+__Index Table__: hold the index information of archive which has been saved in files.  
 __Bytes Object__: hold the data in memory with bytes format.   
 __NumPy Array__: hold the data in memory with NumPy array format.
 
-These three structures have been designed as various specified classes in Exkaldi. Basesd on these classes, Exkaldi interacts with Kaldi command-line API to process archieves and build ASR system via Python subprocess.  
+These three structures have been designed as various specified classes in Exkaldi. Basesd on these classes, Exkaldi interacts with Kaldi command-line API to process archives and build ASR system via Python subprocess.  
 Basically, these three data structures have these features:  
 1. They can convert to one another easily.  
 2. They are treated by Exkaldi functions without distinction.  
-3. Achieves with Bytes format is the main currency in single process, but achieves with index table format are more used for mutiple processes.  
+3. Achieves with Bytes format is the main currency in single process, but achieves with index table format are more used for multiple processes.  
 4. Achieves with NumPy format can be used to generate iterable dataset and train NN model with deep learning frameworks, such as Tensorflow.  
 
-In the follow table, there is a glance of Exkaldi numerical data archieve class group:  
+In the follow table, there is a glance of Exkaldi numerical data archive class group:  
 
-![core classes](images/archieveClassGroup.png)  
+![core classes](images/archiveClassGroup.png)  
 
-Beside above, Exkaldi has complete approaches to carry and process other archieves and objects.  
+Beside above, Exkaldi has complete approaches to carry and process other archives and objects.  
 In the follow table, there is a glance of other main data classes in Exkaldi:  
 
 ![other main classes](images/otherMainClasses.png)  
@@ -39,21 +39,21 @@ In the follow table, there is a glance of other main data classes in Exkaldi:
 With the help of these classes, Exkaldi is qualified to build a complete ASR system from the scratch to a state-of-the-art level.
 
 ## Parallel Processes In Exkaldi
-Starting from version 1.3, we support mutiple processes so as to deal with a large-scale corpus. When process a small one, such as TIMIT coupus in our examples, we prefer to apply the single process that will hold on data in memory, and defaultly appoint buffer as IO streams during the processing. For example, we want to compute the MFCC feature from a script-table file:
+Starting from version 1.3, we support multiple processes so as to deal with a large-scale corpus. When process a small one, such as TIMIT coupus in our examples, we prefer to apply the single process that will hold on data in memory, and defaultly appoint buffer as IO streams during the processing. For example, we want to compute the MFCC feature from a script-table file:
 ```
 # Single process
 wavFile = "wav.scp"
 feat = Exkaldi.compute_mfcc(wavFile, rate=16000, name="dummy_mfcc")
 ```
 The returned object: ___feat___ would be an Exkaldi __BytesFeature__ object.
-Implementing parallel processes is easy in Exkaldi because you only need to give the function mutiple resources. Exkaldi will decide a parallel strategy and assign these recources automatically. For example:
+Implementing parallel processes is easy in Exkaldi because you only need to give the function multiple resources. Exkaldi will decide a parallel strategy and assign these recources automatically. For example:
 ```
 # Parallel processes
 wavFiles = ["wav_0.scp", "wav_1.scp"]
 feat = Exkaldi.compute_mfcc(wavFiles, rate=16000, name="dummy_mfcc", outFile="dummy_mfcc.ark")
 ```
 This function will run double processes parallelly because it received two scripts. At the moment, the IO streams must be files and the currency will become index table. In above case, the returned object: ___feat___ would be two Exkaldi __ArkIndexTable__ objects.  
-In particular, we not only accept mutiple recources but also different parameters. This is different with Kaldi. Just for example, we will use different sample rates to compute the MFCC feature:
+In particular, we not only accept multiple recources but also different parameters. This is different with Kaldi. Just for example, we will use different sample rates to compute the MFCC feature:
 ```
 # Parallel processes
 wavFile = "wav.scp"

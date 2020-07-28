@@ -59,7 +59,7 @@ if cod != 0:
 >## utils.run_shell_command_parallel
 (cmds, env=None, timeout=exkaldi.info.timeout)
 
-Run shell commands with mutiple processes.
+Run shell commands with multiple processes.
 In this mode, we don't allow the input and output streams are pipe lines.
 If you mistakely appoint buffer to be input or output stream, we set time out error to avoid dead lock.
 So you can change the time out value into a larger one to deal with large courpus as long as you rightly apply files as the input and output streams. 
@@ -240,7 +240,7 @@ _suffix_: add a suffix to the file name.
 _encoding_: encoding.  
 _name_: a string. After named this handle exclusively, you can call its name to get it again.
         If None, we will use the file name as its default name.
-        We allow to open the same file in mutiple times as long as you name them differently.
+        We allow to open the same file in multiple times as long as you name them differently.
         Note that this name is handle name not file name.
 **Return:**  
 a file handle.
@@ -266,7 +266,7 @@ _name_: a string.
 a file handle.
 
 ```python
-# Avoid to open the same file by mutiple times.
+# Avoid to open the same file by multiple times.
 with utils.FileHandleManager() as fhm:
     files = utils.list_files("*_test.txt")
     for fileName in files:
@@ -286,16 +286,16 @@ _name_: if None, close all (Actually, all handles will be closed automatically.)
 
 ------------------------
 >## exkaldi.match_utterances
-(archieves)
+(archives)
 
-Pick up utterances whose ID has existed in all provided archieves.  
+Pick up utterances whose ID has existed in all provided archives.  
 [view code distribution](https://github.com/wangyu09/exkaldi/blob/master/exkaldi/core/common.py)
 
 **Args:**  
-_archieves_: a list of exkaldi archieve objects.
+_archives_: a list of exkaldi archive objects.
 
 **Return:**  
-a list of new archieve objects.
+a list of new archive objects.
 
 ------------------------
 >## exkaldi.utt2spk_to_spk2utt
@@ -326,18 +326,18 @@ _outFile_: file name or None.
 file name or exakldi ListTable object.
 
 ------------------------
->## exkaldi.merge_archieves
-(archieves)
+>## exkaldi.merge_archives
+(archives)
 
-Merge mutiple archieves to one.
+Merge multiple archives to one.
 exkaldi Lattice objects also support this operation.  
 [view code distribution](https://github.com/wangyu09/exkaldi/blob/master/exkaldi/core/common.py)
 
 **Args:**  
-_archieves_: a list or tuple of mutiple exkaldi archieve objects which are the same class.
+_archives_: a list or tuple of multiple exkaldi archive objects which are the same class.
 
 **Return:**  
-a new archieve object.
+a new archive object.
 
 ------------------------
 >## exkaldi.spk_to_utt

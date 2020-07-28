@@ -25,7 +25,7 @@ from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, KaldiPro
 from exkaldi.utils.utils import make_dependent_dirs, run_shell_command, type_name
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
-from exkaldi.core.archieve import ListTable
+from exkaldi.core.archive import ListTable
 
 class LexiconBank:
 	'''

@@ -18,7 +18,7 @@ exkaldi ListTable object.
 Load an index table from dict, or archive table file.
 
 **Args:**  
-_target_: dict object, ArkIndexTable object, bytes archieve object or archieve table file.  
+_target_: dict object, ArkIndexTable object, bytes archive object or archive table file.  
 _name_: a string.  
 _useSuffix_: if _target_ is file path and not default suffix, specified it.  
 

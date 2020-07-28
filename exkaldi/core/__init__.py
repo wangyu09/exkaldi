@@ -1,24 +1,24 @@
 from __future__ import absolute_import
 
-from exkaldi.core.archieve import ListTable
-from exkaldi.core.archieve import ArkIndexTable
-from exkaldi.core.archieve import Transcription
-from exkaldi.core.archieve import Metric
+from exkaldi.core.archive import ListTable
+from exkaldi.core.archive import ArkIndexTable
+from exkaldi.core.archive import Transcription
+from exkaldi.core.archive import Metric
 
-from exkaldi.core.archieve import BytesFeature
-from exkaldi.core.archieve import BytesCMVNStatistics
-from exkaldi.core.archieve import BytesProbability
-from exkaldi.core.archieve import BytesAlignmentTrans
-from exkaldi.core.archieve import BytesFmllrMatrix
+from exkaldi.core.archive import BytesFeature
+from exkaldi.core.archive import BytesCMVNStatistics
+from exkaldi.core.archive import BytesProbability
+from exkaldi.core.archive import BytesAlignmentTrans
+from exkaldi.core.archive import BytesFmllrMatrix
 
-from exkaldi.core.archieve import NumpyFeature
-from exkaldi.core.archieve import NumpyCMVNStatistics
-from exkaldi.core.archieve import NumpyProbability
-from exkaldi.core.archieve import NumpyAlignment
-from exkaldi.core.archieve import NumpyAlignmentTrans
-from exkaldi.core.archieve import NumpyAlignmentPhone
-from exkaldi.core.archieve import NumpyAlignmentPdf
-from exkaldi.core.archieve import NumpyFmllrMatrix
+from exkaldi.core.archive import NumpyFeature
+from exkaldi.core.archive import NumpyCMVNStatistics
+from exkaldi.core.archive import NumpyProbability
+from exkaldi.core.archive import NumpyAlignment
+from exkaldi.core.archive import NumpyAlignmentTrans
+from exkaldi.core.archive import NumpyAlignmentPhone
+from exkaldi.core.archive import NumpyAlignmentPdf
+from exkaldi.core.archive import NumpyFmllrMatrix
 
 from exkaldi.core.load import load_ali
 from exkaldi.core.load import load_feat
@@ -44,7 +44,7 @@ from exkaldi.core.feature import splice_feature
 from exkaldi.core.common import compute_postprob_norm
 from exkaldi.core.common import tuple_data
 from exkaldi.core.common import match_utterances
-from exkaldi.core.common import merge_archieves
+from exkaldi.core.common import merge_archives
 from exkaldi.core.common import utt_to_spk
 from exkaldi.core.common import spk_to_utt
 from exkaldi.core.common import spk2utt_to_utt2spk

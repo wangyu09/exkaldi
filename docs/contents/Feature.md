@@ -52,7 +52,7 @@ Compute MFCC feature by parallel process. You only need to split the recource in
 wavs = exkaldi.load_list_table("wav.scp").subset(chunks=2)
 feat6 = exkaldi.compute_mfcc(target=wavs, config=extraCfg, outFile="mfcc.ark") # ListTable object.
 ```
-In this example, we used two mutiple processes because we gave the function two resources.
+In this example, we used two multiple processes because we gave the function two resources.
 
 -----------------------------
 >## exkaldi.compute_fbank

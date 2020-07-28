@@ -29,9 +29,9 @@ from exkaldi.version import WrongPath, UnsupportedType, KaldiProcessError, Wrong
 from exkaldi.utils.utils import run_shell_command, run_shell_command_parallel, type_name, check_config, list_files, make_dependent_dirs
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
-from exkaldi.core.archieve import BytesFeature, BytesCMVNStatistics, ListTable, ArkIndexTable
+from exkaldi.core.archive import BytesFeature, BytesCMVNStatistics, ListTable, ArkIndexTable
 from exkaldi.core.load import load_list_table, load_index_table
-from exkaldi.core.common import check_mutiple_resources, run_kaldi_commands_parallel
+from exkaldi.core.common import check_multiple_resources, run_kaldi_commands_parallel
 
 def __compute_feature(target, kaldiTool, useSuffix=None, name="feat", outFile=None):
 	'''
@@ -45,7 +45,7 @@ def __compute_feature(target, kaldiTool, useSuffix=None, name="feat", outFile=No
 		declare.is_instances("useSuffix", useSuffix,["scp","wav"])
 	else:
 		useSuffix = ""	
-	targets, kaldiTools, useSuffixs, names, outFiles = check_mutiple_resources(target, kaldiTool, useSuffix, name, outFile=outFile)
+	targets, kaldiTools, useSuffixs, names, outFiles = check_multiple_resources(target, kaldiTool, useSuffix, name, outFile=outFile)
 
 	# pretreatment
 	for index, target, useSuffix, name in zip(range(len(outFiles)), targets, useSuffixs, names):
@@ -86,7 +86,7 @@ def __compute_feature(target, kaldiTool, useSuffix=None, name="feat", outFile=No
 	# define resources
 	resources = {"wavFile":targets, "kaldiTool":kaldiTools, "outFile":outFiles}
 	# Run
-	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchive="feat", archiveNames=names)
 
 def compute_mfcc(target, rate=16000, frameWidth=25, frameShift=10, 
 				melBins=23, featDim=13, windowType='povey', useSuffix=None,
@@ -118,7 +118,7 @@ def compute_mfcc(target, rate=16000, frameWidth=25, frameShift=10,
 		exkaldi feature or index table object.
 	'''
 	# check the basis configure parameters to build base commands
-	stdParameters = check_mutiple_resources(rate, frameWidth, frameShift, melBins, featDim, windowType, config)
+	stdParameters = check_multiple_resources(rate, frameWidth, frameShift, melBins, featDim, windowType, config)
 
 	baseCmds = []
 	for rate, frameWidth, frameShift, melBins, featDim, windowType, config, _ in zip(*stdParameters):
@@ -180,7 +180,7 @@ def compute_fbank(target, rate=16000, frameWidth=25, frameShift=10,
 	Return:
 		exkaldi feature or index table object.
 	'''
-	stdParameters = check_mutiple_resources(rate, frameWidth, frameShift, melBins, windowType, config)
+	stdParameters = check_multiple_resources(rate, frameWidth, frameShift, melBins, windowType, config)
 
 	baseCmds = []
 	for rate, frameWidth, frameShift, melBins, windowType, config, _ in zip(*stdParameters):
@@ -242,7 +242,7 @@ def compute_plp(target, rate=16000, frameWidth=25, frameShift=10,
 	Return:
 		exkaldi feature or index table object.
 	'''
-	stdParameters = check_mutiple_resources(rate, frameWidth, frameShift, melBins, featDim, windowType, config)
+	stdParameters = check_multiple_resources(rate, frameWidth, frameShift, melBins, featDim, windowType, config)
 	baseCmds = []
 	for rate, frameWidth, frameShift, melBins, featDim, windowType, config, _ in zip(*stdParameters):
 		
@@ -302,7 +302,7 @@ def compute_spectrogram(target, rate=16000, frameWidth=25, frameShift=10,
 	Return:
 		exkaldi feature or index table object.
 	'''
-	stdParameters = check_mutiple_resources(rate, frameWidth, frameShift, windowType, config)
+	stdParameters = check_multiple_resources(rate, frameWidth, frameShift, windowType, config)
 	baseCmds = []
 	for rate, frameWidth, frameShift, windowType, config, _ in zip(*stdParameters):
 		# check
@@ -346,7 +346,7 @@ def transform_feat(feat, matrixFile, outFile=None):
 	Return:
 		exkaldi feature or index table object.
 	'''
-	feats, matrixFiles, outFiles = check_mutiple_resources(feat, matrixFile, outFile=outFile)
+	feats, matrixFiles, outFiles = check_multiple_resources(feat, matrixFile, outFile=outFile)
 
 	names = []
 	for feat, matrixFile in zip(feats, matrixFiles):
@@ -357,7 +357,7 @@ def transform_feat(feat, matrixFile, outFile=None):
 	cmdPattern = 'transform-feats {matrixFile} {feat} ark:{outFile}'
 	resources = {"feat":feats, "matrixFile":matrixFiles, "outFile":outFiles}
 
-	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchive="feat", archiveNames=names)
 
 def use_fmllr(feat, fmllrMat, utt2spk, outFile=None):
 	'''
@@ -375,7 +375,7 @@ def use_fmllr(feat, fmllrMat, utt2spk, outFile=None):
 	Return:
 		exkaldi feature or index table object.
 	'''
-	feats, fmllrMats, utt2spks, outFiles = check_mutiple_resources(feat, fmllrMat, utt2spk, outFile=outFile)
+	feats, fmllrMats, utt2spks, outFiles = check_multiple_resources(feat, fmllrMat, utt2spk, outFile=outFile)
 
 	names = []
 	for index, feat, fmllrMat, utt2spk in zip(range(len(outFiles)),feats, fmllrMats, utt2spks):
@@ -389,7 +389,7 @@ def use_fmllr(feat, fmllrMat, utt2spk, outFile=None):
 	cmdPattern = 'transform-feats --utt2spk=ark:{utt2spk} {transMat} {feat} ark:{outFile}'
 	resources = {"feat":feats, "transMat":fmllrMats, "utt2spk":utt2spks, "outFile":outFiles}
 
-	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchive="feat", archiveNames=names)
 
 def use_cmvn(feat, cmvn, utt2spk=None, std=False, outFile=None):
 	'''
@@ -408,7 +408,7 @@ def use_cmvn(feat, cmvn, utt2spk=None, std=False, outFile=None):
 	Return:
 		feature or index table object.
 	'''
-	feats, cmvns, utt2spks, stds, outFiles = check_mutiple_resources(feat, cmvn, utt2spk, std, outFile=outFile)
+	feats, cmvns, utt2spks, stds, outFiles = check_multiple_resources(feat, cmvn, utt2spk, std, outFile=outFile)
 
 	names = []
 	for i, feat, cmvn, utt2spk, std in zip(range(len(outFiles)), feats, cmvns, utt2spks, stds):
@@ -430,7 +430,7 @@ def use_cmvn(feat, cmvn, utt2spk=None, std=False, outFile=None):
 		cmdPattern = 'apply-cmvn --norm-vars={std} --utt2spk=ark:{utt2spk} {cmvn} {feat} ark:{outFile}'
 		resources = {"feat":feats, "cmvn":cmvns, "utt2spk":utt2spks, "std":stds, "outFile":outFiles}	
 	
-	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchive="feat", archiveNames=names)
 
 def compute_cmvn_stats(feat, spk2utt=None, name="cmvn", outFile=None):
 	'''
@@ -448,7 +448,7 @@ def compute_cmvn_stats(feat, spk2utt=None, name="cmvn", outFile=None):
 	Return:
 		exkaldi CMVN statistics or index table object.
 	''' 
-	feats, spk2utts, names, outFiles = check_mutiple_resources(feat, spk2utt, name, outFile=outFile)
+	feats, spk2utts, names, outFiles = check_multiple_resources(feat, spk2utt, name, outFile=outFile)
 
 	for feat, spk2utt in zip(feats, spk2utts):
 		# verify feature
@@ -464,7 +464,7 @@ def compute_cmvn_stats(feat, spk2utt=None, name="cmvn", outFile=None):
 		cmdPattern = 'compute-cmvn-stats --spk2utt=ark:{spk2utt} {feat} ark:{outFile}'
 		resources  = {"feat":feats, "spk2utt":spk2utts, "outFile":outFiles}
 
-	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="cmvn", archieveNames=names)
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchive="cmvn", archiveNames=names)
 
 def use_cmvn_sliding(feat, windowsSize=None, std=False):
 	'''
@@ -520,7 +520,7 @@ def add_delta(feat, order=2, outFile=None):
 	Return:
 		exkaldi feature or index table object.
 	'''
-	feats, orders, outFiles = check_mutiple_resources(feat, order, outFile=outFile)
+	feats, orders, outFiles = check_multiple_resources(feat, order, outFile=outFile)
 	names = []
 	for feat, order in zip(feats, orders):
 		# check feature
@@ -533,7 +533,7 @@ def add_delta(feat, order=2, outFile=None):
 	cmdPattern = "add-deltas --delta-order={order} {feat} ark:{outFile}"
 	resources = {"feat":feats, "order":orders, "outFile":outFiles}
 	# run 
-	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchive="feat", archiveNames=names)
 
 def splice_feature(feat, left, right=None, outFile=None):
 	'''
@@ -552,7 +552,7 @@ def splice_feature(feat, left, right=None, outFile=None):
 	Return:
 		exkaldi feature object or index table object.
 	'''
-	feats, lefts, rights, outFiles = check_mutiple_resources(feat, left, right, outFile=outFile)
+	feats, lefts, rights, outFiles = check_multiple_resources(feat, left, right, outFile=outFile)
 	names = []
 	for index, feat, left, right in zip(range(len(outFiles)),feats, lefts, rights):
 		# check feature
@@ -570,7 +570,7 @@ def splice_feature(feat, left, right=None, outFile=None):
 	cmdPattern = "splice-feats --left-context={left} --right-context={right} {feat} ark:{outFile}"
 	resources = {"feat":feats, "left":lefts, "right":rights, "outFile":outFiles}
 	# run 
-	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="feat", archieveNames=names)
+	return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchive="feat", archiveNames=names)
 
 def decompress_feat(feat, name="decompressedFeat"):
 	'''

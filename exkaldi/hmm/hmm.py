@@ -26,15 +26,15 @@ import numpy as np
 
 from exkaldi.version import info as ExkaldiInfo
 from exkaldi.version import WrongPath, KaldiProcessError, UnsupportedType, WrongOperation, WrongDataFormat
-from exkaldi.core.archieve import BytesArchieve, Transcription, ListTable, BytesAlignmentTrans, BytesFmllrMatrix
+from exkaldi.core.archive import BytesArchive, Transcription, ListTable, BytesAlignmentTrans, BytesFmllrMatrix
 from exkaldi.core.load import load_ali, load_index_table, load_transcription, load_list_table
 from exkaldi.core.feature import transform_feat, use_fmllr
-from exkaldi.core.common import check_mutiple_resources, run_kaldi_commands_parallel, merge_archieves, utt_to_spk
+from exkaldi.core.common import check_multiple_resources, run_kaldi_commands_parallel, merge_archives, utt_to_spk
 from exkaldi.utils.utils import run_shell_command, run_shell_command_parallel, check_config, make_dependent_dirs, type_name, list_files
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
 
-class DecisionTree(BytesArchieve):
+class DecisionTree(BytesArchive):
 	'''
 	Decision tree.
 	'''
@@ -106,7 +106,7 @@ class DecisionTree(BytesArchieve):
 				hmm.save(hmmTemp)
 				hmm = hmmTemp.name
 			
-			feats, hmms, alignments, outFiles = check_mutiple_resources(feat, hmm, alignment, outFile=outFile)
+			feats, hmms, alignments, outFiles = check_multiple_resources(feat, hmm, alignment, outFile=outFile)
 
 			for feat, hmm, alignment, outFile in zip(feats, hmms, alignments, outFiles):
 				declare.is_feature("feat", feat)
@@ -346,7 +346,7 @@ class DecisionTree(BytesArchieve):
 				values.append(value)
 			return namedtuple("TreeInfo",names)(*values)
 
-class BaseHMM(BytesArchieve):
+class BaseHMM(BytesArchive):
 
 	def __init__(self, data=b"", name="hmm", lexicons=None):
 
@@ -412,7 +412,7 @@ class BaseHMM(BytesArchieve):
 			disambigTemp = fhm.create("w+", suffix=".disambig")
 			lexicons.dump_dict("disambig", disambigTemp, True)
 
-			trees,models,transcriptions,LFiles,disambigs,outFiles = check_mutiple_resources( tree, hmmTemp.name, transcription, LFile, disambigTemp.name, outFile=outFile)
+			trees,models,transcriptions,LFiles,disambigs,outFiles = check_multiple_resources( tree, hmmTemp.name, transcription, LFile, disambigTemp.name, outFile=outFile)
 
 			for i, transcription in enumerate(transcriptions):
 				transcription = load_transcription(transcription)
@@ -501,7 +501,7 @@ class BaseHMM(BytesArchieve):
 		else:
 			declare.is_lexicon_bank("lexicons", lexicons)
 
-		results = check_mutiple_resources(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, 
+		results = check_multiple_resources(feat, trainGraphFile, transitionScale, acousticScale, selfloopScale, 
 										  beam, retryBeam, boostSilence, careful, name, outFile=outFile,
 										)
 		outFiles = results[-1]
@@ -536,7 +536,7 @@ class BaseHMM(BytesArchieve):
 			# define resources
 			resources = {"feat":results[0], "tool":baseCmds, "outFile":outFiles}
 			# run
-			return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchieve="ali", archieveNames=names)
+			return run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, generateArchive="ali", archiveNames=names)
 	
 	def accumulate_stats(self, feat, alignment, outFile):
 		'''
@@ -554,7 +554,7 @@ class BaseHMM(BytesArchieve):
 			output file paths.
 		'''
 		declare.not_void(type_name(self), self)
-		feats, alignments, outFiles = check_mutiple_resources(feat, alignment, outFile=outFile)
+		feats, alignments, outFiles = check_multiple_resources(feat, alignment, outFile=outFile)
 
 		with FileHandleManager() as fhm:
 
@@ -600,7 +600,7 @@ class BaseHMM(BytesArchieve):
 		'''
 		declare.not_void(type_name(self), self)
 
-		feats, trainGraphFiles, names, outFiles = check_mutiple_resources(feat, trainGraphFile, name, outFile=outFile)
+		feats, trainGraphFiles, names, outFiles = check_multiple_resources(feat, trainGraphFile, name, outFile=outFile)
 		for feat, trainGraphFile in zip(feats, trainGraphFiles):
 			declare.is_feature("feat", feat)
 			declare.is_file("trainGraphFile", trainGraphFile)
@@ -609,7 +609,7 @@ class BaseHMM(BytesArchieve):
 		# define resources
 		resources = {"feat":feats, "graph":trainGraphFiles, "outFile":outFiles}
 		# run
-		return run_kaldi_commands_parallel(resources, cmdPattern, generateArchieve="ali", archieveNames=names)
+		return run_kaldi_commands_parallel(resources, cmdPattern, generateArchive="ali", archiveNames=names)
 	
 	def save(self, fileName):
 		'''
@@ -884,7 +884,7 @@ class MonophoneHMM(BaseHMM):
 							outFile=os.path.join(tempDir,"final.ali"),
 						)
 		if isinstance(ali, list):
-			ali = merge_archieves(ali)
+			ali = merge_archives(ali)
 		treeFile = os.path.join(tempDir, "tree")
 		self.tree.save(treeFile)
 
@@ -1105,8 +1105,8 @@ class TriphoneHMM(BaseHMM):
 					print("Estimate fMLLR matrix")
 					# If used parallel process, merge ali and feature
 					if isinstance(ali,list):
-						tempAli = merge_archieves(ali)
-						tempFeat = merge_archieves(trainFeat)
+						tempAli = merge_archives(ali)
+						tempFeat = merge_archives(trainFeat)
 						parallel = len(ali)
 					else:
 						tempAli = ali
@@ -1159,7 +1159,7 @@ class TriphoneHMM(BaseHMM):
 							outFile=os.path.join(tempDir,f"final.ali"),
 						)
 		if isinstance(ali, list):
-			ali = merge_archieves(ali)
+			ali = merge_archives(ali)
 
 		del self.__tree
 		self.__tree = tree
@@ -1240,7 +1240,7 @@ def __sum_statistics_files(tool, statsFiles, outFile):
 	Sum GMM or tree statistics.
 
 	Args:
-		<statsFiles>: a string, list or tuple of mutiple file paths.
+		<statsFiles>: a string, list or tuple of multiple file paths.
 		<outFile>: output file path.
 	Return:
 	 	file path.
@@ -1267,7 +1267,7 @@ def sum_gmm_stats(statsFiles, outFile):
 	Sum GMM statistics.
 
 	Args:
-		<statsFiles>: a string, list or tuple of mutiple file paths.
+		<statsFiles>: a string, list or tuple of multiple file paths.
 		<outFile>: output file path.
 	Return:
 	 	absolute path of accumulated file.
@@ -1280,7 +1280,7 @@ def sum_tree_stats(statsFiles, outFile):
 	Sum tree statistics.
 
 	Args:
-		<statsFiles>: a string, list or tuple of mutiple file paths.
+		<statsFiles>: a string, list or tuple of multiple file paths.
 		<outFile>: output file path.
 	Return:
 	 	absolute path of accumulated file.
@@ -1361,7 +1361,7 @@ def convert_alignment(alignment, originHmm, targetHmm, tree, outFile=None):
 			tree.save(treeTemp)
 			tree = treeTemp.name
 		
-		alignments, originHmms, targetHmms, trees, outFiles = check_mutiple_resources(alignment, originHmm, targetHmm, tree, outFile=outFile)
+		alignments, originHmms, targetHmms, trees, outFiles = check_multiple_resources(alignment, originHmm, targetHmm, tree, outFile=outFile)
 		names = []
 		for alignment, originHmm, targetHmm, tree in zip(alignments, originHmms, targetHmms, trees):
 			# check alignment
@@ -1379,7 +1379,7 @@ def convert_alignment(alignment, originHmm, targetHmm, tree, outFile=None):
 		# define resources
 		resources = {"alignment":alignments, "originHMM":originHmms, "targetHmm":targetHmms, "tree":trees, "outFile":outFiles}
 		# run
-		return run_kaldi_commands_parallel(resources, cmdPattern, generateArchieve="ali", archieveNames=names)
+		return run_kaldi_commands_parallel(resources, cmdPattern, generateArchive="ali", archiveNames=names)
 
 def transcription_to_int(transcription, symbolTable, unkSymbol):
 	'''
@@ -1468,7 +1468,7 @@ def __accumulate_LDA_MLLT_statistics(baseCmd, alignment, lexicons, hmm, feat, ou
 			hmm.save(hmmTemp)
 			hmm = hmmTemp.name
 
-		alignments,hmms,feats,silenceWeights,randPrunes,outFiles = check_mutiple_resources( alignment, hmm, feat, silenceWeight,
+		alignments,hmms,feats,silenceWeights,randPrunes,outFiles = check_multiple_resources( alignment, hmm, feat, silenceWeight,
 																							randPrune, outFile=outFile)
 
 		for alignment,hmm,feat,silenceWeight,randPrune,outFile in zip(alignments, hmms, feats, silenceWeights, randPrunes, outFiles):
@@ -1735,7 +1735,7 @@ def estimate_fMLLR_matrix(aliOrLat, lexicons, aliHmm, feat, spk2utt, adaHmm=None
 			adaHmm = aliHmm
 			adaptNewModel = False
 		
-		aliOrLats, feats, spk2utts, names, outFiles = check_mutiple_resources(aliOrLat, feat, spk2utt, name, outFile=outFile)
+		aliOrLats, feats, spk2utts, names, outFiles = check_multiple_resources(aliOrLat, feat, spk2utt, name, outFile=outFile)
 	
 		fromAlignment = True
 		for aliOrLat, feat, spk2utt, name in zip(aliOrLats, feats, spk2utts, names):
@@ -1767,7 +1767,7 @@ def estimate_fMLLR_matrix(aliOrLat, lexicons, aliHmm, feat, spk2utt, adaHmm=None
 		# define resources
 		resources = {"aliOrLat":aliOrLats, "feat":feats, "spk2utt":spk2utts, "outFile":outFiles}
 		# run 
-		return run_kaldi_commands_parallel(resources, cmdPattern, generateArchieve="fmllrMat", archieveNames=names)
+		return run_kaldi_commands_parallel(resources, cmdPattern, generateArchive="fmllrMat", archiveNames=names)
 
 
 			

@@ -537,68 +537,97 @@ class DataIterator:
 
 		return reIterator
 
-def pad_sequence(data, shuffle=False, pad=0):
+def pad_sequence(data, dim=0, maxLength=None, dtype='float32', padding='tail', truncating='tail', value=0.0):
 	'''
-	Usage:  data,lengths = pad_sequence(listData)
+	Pad sequence.
 
-	Pad sequences with maximum length of one batch data. <data> should be a list object whose members have various sequence-lengths.
-	If <shuffle> is "True", pad each sequence with random start-index and return padded data and length information of (startIndex,endIndex) of each sequence.
-	If <shuffle> is "False", align the start index of all sequences then pad them rear. This will return length information of only endIndex.
+	Args:
+		<data>: a list of NumPy arrays.
+		<dim>: which dimmension to pad. All other dimmensions should be the same size.
+		<maxLength>: If larger than this theshold, truncate it.
+		<dtype>: target dtype.
+		<padding>: padding position, "head","tail" or "random".
+		<truncating>: truncating position, "head","tail".
+		<value>: padding value.
+	
+	Return:
+		a two-tuple: (a Numpy array, a list of padding positions). 
 	'''
 	declare.is_classes("data", data, (list,tuple))
-	declare.is_classes("pad", pad, (int,float))
+	declare.is_non_negative_int("dim", dim)
+	declare.not_void("data", data)
+	declare.is_classes("value", value, (int,float))
+	declare.is_instances("padding",padding,["head","tail","random"])
+	declare.is_instances("truncating",padding,["head","tail"])
+	if maxLength is not None:
+		declare.is_positive_int("maxLength",maxLength)
 
 	lengths = []
+	newData = []
+	exRank = None
+	exOtherDims = None
 	for i in data:
+
+		# verify
 		declare.is_classes("data", i, np.ndarray)
+		shape = i.shape
+		if exRank is None:
+			exRank = len(shape)
+			assert dim < exRank, f"<dim> is out of range: {dim}>{exRank-1}."
+		else:
+			assert len(shape) == exRank, f"Arrays in <data> has different rank: {exRank}!={len(shape)}."
+
+		if dim != 0:
+			# transpose
+			rank = [r for r in range(exRank)]
+			rank[0] = dim
+			rank[dim] = 0
+			i = i.transpose(rank)
+
+		if exOtherDims is None:
+			exOtherDims = i.shape[1:]
+		else:
+			assert exOtherDims == i.shape[1:], f"Expect for sequential dimmension, All arrays in <data> has same shape but got: {exOtherDims}!={i.shape[1:]}."
+
+		length = len(i)
+		if maxLength is not None and length > maxLength:
+			if truncating == "head":
+				i = i[maxLength:,...]
+			else:
+				i = i[0:maxLength:,...]
+
 		lengths.append(len(i))
-	
-	maxLen = int(max(lengths))
-	batchSize = len(lengths)
+		newData.append(i)
 
-	if len(data[0].shape) == 1:
-		newData = pad * np.ones([maxLen,batchSize])
-		for k in range(batchSize):
-			snl = len(data[k])
-			if shuffle:
-				n = maxLen - snl
-				stp = random.randint(0,n)
-				newData[stp:stp+snl,k] = data[k]
-				lengths[k] = (stp,stp+snl)
-			else:
-				newData[0:snl,k] = data[k]
+	maxLength = max(lengths)
+	batchSize = len(newData)
 
-	elif len(data[0].shape) == 2:
-		dim = data[0].shape[1]
-		newData = pad * np.ones([maxLen,batchSize,dim])
-		for k in range(batchSize):
-			snl = len(data[k])
-			if shuffle:
-				n = maxLen - snl
-				stp = random.randint(0,n)
-				newData[stp:stp+snl,k,:] = data[k]
-				lengths[k] = (stp,stp+snl)
-			else:
-				newData[0:snl,k,:] = data[k]
+	result = np.array(value,dtype=dtype) * np.ones([batchSize,maxLength,*exOtherDims],dtype=dtype)
 
-	elif len(data[0].shape) >= 3:
-		otherDims = data[0].shape[1:]
-		allDims = 1
-		for i in otherDims:
-			allDims *= i
-		newData = pad * np.ones([maxLen,batchSize,allDims])
-		for k in range(batchSize):
-			snl = len(data[k])
-			if shuffle:
-				n = maxLen - snl
-				stp = random.randint(0,n)
-				newData[stp:stp+snl,k,:] = data[k].reshape([snl,allDims])
-				lengths[k] = (stp,stp+snl)
-			else:
-				newData[0:snl,k,:] = data[k].reshape([snl,allDims])
-		newData = newData.reshape([maxLen,batchSize,*otherDims])
+	pos = []
+	for i in range(batchSize):
+		length = lengths[i]
+		if padding == "tail":
+			result[i][0:length] = newData[i]
+			pos.append((0,length))
+		elif padding == "head":
+			start = maxLength - length
+			result[i][start:] = newData[i]
+			pos.append((start,maxLength))
+		else:
+			start = random.randint(0,maxLength-length)
+			end = start + length
+			result[i][start:end] = newData[i]
+			pos.append((start,end))
 
-	return newData, lengths
+	if dim != 0:
+		exRank = len(result.shape)
+		rank = [r for r in range(exRank)]
+		rank[1] = dim+1
+		rank[dim+1] = 1
+		result = result.transpose(rank)
+
+	return result, pos
 
 def softmax(data, axis=1):
 	'''

@@ -1,9 +1,9 @@
 - [Home](README.md)
 - API
-  - [Archieves Classes](contents/Archieves.md)
+  - [Archives Classes](contents/Archives.md)
   - [Exkaldi Configure](contents/Config.md)
   - [Feature Processing](contents/Feature.md)
-  - [Load Archieves and Objects](contents/Load.md)
+  - [Load Archives and Objects](contents/Load.md)
   - [Language Model](contents/LanguageModel.md)
   - [GMM-HMM](contents/GmmHmm.md)
   - [Build HCLG graph](contents/Graph.md)
@@ -13,4 +13,4 @@
   - [Parse Arguments](contents/Argsparse.md)
   - [Common Tools](contents/Common.md)
   - [CTC decode](contents/CTCdecode.md)
-  - [Mutiple Processes](contents/MutipleProcesses.md)
+  - [Multiple Processes](contents/MultipleProcesses.md)

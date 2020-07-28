@@ -29,10 +29,10 @@ from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, Unsuppor
 from exkaldi.utils.utils import run_shell_command, type_name, list_files
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
-from exkaldi.core.archieve import BytesArchieve, BytesMatrix, BytesFeature, BytesCMVNStatistics, BytesProbability, BytesAlignmentTrans, BytesFmllrMatrix
-from exkaldi.core.archieve import NumpyMatrix, NumpyFeature, NumpyCMVNStatistics, NumpyProbability, NumpyAlignmentTrans, NumpyFmllrMatrix
-from exkaldi.core.archieve import NumpyAlignment, NumpyAlignmentPhone, NumpyAlignmentPdf
-from exkaldi.core.archieve import Transcription, ArkIndexTable, ListTable
+from exkaldi.core.archive import BytesArchive, BytesMatrix, BytesFeature, BytesCMVNStatistics, BytesProbability, BytesAlignmentTrans, BytesFmllrMatrix
+from exkaldi.core.archive import NumpyMatrix, NumpyFeature, NumpyCMVNStatistics, NumpyProbability, NumpyAlignmentTrans, NumpyFmllrMatrix
+from exkaldi.core.archive import NumpyAlignment, NumpyAlignmentPhone, NumpyAlignmentPdf
+from exkaldi.core.archive import Transcription, ArkIndexTable, ListTable
 
 # load list table
 def load_list_table(target, name="table"):
@@ -71,7 +71,7 @@ def load_list_table(target, name="table"):
 # load index table
 def __read_one_record_from_ark(fp):
 	'''
-	Read a utterance from opened file pointer of an archieve file.
+	Read a utterance from opened file pointer of an archive file.
 	It is used to generate bytes index table.
 	'''
 	# read utterance ID
@@ -181,7 +181,7 @@ def load_index_table(target, name="index", useSuffix=None):
 	Load an index table from dict, or archive table file.
 
 	Args:
-		<target>: dict object, ArkIndexTable object, bytes archieve object or archieve table file .
+		<target>: dict object, ArkIndexTable object, bytes archive object or archive table file .
 		<name>: a string.
 		<useSuffix>: if <target> is file path and not default suffix, specified it.
 
@@ -206,7 +206,7 @@ def load_index_table(target, name="index", useSuffix=None):
 		newTable.update(target)
 		return newTable
 	
-	elif isinstance(target, BytesArchieve):
+	elif isinstance(target, BytesArchive):
 		newTable.update( target.indexTable )
 		return newTable
 	
@@ -237,7 +237,7 @@ def load_index_table(target, name="index", useSuffix=None):
 	
 		return newTable
 
-# load archieve data
+# load archive data
 def __read_data_from_file(fileName, useSuffix=None):
 	'''
 	Read data from file. If the file suffix is unknown, <useSuffix> should be assigned.

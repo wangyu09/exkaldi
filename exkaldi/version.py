@@ -36,7 +36,7 @@ class UnsupportedKaldiVersion(Exception): pass
 
 _MAJOR_VERSION = '1'
 _MINOR_VERSION = '3'
-_PATCH_VERSION = '1'
+_PATCH_VERSION = '0'
 
 _EXPECTED_KALDI_VERSION = "5.5"
 

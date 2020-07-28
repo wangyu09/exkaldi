@@ -393,7 +393,7 @@ an index table of final alignment.
 Sum GMM statistics files.
 
 **Args:**  
-_statsFiles_: a string, list or tuple of mutiple file paths.  
+_statsFiles_: a string, list or tuple of multiple file paths.  
 _outFile_: output file path.   
 **Return:**  
 the path of accumulated file.
@@ -405,7 +405,7 @@ the path of accumulated file.
 Sum tree statistics files.
 
 **Args:**  
-_statsFiles_: a string, list or tuple of mutiple file paths.  
+_statsFiles_: a string, list or tuple of multiple file paths.  
 _outFile_: output file path.  
 **Return:**  
 the path of accumulated file.

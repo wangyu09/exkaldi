@@ -68,7 +68,7 @@ def run_shell_command(cmd, stdin=None, stdout=None, stderr=None, inputs=None, en
 
 def run_shell_command_parallel(cmds, env=None, timeout=ExkaldiInfo.timeout):
 	'''
-	Run shell commands with mutiple processes.
+	Run shell commands with multiple processes.
 	In this mode, we don't allow the input and output streams are pipe lines.
 	If you mistakely appoint buffer to be input or output stream, we set time out error to avoid dead lock.
 	So you can change the time out value into a larger one to deal with large courpus as long as you rightly apply files as the input and output streams. 
@@ -165,7 +165,7 @@ def check_config(name, config=None):
 	
 	Return:
 		If <config> is None, return a dict object of example configure of <name>.
-			If the value is a tuple, it standards for mutiple types of value you can set.
+			If the value is a tuple, it standards for multiple types of value you can set.
 		Or return True or False.
 		Or None if <name> is unavaliable.
 	'''
@@ -432,7 +432,7 @@ class FileHandleManager:
 		Args:
 			<name>: a string. After named this handle exclusively, you can call its name to get it again.
 					If None, we will use the file name as its default name.
-					We allow to open the same file in mutiple times as long as you name them differently.
+					We allow to open the same file in multiple times as long as you name them differently.
 		
 		Return:
 			a file handle.

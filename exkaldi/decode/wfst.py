@@ -27,13 +27,13 @@ from exkaldi.version import WrongPath, WrongOperation, WrongDataFormat, KaldiPro
 from exkaldi.utils.utils import run_shell_command, make_dependent_dirs, type_name, check_config, list_files
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
-from exkaldi.core.archieve import BytesArchieve, Transcription, ListTable, BytesAlignmentTrans, NumpyAlignmentTrans, Metric
-from exkaldi.core.common import check_mutiple_resources, run_kaldi_commands_parallel 
+from exkaldi.core.archive import BytesArchive, Transcription, ListTable, BytesAlignmentTrans, NumpyAlignmentTrans, Metric
+from exkaldi.core.common import check_multiple_resources, run_kaldi_commands_parallel 
 from exkaldi.nn.nn import log_softmax
 from exkaldi.hmm.hmm import load_hmm
 from exkaldi.core.load import load_transcription
 
-class Lattice(BytesArchieve):
+class Lattice(BytesArchive):
 
 	def __init__(self, data=None, symbolTable=None, hmm=None, name="lat"):
 		super().__init__(data, name)
@@ -131,7 +131,7 @@ class Lattice(BytesArchieve):
 			else:
 				hmm = "placeholder"
 
-			symbolTables,hmms,lmwts,acwts,outFiles = check_mutiple_resources(symbolTable,hmm,lmwt,acwt,outFile=outFile)
+			symbolTables,hmms,lmwts,acwts,outFiles = check_multiple_resources(symbolTable,hmm,lmwt,acwt,outFile=outFile)
 			
 			if len(outFiles) > 1:
 				latTemp = fhm.create("wb+",suffix=".lat")
@@ -557,7 +557,7 @@ def nn_decode(prob, hmm, HCLGFile, symbolTable, beam=10, latBeam=8, acwt=1,
 	'''
 	declare.kaldi_existed()
 
-	parameters = check_mutiple_resources( prob, hmm, HCLGFile, symbolTable, 
+	parameters = check_multiple_resources( prob, hmm, HCLGFile, symbolTable, 
 										  beam, latBeam, acwt, minActive, maxActive, maxMem,
 										  config, maxThreads, outFile=outFile,
 										)
@@ -664,7 +664,7 @@ def gmm_decode(feat, hmm, HCLGFile, symbolTable, beam=10, latBeam=8, acwt=1,
 	'''
 	declare.kaldi_existed()
 
-	parameters = check_mutiple_resources( feat, hmm, HCLGFile, symbolTable, 
+	parameters = check_multiple_resources( feat, hmm, HCLGFile, symbolTable, 
 										  beam, latBeam, acwt, minActive, maxActive, maxMem,
 										  config, maxThreads, outFile=outFile,
 										)
@@ -842,7 +842,7 @@ def nn_align(hmm, prob, alignGraphFile=None, tree=None, transcription=None, Lfil
 			disambigTemp = fhm.create("w+", suffix="_disambig.int", encoding="utf-8")
 			lexicons.dump_dict(name="disambig", outFile=disambigTemp, dumpInt=True)
 
-			parameters = check_mutiple_resources(prob, transcription, transitionScale, acousticScale, selfloopScale, beam, retryBeam, outFile=outFile)
+			parameters = check_multiple_resources(prob, transcription, transitionScale, acousticScale, selfloopScale, beam, retryBeam, outFile=outFile)
 			baseCmds = []
 			for prob, transcription, transitionScale, acousticScale, selfloopScale, beam, retryBeam, _ in zip(*parameters):
 				declare.is_probability("prob", prob)
@@ -860,7 +860,7 @@ def nn_align(hmm, prob, alignGraphFile=None, tree=None, transcription=None, Lfil
 		else:
 			assert tree is None and transcription is None and Lfile is None, "When use compiled align graph, any of <tree>, <transcription> and <Lfile> is invalid."
 			
-			parameters = check_mutiple_resources(prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retryBeam, outFile=outFile)
+			parameters = check_multiple_resources(prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retryBeam, outFile=outFile)
 
 			baseCmds = []
 			for prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retryBeam, _ in zip(*parameters):
@@ -973,7 +973,7 @@ def gmm_align(hmm, feat, alignGraphFile=None, tree=None, transcription=None, Lfi
 			disambigTemp = fhm.create("w+", suffix="_disambig.int", encoding="utf-8")
 			lexicons.dump_dict(name="disambig", outFile=disambigTemp, dumpInt=True)
 
-			parameters = check_mutiple_resources(feat, transcription, transitionScale, acousticScale, selfloopScale, beam, retryBeam, careful, outFile=outFile)
+			parameters = check_multiple_resources(feat, transcription, transitionScale, acousticScale, selfloopScale, beam, retryBeam, careful, outFile=outFile)
 			baseCmds = []
 			for feat, transcription, transitionScale, acousticScale, selfloopScale, beam, retryBeam, careful, _ in zip(*parameters):
 				declare.is_feature("feat", feat)
@@ -991,7 +991,7 @@ def gmm_align(hmm, feat, alignGraphFile=None, tree=None, transcription=None, Lfi
 		else:
 			assert tree is None and transcription is None and Lfile is None, "When use compiled align graph, any of <tree>, <transcription> and <Lfile> is invalid."
 			
-			parameters = check_mutiple_resources(prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retryBeam, careful, outFile=outFile)
+			parameters = check_multiple_resources(prob, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retryBeam, careful, outFile=outFile)
 
 			baseCmds = []
 			for feat, alignGraphFile, transitionScale, acousticScale, selfloopScale, beam, retryBeam, careful, _ in zip(*parameters):

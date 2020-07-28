@@ -66,7 +66,7 @@ Then you can appoint the argument in bash command line:
 ```bash
 python test.py --test=2
 ```
-In particular, We allow user to input mutiple values for one option with a specified format such as: 1|2|3|4. So if you appoint the argument like this:
+In particular, We allow user to input multiple values for one option with a specified format such as: 1|2|3|4. So if you appoint the argument like this:
 ```bash
 python test.py --test=1|2|3|4
 ```

@@ -4,13 +4,13 @@ This section includes some class and function to help training NN model with DL 
 
 ------------------------
 >## exkaldi.tuple_data
-(archieves, frameLevel=False)
+(archives, frameLevel=False)
 
-Tuple exkadli archieves in "utterance" level or "frame" level. Typically, tuple feature and alignment.
+Tuple exkadli archives in "utterance" level or "frame" level. Typically, tuple feature and alignment.
 This is used to generate dataset for training NN model with DL framework.
 
 **Args:**  
-_archieves_: exkaldi feature or alignment objects.  
+_archives_: exkaldi feature or alignment objects.  
 _framelevel_: If True, tuple data in frame level. Or in utterance level.  
 
 **Return:**

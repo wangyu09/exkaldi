@@ -27,34 +27,34 @@ from exkaldi.version import UnsupportedType, WrongOperation, KaldiProcessError, 
 from exkaldi.utils.utils import run_shell_command, run_shell_command_parallel, type_name, list_files, make_dependent_dirs
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
-from exkaldi.core.archieve import BytesFeature, BytesCMVNStatistics, BytesFmllrMatrix, BytesAlignmentTrans, ListTable, BytesArchieve, BytesMatrix, BytesVector, NumpyMatrix, NumpyVector
+from exkaldi.core.archive import BytesFeature, BytesCMVNStatistics, BytesFmllrMatrix, BytesAlignmentTrans, ListTable, BytesArchive, BytesMatrix, BytesVector, NumpyMatrix, NumpyVector
 from exkaldi.core.load import load_index_table, load_list_table
 
-def tuple_data(archieves, frameLevel=False):
+def tuple_data(archives, frameLevel=False):
 	'''
-	Tuple feature or alignment archieves in "utterance" level or "frame" level.
+	Tuple feature or alignment archives in "utterance" level or "frame" level.
 
 	Args:
-		<archieves>: exkaldi feature or alignment objects.
+		<archives>: exkaldi feature or alignment objects.
 		<framelevel>: If True, tuple data in frame level. Or in utterance level.
 	Return:
 		List of tupled data.
 	'''
-	declare.is_classes("archieves", archieves, (tuple,list))
-	assert len(archieves) > 1, "<archieves> should has mutiple items."
+	declare.is_classes("archives", archives, (tuple,list))
+	assert len(archives) > 1, "<archives> should has multiple items."
 	declare.is_bool("frameLevel", frameLevel)
 	
-	archieves = match_utterances(archieves)
+	archives = match_utterances(archives)
 
 	fields = {}
-	for index, data in enumerate(archieves):
+	for index, data in enumerate(archives):
 		if frameLevel is True:
 			declare.belong_classes("achieve", data, (BytesMatrix, BytesVector, NumpyMatrix, NumpyVector))
 		else:
 			declare.belong_classes("achieve", data, (BytesMatrix, BytesVector, NumpyMatrix, NumpyVector, ListTable))
 		
 		if isinstance(data, (BytesMatrix, BytesVector)):
-			archieves[index] = data.to_numpy()
+			archives[index] = data.to_numpy()
 
 		if data.name not in fields.keys():
 			fields[data.name] = []
@@ -68,7 +68,7 @@ def tuple_data(archieves, frameLevel=False):
 		else:
 			templet = namedtuple(typename="TupledData", field_names=["uttID",] + fieldNames )
 	except ValueError as e:
-		print('While tuple data, use "name" of archieves as identity ID so they are expected Python valid identifiers.')
+		print('While tuple data, use "name" of archives as identity ID so they are expected Python valid identifiers.')
 		print('You can use ".rename()" method to rename it and try this function again.')
 		raise e
 
@@ -104,10 +104,10 @@ def tuple_data(archieves, frameLevel=False):
 
 		return result
 
-	if isinstance(archieves[0], ListTable):
-		uttIDs = list(archieves[0].keys())
+	if isinstance(archives[0], ListTable):
+		uttIDs = list(archives[0].keys())
 	else:
-		uttIDs = archieves[0].utts
+		uttIDs = archives[0].utts
 
 	result = []
 	for utt in uttIDs:
@@ -155,22 +155,22 @@ def compute_postprob_norm(ali, postProbDim):
 		countBias = np.log(counts/np.sum(counts))
 		return countBias
 
-def match_utterances(archieves):
+def match_utterances(archives):
 	'''
-	Pick up utterances whose ID has existed in all provided archieves.
+	Pick up utterances whose ID has existed in all provided archives.
 
 	Args:
-		<archieves>, a list of exkaldi archieve objects.
+		<archives>, a list of exkaldi archive objects.
 	
 	Return:
-		a list of new exkaldi archieve objects.
+		a list of new exkaldi archive objects.
 	'''
-	declare.is_classes("archieves", archieves, [list,tuple])
+	declare.is_classes("archives", archives, [list,tuple])
 
 	shareUttIDs = None
-	for t in archieves:
+	for t in archives:
 
-		declare.belong_classes("archieves", t, [ListTable, BytesMatrix, BytesVector, NumpyMatrix, NumpyVector] )
+		declare.belong_classes("archives", t, [ListTable, BytesMatrix, BytesVector, NumpyMatrix, NumpyVector] )
 
 		if isinstance(t, ListTable):
 			uttIDs = set(t.keys())
@@ -184,10 +184,10 @@ def match_utterances(archieves):
 
 	shareUttIDs = list(shareUttIDs)
 	if len(shareUttIDs) == 0:
-		raise WrongOperation("Utterance are completely missed. We think it is not reasonable. Please check these archieves.")
+		raise WrongOperation("Utterance are completely missed. We think it is not reasonable. Please check these archives.")
 
 	results = []
-	for t in archieves:
+	for t in archives:
 		if len(t.utts) == len(shareUttIDs):
 			results.append( t )
 		else:
@@ -195,9 +195,9 @@ def match_utterances(archieves):
 	
 	return results
 
-def check_mutiple_resources(*resources, outFile=None):
+def check_multiple_resources(*resources, outFile=None):
 	'''
-	This function is used to check whether or not use mutiple process and verify the resources.
+	This function is used to check whether or not use multiple process and verify the resources.
 	args:
 		<resources>: objects.
 		<outFile>: None, file name, or a list of None objects, file names.
@@ -207,14 +207,14 @@ def check_mutiple_resources(*resources, outFile=None):
 		lists of resources.
 	'''
 	# check: first pass
-	mutipleFlag = [ len(re) if isinstance(re, (list,tuple)) else 1 for re in resources ]
-	mutipleFlag = sorted(list(set(mutipleFlag)))
+	multipleFlag = [ len(re) if isinstance(re, (list,tuple)) else 1 for re in resources ]
+	multipleFlag = sorted(list(set(multipleFlag)))
 
-	if len(mutipleFlag) == 0:
+	if len(multipleFlag) == 0:
 		raise WrongOperation(f"No any resource has been received.")
-	elif len(mutipleFlag) > 2:
-		raise WrongOperation(f"The numbers of resources do not match: {mutipleFlag} .")
-	mutipleFlag = max(mutipleFlag)
+	elif len(multipleFlag) > 2:
+		raise WrongOperation(f"The numbers of resources do not match: {multipleFlag} .")
+	multipleFlag = max(multipleFlag)
 
 	# check and modify: second pass
 	resources = list(resources)
@@ -222,7 +222,7 @@ def check_mutiple_resources(*resources, outFile=None):
 
 		if isinstance(target, (list,tuple)):
 			if len(target) == 1:
-				resources[index] = [ target[0] for i in range(mutipleFlag) ]
+				resources[index] = [ target[0] for i in range(multipleFlag) ]
 			else:
 				exType = None
 				for t in target:
@@ -231,10 +231,10 @@ def check_mutiple_resources(*resources, outFile=None):
 					elif type_name(t) != exType:
 						raise WrongDataFormat(f"Elements of one group should be the same data class, but got: {exType} != {type_name(t)}.")
 		else:
-			resources[index] = [ target for i in range(mutipleFlag) ]
+			resources[index] = [ target for i in range(multipleFlag) ]
 
 	# check output file: third pass
-	if mutipleFlag > 1:
+	if multipleFlag > 1:
 		assert outFile is not None, "When apply parallel processes, out file name is necessary."
 		outFiles = []
 		declare.is_classes("outFile", outFile, [str, list, tuple])
@@ -243,9 +243,9 @@ def check_mutiple_resources(*resources, outFile=None):
 			outFile = os.path.abspath(outFile)
 			dirName = os.path.dirname(outFile)
 			fileName = os.path.basename(outFile)
-			outFiles = [ os.path.join( dirName, f"{i}_"+fileName ) for i in range(mutipleFlag) ]
+			outFiles = [ os.path.join( dirName, f"{i}_"+fileName ) for i in range(multipleFlag) ]
 		else:
-			declare.equal("the number of output files", len(outFile), "the number of parallel processes", mutipleFlag)
+			declare.equal("the number of output files", len(outFile), "the number of parallel processes", multipleFlag)
 			outFiles = []
 			for f in outFile:
 				declare.is_valid_file_name("outFile", f)
@@ -263,7 +263,7 @@ def check_mutiple_resources(*resources, outFile=None):
 
 	return resources
 
-def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeout=ExkaldiInfo.timeout, generateArchieve=None, archieveNames=None):
+def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeout=ExkaldiInfo.timeout, generateArchive=None, archiveNames=None):
 	'''
 	Map resources to command pattern and run this command parallelly.
 
@@ -310,16 +310,16 @@ def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeo
 			make_dependent_dirs(outFile, pathIsFile=True)
 	parallel = len(outFiles)
 
-	if generateArchieve is not None:
-		declare.is_instances("generateArchieve", generateArchieve, ["feat","cmvn","ali","fmllrMat"])
-		if archieveNames is None:
-			archieveNames = [ generateArchieve for i in range(parallel)]
-		elif isinstance(archieveNames, str):
-			archieveNames = [ archieveNames for i in range(parallel)]
-		elif isinstance(archieveNames, (list,tuple)):
-			declare.equal("the number of achieve names", len(archieveNames), "parallel", parallel)
+	if generateArchive is not None:
+		declare.is_instances("generateArchive", generateArchive, ["feat","cmvn","ali","fmllrMat"])
+		if archiveNames is None:
+			archiveNames = [ generateArchive for i in range(parallel)]
+		elif isinstance(archiveNames, str):
+			archiveNames = [ archiveNames for i in range(parallel)]
+		elif isinstance(archiveNames, (list,tuple)):
+			declare.equal("the number of achieve names", len(archiveNames), "parallel", parallel)
 		else:
-			raise UnsupportedType(f"<archieveNames> should be string or list or tuple but got: {type_name(archieveNames)}.")
+			raise UnsupportedType(f"<archiveNames> should be string or list or tuple but got: {type_name(archiveNames)}.")
 
 	# regulate resources and run
 	with FileHandleManager() as fhm:
@@ -398,7 +398,7 @@ def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeo
 						target.save(targetTemp)
 						newResources[key] = f"ark:{targetTemp.name}"	
 
-				elif isinstance(target, BytesArchieve):
+				elif isinstance(target, BytesArchive):
 					if (inputsBuffer is True) and count == 1:
 						inputsBuffer = target.data
 						newResources[key] = f"-"
@@ -426,21 +426,21 @@ def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeo
 					raise KaldiProcessError(f"Failed to run kaldi command: {finalCmd}.")
 			
 			if outFile == "-":
-				if generateArchieve is not None:
-					if generateArchieve == "feat":
-						out = BytesFeature(data=out, name=archieveNames[0])
-					elif generateArchieve == "ali":
-						out = BytesAlignmentTrans(data=out, name=archieveNames[0])
-					elif generateArchieve == "cmvn":
-						out = BytesCMVNStatistics(data=out, name=archieveNames[0])
+				if generateArchive is not None:
+					if generateArchive == "feat":
+						out = BytesFeature(data=out, name=archiveNames[0])
+					elif generateArchive == "ali":
+						out = BytesAlignmentTrans(data=out, name=archiveNames[0])
+					elif generateArchive == "cmvn":
+						out = BytesCMVNStatistics(data=out, name=archiveNames[0])
 					else:
-						out = BytesFmllrMatrix(data=out, name=archieveNames[0])
+						out = BytesFmllrMatrix(data=out, name=archiveNames[0])
 					return out
 				else:
 					return (cod,err,out)
 			else:
-				if generateArchieve is not None:
-					return load_index_table(outFile, name=archieveNames[0], useSuffix="ark")
+				if generateArchive is not None:
+					return load_index_table(outFile, name=archiveNames[0], useSuffix="ark")
 				else:
 					return (cod,err,outFile)
 
@@ -489,7 +489,7 @@ def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeo
 						target.save(targetTemp)
 						newvalues.append(f"ark:{targetTemp.name}")
 
-					elif isinstance(target, BytesArchieve):
+					elif isinstance(target, BytesArchive):
 						targetTemp = fhm.create("wb+")
 						target.save(targetTemp)	
 						newvalues.append(f"{targetTemp.name}")
@@ -500,7 +500,7 @@ def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeo
 				newResources[key] = newvalues
 			
 			newResources["outFile"] = outFiles
-			# assign these resources to each process and generate mutiple commands
+			# assign these resources to each process and generate multiple commands
 			parallelResources = []
 			for i in range(parallel):
 				parallelResources.append({})
@@ -524,9 +524,9 @@ def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeo
 				finalCmd = cmds[0].split("|")[-1].strip().split(maxsplit=1)[0]
 				raise KaldiProcessError(f"Failed to run kaldi command: {finalCmd}. Look the error messages above.")
 			else:
-				if generateArchieve is not None:
+				if generateArchive is not None:
 					for i, fileName in enumerate(outFiles):
-						finalResult[i] = load_index_table(fileName, name=archieveNames[i], useSuffix="ark")
+						finalResult[i] = load_index_table(fileName, name=archiveNames[i], useSuffix="ark")
 
 			return finalResult
 
@@ -588,7 +588,7 @@ def spk2utt_to_utt2spk(spk2utt, outFile=None):
 
 		for utt in utts.split():
 			if utt in utt2spk.keys():
-				raise WrongDataFormat(f"utterance ID:{utt} has existed towards to mutiple speakers..")
+				raise WrongDataFormat(f"utterance ID:{utt} has existed towards to multiple speakers..")
 			utt2spk[utt] = spk
 
 	if outFile is None:
@@ -597,28 +597,28 @@ def spk2utt_to_utt2spk(spk2utt, outFile=None):
 		utt2spk.save(outFile)
 		return outFile
 
-def merge_archieves(archieves):
+def merge_archives(archives):
 	'''
-	Merge mutiple archieves to one.
+	Merge multiple archives to one.
 	Lattice objects also support this operation.
 
 	Args:
-		<archieves>: a list or tuple of mutiple exkaldi archieve objects which are the same class.
+		<archives>: a list or tuple of multiple exkaldi archive objects which are the same class.
 	
 	Return:
-		a new archieve object.
+		a new archive object.
 	'''
-	declare.is_classes("archieves", archieves, (list,tuple))
-	declare.not_void("archieves", archieves)
+	declare.is_classes("archives", archives, (list,tuple))
+	declare.not_void("archives", archives)
 	
-	if type_name(archieves[0]) != "Lattice":
-		declare.belong_classes("archieves",archieves[0],[BytesMatrix,BytesVector,ListTable,NumpyMatrix,NumpyVector])
-	result = archieves[0]
-	typeName = type_name(archieves[0])
-	names = [archieves[0].name]
+	if type_name(archives[0]) != "Lattice":
+		declare.belong_classes("archives",archives[0],[BytesMatrix,BytesVector,ListTable,NumpyMatrix,NumpyVector])
+	result = archives[0]
+	typeName = type_name(archives[0])
+	names = [archives[0].name]
 
-	for ar in archieves[1:]:
-		assert type_name(ar) == typeName, f"All archieves needed to be merged must be the same class but got: {typeName}!={type_name(ar)}."
+	for ar in archives[1:]:
+		assert type_name(ar) == typeName, f"All archives needed to be merged must be the same class but got: {typeName}!={type_name(ar)}."
 		result += ar
 		names.append(ar.name)
 	
