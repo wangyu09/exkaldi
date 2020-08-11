@@ -18,17 +18,26 @@ a List of tupled data.
 
 ------------------------
 >## exkaldi.compute_postprob_norm
-(ali, postProbDim)
+(ali, probDims)
 
 Compute alignment counts in order to normalize acoustic model posterior probability.
 
 **Args:**
-_ali_: exkaldi NumpyAlignmentPhone or NumpyAlignmentPdf object.  
-_postProbDim_: the dimensionality of posterior probability.  
+_ali_: exkaldi NumpyAlignmentTrans, NumpyAlignmentPhone or NumpyAlignmentPdf object.  
+_probDims_: count size for probability.  
 
 **Return:**
 A numpy array of the normalization.
 
+**Examples:**  
+```python
+hmm = exkaldi.load_hmm("./final.mdl")
+ali = exkaldi.load_ali("./ali",aliType="phoneID",hmm=hmm)
+probDims = hmm.info.phones
+
+norm = exkaldi.compute_postprob_norm(ali, probDims)
+print(norm)
+```
 ------------------------------------------
 >>## nn.DataIterator
 (indexTable, processFunc, batchSize, chunks='auto', otherArgs=None, shuffle=False, retainData=0.0)
@@ -125,6 +134,7 @@ _retainData_: a float ratio in 0.0~0.9. Reserve part of data (for evaluate.)
 A new DataIterator.
 
 ------------------------
+
 >## nn.softmax
 (data, axis=1)
 
@@ -138,6 +148,7 @@ _axis_: the dimension to softmax.
 A new array.
 
 ------------------------
+
 >## nn.log_softmax
 (data, axis=1)
 
@@ -151,6 +162,7 @@ _axis_: the dimension to softmax.
 A new array.
 
 ------------------------
+
 >## nn.pad_sequence
 (data, shuffle=False, pad=0)
 
@@ -164,6 +176,7 @@ _shuffle_: bool value. If "True", pad each sequence with random start-index and 
 A list.
 
 ------------------------
+
 >## nn.accuracy
 (ref, hyp, ignore=None, mode='all')
 
@@ -178,6 +191,7 @@ _model_: If "all", compute one-one matching score. For example, _ref_ is (1,2,3,
 a namedtuple object of score information.
 
 ------------------------
+
 >## nn.pure_edit_distance
 (ref, hyp, ignore=None)
 

@@ -1,16 +1,25 @@
 # exkaldi
+
+This section includes various functions to load Exkaldi archives or other Exkadli objects.
+
 -----------------------------
 >## exkaldi.load_list_table
-(target, name="table")
+(target, name="listTable")
 
 Generate a list table object from dict object or file.
+[view code distribution](https://github.com/wangyu09/exkaldi/blob/master/exkaldi/core/load.py)
 
 **Args:**  
 _target_: dict object or the text file path.  
+_name_: a string.  
 
 **Return:**  
 exkaldi ListTable object.
 
+**Examples:** 
+```python
+utt2spk = exkaldi.load_list_table("./utt2spk")
+``` 
 -----------------------------
 >## exkaldi.load_index_table
 (target, name="index", useSuffix=None)
@@ -20,11 +29,35 @@ Load an index table from dict, or archive table file.
 **Args:**  
 _target_: dict object, ArkIndexTable object, bytes archive object or archive table file.  
 _name_: a string.  
-_useSuffix_: if _target_ is file path and not default suffix, specified it.  
+_useSuffix_: if _target_ is file path and not default suffix, appoint it "scp" or "ark".  
 
 **Return:**
 exkaldi ArkIndexTable object.
 
+**Examples:** 
+Exkaldi index table can discribe all bytes archives. typically, you can load the index table from a binary archive table file.
+```python
+feat = exkaldi.load_list_table("./feat.ark",name="mfcc")
+cmvn = exkaldi.load_list_table("./cmvn.ark",name="cmvn")
+``` 
+Or you can load index table from .scp file.
+```python
+feat = exkaldi.load_list_table("./feat.scp",name="mfcc")
+``` 
+We will guess whether it is .ark or scp file through the file suffix. If it has not the default suffix, you need to declare it. Generally, in Kaldi, the alignment and fmllr transform matrix don't have the expected suffix.
+```python
+ali = exkaldi.load_list_table("./ali",name="ali",useSuffix="ark")
+``` 
+If the index table is loaded from file, it has the file path infomation so that you can read the real data into memory.
+```python
+ali = exkaldi.load_list_table("./ali",name="ali",useSuffix="ark")
+ali = ali.fetch(arkType="ali")
+``` 
+And the table can be saved as the same format as kaldi .scp file.
+```python
+feat = exkaldi.load_list_table("mfcc.ark")
+ali.save("mfcc.scp")
+``` 
 -----------------------------
 >## exkaldi.load_feat
 (target, name="feat", useSuffix=None)

@@ -1,19 +1,21 @@
 # coding=utf-8
 #
 # Yu Wang (University of Yamanashi)
-# May, 2020
+# May,2020
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
+# Licensed under the Apache License,Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
+# Unless required by applicable law or agreed to in writing,software
 # distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+'''This package includes some function to check format of arguments.'''
 
 import os
 from exkaldi.version import info as ExkaldiInfo
@@ -23,345 +25,447 @@ def __type_name(obj):
 	return obj.__class__.__name__
 
 def kaldi_existed():
-    '''
-    Verify whether or not kaldi toolkit has existed in system environment.
-    '''
-    assert ExkaldiInfo.KALDI_ROOT is not None, "Kaldi toolkit was not found in system PATH."
+	'''
+	Verify whether or not Kaldi toolkit has existed in system environment.
+	'''
+	assert ExkaldiInfo.KALDI_ROOT is not None,"Kaldi toolkit was not found in system PATH."
 
-def is_valid_string(objName, obj):
-    '''
-    Verify whether or not this is a reasonable string.
-    
-    Args:
-        <objName>: a string, the name of this object.
-        <obj>: python object.
-        <errMessage>: None or a string.
-    '''
-    assert isinstance(obj, str) and len(obj.strip()) > 0, f"<{objName}> should be a valid string but got: {__type_name(obj)}."
+# data type
 
-def members_are_valid_strings(objName, obj):
-    '''
-    Verify whether or not these are reasonable strings.
-    '''
-    assert isinstance(obj,Iterable), f"<{objName}> is not iterable: {__type_name(obj)}."
+def is_valid_string(name,string):
+	'''
+	Verify whether or not this is a reasonable string.
+	
+	Args:
+		<name>: a string,the name of this object.
+		<string>: python object.
+	'''
+	assert isinstance(string,str),f"<{name}> is not a valid string: {__type_name(string)}."
+	assert len(string.strip())>0,f"<{name}> is a void string: {string}."
 
-    for m in obj:
-        is_valid_string(objName, m)
+def members_are_valid_strings(name,strings):
+	'''
+	Verify whether or not these are reasonable strings.
+	'''
+	assert isinstance(strings,Iterable),f"<{name}> is not iterable: {__type_name(strings)}."
 
-def is_file(objName, obj):
-    '''
-    Verify whether or not this is a existed file.
-    '''
-    assert isinstance(obj, str), f"<{objName}> should be a file name but got: {__type_name(obj)}."
-    assert len(obj) > 0, f"<{objName}> got a void string."
-    assert not os.path.isdir(obj), f"<{objName}> should be a file name but directory: {obj}."
-    assert os.path.isfile(obj), f"No such file: {obj}."
+	for string in strings:
+		is_valid_string(name,string)
 
-def is_dir(objName, obj):
-    '''
-    Verify whether or not this is a existed folder.
-    '''
-    assert isinstance(obj, str), f"<{objName}> should be a drectory name but got: {__type_name(obj)}."
-    assert len(obj) > 0, f"<{objName}> got a void string."
-    assert not os.path.isfile(obj), f"<{objName}> should be a drectory name but file: {obj}."
-    assert os.path.isdir(obj), f"No such directory: {obj}."
+def is_file(name,filePath):
+	'''
+	Verify whether or not this is a existed file.
+	'''
+	is_valid_string(f"File path: {name}",filePath)
+	assert not os.path.isdir(filePath),f"<{name}> is not a file but a directory: {filePath}."
+	assert os.path.isfile(filePath),f"No such file: {filePath}."
 
-def members_are_files(objName, obj):
-    '''
-    Verify whether or not these are existed files.
-    '''
-    assert isinstance(obj,Iterable), f"<{objName}> is not iterable: {__type_name(obj)}."
+def is_dir(name,dirPath):
+	'''
+	Verify whether or not this is a existed folder.
+	'''
+	is_valid_string(f"Directory path: {name}",dirPath)
+	assert not os.path.isfile(dirPath),f"<{name}> is not drectory but a file: {dirPath}."
+	assert os.path.isdir(dirPath),f"No such directory: {dirPath}."
 
-    for m in obj:
-        is_file(objName, m)
+def members_are_files(name,filePaths):
+	'''
+	Verify whether or not these are existed files.
+	'''
+	assert isinstance(filePaths,Iterable),f"<{name}> is not iterable: {__type_name(filePaths)}."
 
-def is_classes(objName, obj, targetClass):
-    '''
-    Verify whether or not this object is an instance of these classes (do not include subclasses).
+	for filePath in filePaths:
+		is_file(name,filePath)
 
-    Args:
-        <targetClass>: class, class name, list or tuple of classes, list or tuple of names of classes.
-    '''
-    className = []
-    if isinstance(targetClass,(list,tuple)):
-        for c in targetClass:
-            if isinstance(c, str):
-                className.append(c)
-            else:
-                className.append( c.__name__ )
-    else:
-        if isinstance(targetClass, str):
-            className.append(targetClass)
-        else:
-            className.append( targetClass.__name__ )
-    
-    assert __type_name(obj) in className, f"<{objName}> should be an object of {className} classes but got: {__type_name(obj)}"
+def is_classes(name,obj,targetClasses):
+	'''
+	Verify whether or not this object is an instance of these classes (do not include subclasses).
 
-def members_are_classes(objName, obj, targetClass):
-    '''
-    Verify whether or not these objects are instances of these classes (do not include subclasses).
-    '''
-    assert isinstance(obj, Iterable), f"<{objName}> is not iterable: {__type_name(obj)}."
+	Args:
+		<targetClass>: class,class name,list or tuple of classes,list or tuple of names of classes.
+	'''
+	className = []
+	if isinstance(targetClasses,(list,tuple)):
+		for c in targetClasses:
+			if isinstance(c,str):
+				className.append( c )
+			else:
+				className.append( c.__name__ )
+	else:
+		if isinstance(targetClasses,str):
+			className.append( targetClasses )
+		else:
+			className.append( targetClasses.__name__ )
+	classNameCon = ",".join(className)
+	
+	assert __type_name(obj) in className,f"<{name}> is not an instance included in [{classNameCon}] classes: {__type_name(obj)}"
 
-    className = []
-    if isinstance(targetClass,(list,tuple)):
-        for c in targetClass:
-            if isinstance(c, str):
-                className.append(c)
-            else:
-                className.append( c.__name__ )
-    else:
-        if isinstance(targetClass, str):
-            className.append(targetClass)
-        else:
-            className.append( targetClass.__name__ )
-    
-    for m in obj:
-        assert __type_name(m) in className, f"All members of <{objName}> should be objects of {className} classes but got: {__type_name(m)}"
+def members_are_classes(name,objs,targetClasses):
+	'''
+	Verify whether or not these objects are instances of these classes (do not include subclasses).
+	'''
+	assert isinstance(objs,Iterable),f"<{name}> is not iterable: {__type_name(objs)}."
 
-def belong_classes(objName, obj, targetClass):
-    '''
-    Verify whether or not this object is an instance of these classes and their subclasses.
+	className = []
+	if isinstance(targetClasses,(list,tuple)):
+		for c in targetClasses:
+			if isinstance(c,str):
+				className.append( c )
+			else:
+				className.append( c.__name__ )
+	else:
+		if isinstance(targetClasses,str):
+			className.append( targetClasses )
+		else:
+			className.append( targetClasses.__name__ )
+	classNameCon = ",".join(className)
+	
+	for obj in objs:
+		assert __type_name(obj) in className,f"<{name}> are not instances included [{classNameCon}] classes: {__type_name(obj)}"
 
-    Args:
-        <targetClass>: class, list or tuple of classes.
-    '''   
-    className = []
-    if isinstance(targetClass, (list,tuple)):
-        for c in targetClass:
-            className.append( c.__name__ )
-    else:
-        className.append( targetClass.__name__ )
-        targetClass = [targetClass, ]
-    targetClass = tuple(targetClass)
-        
-    assert isinstance(obj, targetClass), f"<{objName}> should be an object of {className} clases or their subclasses but got: {__type_name(obj)}"
+def belong_classes(name,obj,targetClasses):
+	'''
+	Verify whether or not this object is an instance of these classes and their subclasses.
+	'''   
+	if not isinstance(targetClasses,(list,tuple)):
+		targetClasses = (targetClasses,)
+	className = [ c.__name__ for c in targetClasses]
+	className = ",".join(className)
 
-def members_belong_classes(objName, obj, targetClass):
-    '''
-    Verify whether or not these objects are instances of these classes and their subclasses.
-    '''
-    assert isinstance(obj,Iterable), f"<{objName}> is not a iterable object: {__type_name(obj)}."
+	targetClasses = tuple(targetClasses)
+		
+	assert isinstance(obj,targetClasses),f"<{name}> is not an instance included in [{className}] clases or their subclasses but: {__type_name(obj)}"
 
-    className = []
-    if isinstance(targetClass,(list,tuple)):
-        for c in targetClass:
-            className.append( c.__name__ )
-    else:
-        className.append( targetClass.__name__ )
-        targetClass = [targetClass, ]
-    targetClass = tuple(targetClass)
-    
-    for m in obj:
-        assert isinstance(m, targetClass), f"All members of <{objName}> should be objects of {className} classes or their subclasses but got: {__type_name(m)}"
+def members_belong_classes(name,objs,targetClasses):
+	'''
+	Verify whether or not these objects are instances of these classes and their subclasses.
+	'''
+	assert isinstance(objs,Iterable),f"<{name}> is not a iterable object: {__type_name(objs)}."
 
-def is_instances(objName, obj, targetInstance):
+	if not isinstance(targetClasses,(list,tuple)):
+		targetClasses = (targetClasses,)
+	className = [ c.__name__ for c in targetClasses]
+	className = ",".join(className)
 
-    if not isinstance(targetInstance,(list,tuple)):
-        targetInstance = [targetInstance,]
+	targetClass = tuple(targetClasses)
+	
+	for obj in objs:
+		assert isinstance(obj,targetClasses),f"<{name}> are not instances included in [{className}] clases or their subclasses but: {__type_name(obj)}"
 
-    assert obj in targetInstance, f"<{objName}> should be in {targetInstance} but got: {obj}"
+def is_instances(name,obj,targetInstances):
+	'''
+	Verify whether or not this object is one of target instances.
+	'''
+	if not isinstance(targetInstances,(list,tuple)):
+		targetInstances = [targetInstances,]
 
-def members_are_instances(objName, obj, targetInstance):
+	assert obj in targetInstances,f"<{name}> does not exist in {targetInstances}: {obj}"
 
-    assert isinstance(obj,Iterable), f"<{objName}> is not a iterable object: {__type_name(obj)}."
-    
-    for m in obj:
-        is_instances(objName, m, targetInstance)   
+def members_are_instances(name,objs,targetInstances):
+	'''
+	Verify whether or not each of these objects is one of target instances.
+	'''
+	assert isinstance(objs,Iterable),f"<{name}> is not a iterable object: {__type_name(objs)}."
+	
+	for obj in objs:
+		is_instances(name,obj,targetInstances)
 
-def not_void(objName, obj):
+def not_void(name,obj):
+	'''
+	Verify whether or not this is a void object.
+	'''
+	if __type_name(obj) in ["list","tuple","dict","str"]:
+		assert len(obj) > 0,f"<{name}> has nothing provided."
+	else:
+		assert "is_void" in dir(obj),f"Cannot decide whether or not <{__type_name(obj)}> object is void with this function."
+		assert not obj.is_void,f"<{name}> is void. Can not operate it."
 
-    if __type_name(obj) in ["list","tuple","dict"]:
-        assert len(obj) > 0, f"<{objName}> has nothing provided."
-    else:
-        assert "is_void" in dir(obj), f"Cannot decide whether or not <{__type_name(obj)}> object is void with this function."
-        assert not obj.is_void, f"<{objName}> is void. Can not operate it."
+def is_valid_file_name_or_handle(name,obj):
+	'''
+	Verify whether or not this is a resonable file name or file handle.
+	'''
+	assert __type_name(obj) in ["str","TextIOWrapper","_TemporaryFileWrapper"],f"<{name}> should be a file name or an opened file handle but got: {__type_name(obj)}."
 
-def is_valid_file_name_or_handle(objName, obj):
+	if isinstance(obj,str):
+		obj = obj.strip()
+		assert len(obj) > 0,f"<{name}> is a void string: {obj}."
+		assert not os.path.isdir(obj),f"<{name}> has been existed as a directory: {obj}."
+	else:
+		obj.seek(0)
+		assert len(obj.read()) == 0,f"When <{name}> is an opened file handle,this file should be void."
+		obj.seek(0)
 
-    assert __type_name(obj) in ["str","TextIOWrapper","_TemporaryFileWrapper"], f"<{objName}> should be a file name or an opened file handle but got: {__type_name(obj)}."
+def is_valid_file_name(name,fileName):
+	'''
+	Verify whether or not this is a file name avaliable.
+	'''
+	is_valid_string(name,fileName)
+	fileName = fileName.strip()
+	assert not os.path.isdir(fileName),f"<{name}> has been existed as a directory: {fileName}."
 
-    if isinstance(obj, str):
-        obj = obj.strip()
-        assert len(obj) > 0, f"<{objName}> should be a valid string but got: {__type_name(obj)}."
-        assert not os.path.isdir(obj), f"<{objName}> has been existed as a directory: {__type_name(obj)}."
-    else:
-        obj.seek(0)
-        assert len(obj.read()) == 0, f"When <{objName}> is an opened file handle, this file should be void."
-        obj.seek(0)
-
-def is_valid_file_name(objName, obj):
-
-    is_valid_string(objName, obj)
-    obj = obj.strip()
-    assert not os.path.isdir(obj), f"<{objName}> has been existed as a directory: {__type_name(obj)}."
-
-def is_valid_dir_name(objName, obj):
-
-    is_valid_string(objName, obj)
-    obj = obj.strip()
-    assert not os.path.isfile(obj), f"<{objName}> has been existed as a file: {__type_name(obj)}."
+def is_valid_dir_name(name,dirName):
+	'''
+	Verify whether or not this is a directory name avaliable.
+	'''
+	is_valid_string(name,dirName)
+	dirName = dirName.strip()
+	assert not os.path.isfile(dirName),f"<{name}> has been existed as a file: {dirName}."
 
 # value
 
-def in_boundary(objName, obj, minV=None, maxV=None):
+def in_boundary(name,value,minV=None,maxV=None):
+	'''
+	Verify whether or not this value is whithin the boundary.
 
-    assert minV is None or isinstance(minV,(int,float)), f"Boundary min value is invalid: {minV}."
-    assert maxV is None or isinstance(maxV,(int,float)), f"Boundary max value is invalid: {maxV}."
-    assert not ( maxV is None and minV is None ), f"At least one boundary value is necessary but got both None."
+	If both or <minV> and <maxV> are not float value,the <value> will be declared as int type.
+	'''    
+	assert minV is None or isinstance(minV,(int,float)),f"Boundary min value is invalid: {minV}."
+	assert maxV is None or isinstance(maxV,(int,float)),f"Boundary max value is invalid: {maxV}."
+	assert not ( maxV is None and minV is None ),f"At least one boundary value is necessary but got both None."
 
-    if minV is None:
-        if isinstance(maxV, int):
-            assert isinstance(obj, int), f"<{objName}> should be an int value but got: {obj}."
-        else:
-            assert isinstance(obj, (int,float)), f"<{objName}> should be an int or float value but got: {obj}."
-        assert obj <= maxV, f"<{objName}> should be an value no larger than {maxV} but got: {obj}."
-    elif maxV is None:
-        if isinstance(minV, int):
-            assert isinstance(obj, int), f"<{objName}> should be an int value but got: {obj}."
-        else:
-            assert isinstance(obj, (int,float)), f"<{objName}> should be an int or float value but got: {obj}."        
-        assert obj >= minV, f"<{objName}> should be an value no smaller than {minV} but got: {obj}."
-    else:
-        if isinstance(minV,int) and isinstance(maxV,int):
-            assert isinstance(obj, int), f"<{objName}> should be an int value but got: {obj}."
-        else:
-            assert isinstance(obj, (int,float)), f"<{objName}> should be an int or float value but got: {obj}."
-        assert minV <= obj <= maxV, f"<{objName}> should be an value within {minV}~{maxV} but got: {obj}."
+	if minV is None:
+		if isinstance(maxV,int):
+			assert isinstance(value,int),f"<{name}> should be an int value but got: {value}."
+		else:
+			assert isinstance(value,(int,float)),f"<{name}> should be an int or float value but got: {value}."
+		assert value <= maxV,f"<{name}> should be an value no larger than {maxV} but got: {value}."
 
-def equal(objName1, obj1, objName2, obj2):
-     
-    assert obj1 == obj2, f"<{objName1}>, {obj1} does not match the <{objName2}>, {obj2}."
+	elif maxV is None:
+		if isinstance(minV,int):
+			assert isinstance(value,int),f"<{name}> should be an int value but got: {value}."
+		else:
+			assert isinstance(value,(int,float)),f"<{name}> should be an int or float value but got: {value}."        
+		assert value >= minV,f"<{name}> should be an value no smaller than {minV} but got: {value}."
 
-def larger(objName1, obj1, objName2, obj2):
+	else:
+		if isinstance(minV,int) and isinstance(maxV,int):
+			assert isinstance(value,int),f"<{name}> should be an int value but got: {value}."
+		else:
+			assert isinstance(value,(int,float)),f"<{name}> should be an int or float value but got: {value}."
+		assert minV <= value <= maxV,f"<{name}> should be an value within {minV}~{maxV} but got: {value}."
 
-    assert obj1 >= obj2, f"<{objName1}> should no smaller than <{objName2}> but got: {obj1} < {obj2}."
+def equal(nameA,valueA,nameB,valueB):
+	'''
+	Verify whether or not these two value are equal.
+	'''      
+	assert valueA == valueB,f"<{nameA}>,{valueA} does not match the <{nameB}>,{valueB}."
 
-def smaller(objName1, obj1, objName2, obj2):
+def greater(nameA,valueA,nameB,valueB):
+	'''
+	Verify whether or not value A is greater than value B.
+	'''  
+	assert valueA > valueB,f"<{nameA}> should be greater than <{nameB}> but got: {valueA} <= {valueB}."
 
-    assert obj1 <= obj2, f"<{objName1}> should no larger than <{objName2}> but got: {obj1} > {obj2}."
+def greater_equal(nameA,valueA,nameB,valueB):
+	'''
+	Verify whether or not value A is not less than value B.
+	'''  
+	assert valueA >= valueB,f"<{nameA}> should be not less than <{nameB}> but got: {valueA} < {valueB}."
 
-# special
+def less(nameA,valueA,nameB,valueB):
+	'''
+	Verify whether or not value A is less than value B.
+	'''  
+	assert valueA < valueB,f"<{nameA}> should be less than <{nameB}> but got: {valueA} >= {valueB}."
 
-def is_index_table(objName, obj):
+def less_equal(nameA,valueA,nameB,valueB):
+	'''
+	Verify whether or not value A is not greater than value B.
+	'''  
+	assert valueA <= valueB,f"<{nameA}> should be not greater than <{nameB}> but got: {valueA} > {valueB}."
 
-    assert __type_name(obj) == "ArkIndexTable", f"<{objName}> should be exkaldi index table object but got: {__type_name(obj)}."
+def is_positive(name,value):
+	'''
+	Verify whether or not value is a positive int or float value.
+	'''  
+	assert isinstance(value,(int,float)) and value > 0,f"<{name}> should be a positive int or float value but got: {value}."
 
-def is_matrix(objName, obj):
+def is_positive_int(name,value):
+	'''
+	Verify whether or not value is a positive int value.
+	'''  
+	assert isinstance(value,int) and value > 0,f"<{name}> should be a positive int value but got: {value}."
 
-    assert __type_name(obj) in ["ArkIndexTable","NumpyMatrix","BytesMatrix"], f"<{objName}> should be exkaldi matrix table object but got: {__type_name(obj)}."
+def is_positive_float(name,value):
+	'''
+	Verify whether or not value is a positive float value.
+	'''  
+	assert isinstance(value,float) and value > 0,f"<{name}> should be a positive float value but got: {value}."
 
-def is_vector(objName, obj):
+def is_non_negative(name,value):
+	'''
+	Verify whether or not value is a non-negative float or int value.
+	'''  
+	assert isinstance(value,(int,float)) and value >= 0,f"<{name}> should be a non-negative int or float value but got: {value}."
 
-    assert __type_name(obj) in ["ArkIndexTable","NumpyVector","BytesVector"], f"<{objName}> should be exkaldi vector table object but got: {__type_name(obj)}."
-
-def is_feature(objName, obj):
-
-    assert __type_name(obj) in ["ArkIndexTable","BytesFeature","NumpyFeature"], f"<{objName}> should be exkaldi feature or index table object but got: {__type_name(obj)}."
-
-def is_probability(objName, obj):
-    
-    assert __type_name(obj) in ["ArkIndexTable","BytesProbability","NumpyProbability"], f"<{objName}> should be exkaldi probability or index table object but got: {__type_name(obj)}."
-
-def is_cmvn(objName, obj):
-    
-    assert __type_name(obj) in ["ArkIndexTable","BytesCMVNStatistics","NumpyCMVNStatistics"], f"<{objName}> should be exkaldi CMVN statistics or index table object but got: {__type_name(obj)}."
-
-def is_fmllr_matrix(objName, obj):
-    
-    assert __type_name(obj) in ["ArkIndexTable","BytesFmllrMatrix","NumpyFmllrMatrix"], f"<{objName}> should be exkaldi fmllr matrix or index table object but got: {__type_name(obj)}."
-
-def is_alignment(objName, obj):
-    
-    assert __type_name(obj) in ["ArkIndexTable","BytesAlignmentTrans","NumpyAlignmentTrans"], f"<{objName}> should be exkaldi transition alignment or index table object but got: {__type_name(obj)}."
-
-def is_potential_transcription(objName, obj):
-    
-    if isinstance(obj, str):
-        is_file(objName, obj)
-    else:
-        assert __type_name(obj) == "Transcription", f"<{objName}> should be file name or exkaldi transcription object but got: {__type_name(obj)}."
-
-def is_transcription(objName, obj):
-
-    assert __type_name(obj) == "Transcription", f"<{objName}> should be exkaldi transcription object but got: {__type_name(obj)}."
-
-def is_potential_list_table(objName, obj):
-    
-    if isinstance(obj, str):
-        is_file(objName, obj)
-    else:
-        assert __type_name(obj) == "ListTable", f"<{objName}> should be file name or exkaldi transcription object but got: {__type_name(obj)}."
-
-def is_list_table(objName, obj):
-
-    assert __type_name(obj) == "ListTable", f"<{objName}> should be exkaldi list table object but got: {__type_name(obj)}."
-
-def is_potential_hmm(objName, obj):
-
-    if isinstance(obj, str):
-        is_file(objName, obj)
-    else:
-        assert __type_name(obj) in ["BaseHMM","MonophoneHMM","TriphoneHMM"], f"<{objName}> should be file name or exkaldi HMM object but got: {__type_name(obj)}."
-
-def is_hmm(objName, obj):
-
-    assert __type_name(obj) in ["BaseHMM","MonophoneHMM","TriphoneHMM"], f"<{objName}> should be exkaldi HMM object but got: {__type_name(obj)}."
-
-def is_potential_tree(objName, obj):
-
-    if isinstance(obj, str):
-        is_file(objName, obj)
-    else:
-        assert __type_name(obj) == "DecisionTree", f"<{objName}> should be file name or exkaldi decision tree object but got: {__type_name(obj)}."
-
-def is_tree(objName, obj):
-
-    assert __type_name(obj) == "DecisionTree", f"<{objName}> should be exkaldi decision tree object but got: {__type_name(obj)}."
-
-def is_potential_lattice(objName, obj):
-
-    if isinstance(obj, str):
-        is_file(objName, obj)
-    else:
-        assert __type_name(obj) == "Lattice", f"<{objName}> should be file name or exkaldi Lattice object but got: {__type_name(obj)}."
-
-def is_lattice(objName, obj):
-
-    assert __type_name(obj) == "Lattice", f"<{objName}> should be an exkaldi Lattice object but got: {__type_name(obj)}."
-
-def is_lexicon_bank(objName, obj):
-
-    assert __type_name(obj) == "LexiconBank", f"<{objName}> should be exkaldi lexicon bank object but got: {__type_name(obj)}."
-
-def is_positive(objName, obj):
-
-    assert isinstance(obj,(int,float)) and obj > 0, f"<{objName}> should be a positive int or float value but got: {obj}."
-
-def is_positive_int(objName, obj):
-
-    assert isinstance(obj,int) and obj > 0, f"<{objName}> should be a potive int value but got: {obj}."
-
-def is_positive_float(objName, obj):
-
-    assert isinstance(obj,float) and obj > 0, f"<{objName}> should be a potive float value but got: {obj}."
-
-def is_non_negative(objName, obj):
-
-    assert isinstance(obj,(int,float)) and obj >= 0, f"<{objName}> should be a non-negasitive int or float value but got: {obj}."
-
-def is_non_negative_int(objName, obj):
-
-    assert isinstance(obj,int) and obj >= 0, f"<{objName}> should be a non-negasitive int value but got: {obj}."
+def is_non_negative_int(name,value):
+	'''
+	Verify whether or not value is a non-negative int value.
+	'''  
+	assert isinstance(value,int) and value >= 0,f"<{name}> should be a non-negative int value but got: {value}."
  
-def is_non_negative_float(objName, obj):
+def is_non_negative_float(name,value):
+	'''
+	Verify whether or not value is a non-negative float value.
+	'''  
+	assert isinstance(value,float) and value >= 0,f"<{name}> should be a non-negative float value but got: {value}."
 
-    assert isinstance(obj,float) and obj >= 0, f"<{objName}> should be a non-negasitive float value but got: {obj}."
+def is_bool(name,value):
+	'''
+	Verify whether or not value is a bool value.
+	'''  
+	assert isinstance(value,bool),f"<{name}> should be a bool value but got: {value}."
 
-def is_bool(objName, obj):
+def is_callable(name,obj):
+	'''
+	Verify whether or not obj is callable.
+	'''  
+	assert callable(obj),f"<{name}> is not callable."
 
-    assert isinstance(obj,bool), f"<{objName}> should be a bool value but got: {obj}."
+# special for Exkaldi
 
-def is_callable(objName, obj):
+def is_index_table(name,indexTable):
+	'''
+	Verify whether or not this is an Exkaldi ArkIndexTable object.
+	'''
+	assert __type_name(indexTable) == "ArkIndexTable",f"<{name}> should be exkaldi index table object but got: {__type_name(indexTable)}."
 
-    assert callable(obj), f"<{objName}> is not callable."
+def is_matrix(name,mat):
+	'''
+	Verify whether or not this is a reasonable Exkaldi matrix archive object that is ArkIndexTable or NumpyMatrix or BytesMatrix object.
+	'''
+	targetClasses = ["ArkIndexTable","NumpyMatrix","BytesMatrix"]
+
+	is_classes(f"Exkaldi matrix data: {name}",mat,targetClasses)
+
+def is_vector(name,vec):
+	'''
+	Verify whether or not this is a reasonable Exkaldi vector archive object that is ArkIndexTable or NumpyVector or BytesVector object.
+	'''
+	targetClasses = ["ArkIndexTable","NumpyVector","BytesVector"]
+
+	is_classes(f"Exkaldi vector data: {name}",vec,targetClasses)
+
+def is_feature(name,feat):
+	'''
+	Verify whether or not this is a reasonable Exkaldi feature archive object that is ArkIndexTable or NumpyFeature or BytesFeature object.
+	'''
+	targetClasses = ["ArkIndexTable","NumpyFeature","BytesFeature"]
+
+	is_classes(f"Exkaldi feature data: {name}",feat,targetClasses)
+
+def is_probability(name,prob):
+	'''
+	Verify whether or not this is a reasonable Exkaldi probability archive object that is ArkIndexTable or NumpyProbability or BytesProbability object.
+	'''
+	targetClasses = ["ArkIndexTable","BytesProbability","NumpyProbability"]
+
+	is_classes(f"Exkaldi probability data: {name}",prob,targetClasses)
+
+def is_cmvn(name,cmvn):
+	'''
+	Verify whether or not this is a reasonable Exkaldi CMVN archive object that is ArkIndexTable or NumpyCMVNStatistics or BytesCMVNStatistics object.
+	'''
+	targetClasses = ["ArkIndexTable","BytesCMVNStatistics","NumpyCMVNStatistics"]
+
+	is_classes(f"Exkaldi CMVN data: {name}",cmvn,targetClasses)
+
+def is_fmllr_matrix(name,fmllrMat):
+	'''
+	Verify whether or not this is a reasonable Exkaldi CMVN archive object that is ArkIndexTable or NumpyFmllrMatrix or BytesFmllrMatrix object.
+	'''
+	targetClasses = ["ArkIndexTable","BytesFmllrMatrix","NumpyFmllrMatrix"]
+
+	is_classes(f"Exkaldi fmllr transform matrix: {name}",fmllrMat,targetClasses)
+
+def is_alignment(name,ali):
+	'''
+	Verify whether or not this is a reasonable Exkaldi transition alignment archive object that is ArkIndexTable or NumpyAlignmentTrans or BytesAlignmentTrans object.
+	'''
+	targetClasses = ["ArkIndexTable","BytesAlignmentTrans","NumpyAlignmentTrans"]
+
+	is_classes(f"Exkaldi transition alignment matrix: {name}",ali,targetClasses)
+	
+def is_potential_transcription(name,transcription):
+	'''
+	Verify whether or not this is a reasonable transcription that is file path exkaldi Transcription object.
+	'''	
+	if isinstance(transcription,str):
+		is_file(name,transcription)
+	else:
+		assert __type_name(transcription) == "Transcription",f"<{name}> is a file name or exkaldi Transcription object: {__type_name(transcription)}."
+
+def is_transcription(name,transcription):
+	'''
+	Verify whether or not this is an exkaldi Transcription object.
+	'''	
+	assert __type_name(transcription) == "Transcription",f"<{name}> is not an exkaldi transcription object: {__type_name(transcription)}."
+
+def is_potential_list_table(name,listTable):
+	'''
+	Verify whether or not this is a reasonable transcription that is file path or exkaldi ListTable object.
+	'''		
+	if isinstance(listTable,str):
+		is_file(name,listTable)
+	else:
+		assert __type_name(listTable) == "ListTable",f"<{name}> is not a file name or exkaldi ListTable object: {__type_name(listTable)}."
+
+def is_list_table(name,listTable):
+	'''
+	Verify whether or not this is an exkaldi ListTable object.
+	'''	
+	assert __type_name(obj) == "ListTable",f"<{name}> should be an exkaldi ListTable object but got: {__type_name(obj)}."
+
+def is_potential_hmm(name,hmm):
+	'''
+	Verify whether or not this is a reasonable GMM-HMM model that is a file path or exkaldi HMM object.
+	'''	
+	if isinstance(hmm,str):
+		is_file(name,hmm)
+	else:
+		assert __type_name(hmm) in ["BaseHMM","MonophoneHMM","TriphoneHMM"],f"<{name}> should be file name or exkaldi HMM object but got: {__type_name(hmm)}."
+
+def is_hmm(name,hmm):
+	'''
+	Verify whether or not this is an exkaldi HMM object.
+	'''	
+	targetClasses = ["BaseHMM","MonophoneHMM","TriphoneHMM"]
+	
+	is_classes(f"Exkaldi HMM object: {name}",hmm,targetClasses)
+
+def is_potential_tree(name,tree):
+	'''
+	Verify whether or not this is a reasonable decision tree that is a file path or exkaldi DecisionTree object.
+	'''	
+	if isinstance(tree,str):
+		is_file(name,tree)
+	else:
+		assert __type_name(tree) == "DecisionTree",f"<{name}> should be a file name or exkaldi DecisionTree object but got: {__type_name(tree)}."
+
+def is_tree(name,tree):
+	'''
+	Verify whether or not this is an exkaldi DecisionTree object.
+	'''	
+	assert __type_name(tree) == "DecisionTree",f"<{name}> is not an exkaldi DecisionTree object: {__type_name(tree)}."
+
+def is_potential_lattice(name,lat):
+	'''
+	Verify whether or not this is a reasonable lattice that is a file path or exkaldi Lattice object.
+	'''	
+	if isinstance(lat,str):
+		is_file(name,lat)
+	else:
+		assert __type_name(lat) == "Lattice",f"<{name}> should be file name or exkaldi Lattice object but got: {__type_name(lat)}."
+
+def is_lattice(name,lat):
+	'''
+	Verify whether or not this is an exkaldi Lattice object.
+	'''	
+	assert __type_name(lat) == "Lattice",f"<{name}> should be an exkaldi Lattice object but got: {__type_name(lat)}."
+
+def is_lexicon_bank(name,lex):
+	'''
+	Verify whether or not this is an exkaldi LexiconBank object.
+	'''	
+	assert __type_name(lex) == "LexiconBank",f"<{name}> should be exkaldi LexiconBank object but got: {__type_name(lex)}."
+

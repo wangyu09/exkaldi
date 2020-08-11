@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 
 from exkaldi import version
-from exkaldi.version import info, set_timeout
+from exkaldi.version import info
 
 from exkaldi.utils import *
 from exkaldi.core import *

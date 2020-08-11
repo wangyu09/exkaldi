@@ -1,17 +1,17 @@
 # coding=utf-8
 #
 # Yu Wang (University of Yamanashi)
-# Mar, 2020
+# Mar,2020
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
+# Licensed under the Apache License,Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
+# Unless required by applicable law or agreed to in writing,software
 # distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
@@ -29,11 +29,11 @@ import time
 import shutil
 from glob import glob
 
-from exkaldi.version import WrongPath, WrongOperation, UnsupportedType
-from exkaldi.utils.utils import make_dependent_dirs, type_name, run_shell_command, flatten
+from exkaldi.version import WrongPath,WrongOperation,UnsupportedType,KaldiProcessError
+from exkaldi.utils.utils import make_dependent_dirs,type_name,run_shell_command,flatten
 from exkaldi.utils import declare
 from exkaldi.core.load import load_feat
-from collections import namedtuple, Iterable
+from collections import namedtuple,Iterable
 
 class Supporter:
 	'''
@@ -42,14 +42,14 @@ class Supporter:
 	Args:
 		<outDir>: the output directory of Log information.
 	'''      
-	def __init__(self, outDir='Result'):
+	def __init__(self,outDir='Result'):
 		
-		declare.is_valid_dir_name("outDir", outDir)
-		make_dependent_dirs(outDir, pathIsFile=False)
+		declare.is_valid_dir_name("outDir",outDir)
+		make_dependent_dirs(outDir,pathIsFile=False)
 		self.outDir = os.path.abspath(outDir)
 
 		self.logFile = os.path.join(self.outDir,'log')
-		with open(self.logFile, 'w', encoding='utf-8'): pass
+		with open(self.logFile,'w',encoding='utf-8'): pass
 
 		self.currentField = {}
 		self.currentFieldIsFloat = {}
@@ -63,24 +63,24 @@ class Supporter:
 
 		self._iterSymbol = -1
 		
-	def send_report(self, info):
+	def send_report(self,info):
 		'''
 		Send information and these will be retained untill you do the statistics by using .collect_report().
 
 		Args:
 			<info>: a Python dict object includiing names and their values with int or float type.
 					such as {"epoch":epoch,"train_loss":loss,"train_acc":acc}
-					The value can be Python int, float object, Numpy int, float object or NUmpy ndarray with only one value.
+					The value can be Python int,float object,Numpy int,float object or NUmpy ndarray with only one value.
 		'''
-		declare.is_classes("info", info, dict)
+		declare.is_classes("info",info,dict)
 
 		for name,value in info.items(): 
-			assert isinstance(name, str) and len(name) > 0, f"The name of info should be string avaliable but got {type_name(name)}."
+			assert isinstance(name,str) and len(name) > 0,f"The name of info should be string avaliable but got {type_name(name)}."
 			valueDtype = type_name(value)
-			if valueDtype.startswith("int"): # Python int object, Numpy int object
+			if valueDtype.startswith("int"): # Python int object,Numpy int object
 				pass
 
-			elif valueDtype.startswith("float"): # Python float object, Numpy float object
+			elif valueDtype.startswith("float"): # Python float object,Numpy float object
 				self.currentFieldIsFloat[name] = True
 			
 			elif valueDtype == "ndarray" and value.shape == ():  # Numpy ndarray with only one value
@@ -94,22 +94,22 @@ class Supporter:
 				self.currentField[name] = []
 			self.currentField[name].append(value)
 
-	def collect_report(self, keys=None, plot=True):
+	def collect_report(self,keys=None,plot=True):
 		'''
 		Do the statistics of received information. The result will be saved in outDir/log file. 
 
 		Args:
-			<keys>: Specify the data wanted to be collected. If "None", collect all data reported. 
-			<plot>: If "True", print the statistics result to standard output.
+			<keys>: Specify the data wanted to be collected. If "None",collect all data reported. 
+			<plot>: If "True",print the statistics result to standard output.
 		'''
 		if keys is None:
 			keys = list(self.currentField)
-		elif isinstance(keys, str):
+		elif isinstance(keys,str):
 			keys = [keys,]
 		elif isinstance(keys,(list,tuple)):
 			pass
 		else:
-			raise WrongOperation("Expected <keys> is string, list or tuple.")
+			raise WrongOperation("Expected <keys> is string,list or tuple.")
 	
 		self.globalField.append({})
 
@@ -136,7 +136,7 @@ class Supporter:
 				message += f'{name}:-----    '
 
 
-		with open(self.logFile, 'a', encoding='utf-8') as fw:
+		with open(self.logFile,'a',encoding='utf-8') as fw:
 			fw.write(message + '\n')
 		# Print to screen
 		if plot is True:
@@ -145,7 +145,7 @@ class Supporter:
 		self.currentField = {}
 		self.currentFieldIsFloat = {}
 
-	def save_arch(self, saveFunc, arch, addInfo=None, byKey=None, byMax=True, maxRetain=0):
+	def save_arch(self,saveFunc,arch,addInfo=None,byKey=None,byMax=True,maxRetain=0):
 		'''
 		Usage:  obj.save_arch(saveFunc,archs={'model':model,'opt':optimizer})
 
@@ -153,20 +153,20 @@ class Supporter:
 		Only collected information will be used to check the condition. So data collecting is expected beforehand.
 
 		Args:
-			<saveFunc>: a function to save archivements in <arch>. It need a parameter to reseive <arch>, for example:
+			<saveFunc>: a function to save archivements in <arch>. It need a parameter to reseive <arch>,for example:
 						When use tensorflow 2.x
 							def save_model(arch):
-								for fileName, model in arch.items():
+								for fileName,model in arch.items():
 									model.save_weights(fileName+".h5")
-			<arch>: a dict object whose keys are the name, and values are achivements' object. It will be
-			<addInfo>: a reported name. If it is not None, will add the information to saving file name.
-			<byKey>: a reported name. If it is not None, save achivements only this value is larger than last saved achivements.
+			<arch>: a dict object whose keys are the name,and values are achivements' object. It will be
+			<addInfo>: a reported name. If it is not None,will add the information to saving file name.
+			<byKey>: a reported name. If it is not None,save achivements only this value is larger than last saved achivements.
 			<byMax>: a bool value. Control the condition of <byKey>.
-			<maxRetain>: the max numbers of saved achivements to retain. If 0, retain all.
+			<maxRetain>: the max numbers of saved achivements to retain. If 0,retain all.
 		''' 
-		assert isinstance(arch, dict), "Expected <arch> is dict whose keys are architecture-names and values are architecture-objects."
-		declare.is_callable("saveFunc", saveFunc)
-		declare.is_non_negative_int("maxRetain", maxRetain)
+		assert isinstance(arch,dict),"Expected <arch> is dict whose keys are architecture-names and values are architecture-objects."
+		declare.is_callable("saveFunc",saveFunc)
+		declare.is_non_negative_int("maxRetain",maxRetain)
 
 		#if self.currentField != {}:
 		#	self.collect_report(plot=False)
@@ -175,15 +175,15 @@ class Supporter:
 		self._iterSymbol += 1
 
 		if not addInfo is None:
-			assert isinstance(addInfo, (str, list, tuple)), 'Expected <addInfo> is string, list or tuple.'
-			if isinstance(addInfo, str):
+			assert isinstance(addInfo,(str,list,tuple)),'Expected <addInfo> is string,list or tuple.'
+			if isinstance(addInfo,str):
 				addInfo = [addInfo,]
 			for name in addInfo:
 				if not name in self.globalField[-1].keys():
 					suffix += f"{name}None"
 				else:
 					value = self.globalField[-1][name]
-					if isinstance(value, float):
+					if isinstance(value,float):
 						suffix += f"_{name}{value:.4f}".replace(".","")
 					else:
 						suffix += f"_{name}{value}"
@@ -194,7 +194,7 @@ class Supporter:
 			self.lastSavedArch = {}
 			newArchs = {}
 			for name in arch.keys():
-				fileName = os.path.join(self.outDir, name+suffix)
+				fileName = os.path.join(self.outDir,name+suffix)
 				newArchs[fileName] = arch[name]
 				self.lastSavedArch[name] = fileName
 			saveFlag = True
@@ -222,11 +222,11 @@ class Supporter:
 				self.lastSavedArch = {}
 				for name in arch.keys():
 					if (addInfo is None) or (byKey not in addInfo):
-						if isinstance(value, float):
+						if isinstance(value,float):
 							suffix += f"_{name}{value:.4f}".replace(".","")
 						else:
 							suffix += f"_{name}{value}"
-					fileName = os.path.join(self.outDir, name+suffix)
+					fileName = os.path.join(self.outDir,name+suffix)
 					newArchs[fileName] = arch[name]
 					self.lastSavedArch[name] = fileName
 		
@@ -234,7 +234,7 @@ class Supporter:
 			# Save
 			saveFunc(newArchs)
 			# Try to correct the file name
-			for name, fileName in self.lastSavedArch.items():
+			for name,fileName in self.lastSavedArch.items():
 				realFileName = glob( fileName + "*" )
 				if len(realFileName) == 0:
 					raise WrongOperation(f"Achivement whose name starts with {fileName} should have been saved done but not found.")
@@ -246,7 +246,7 @@ class Supporter:
 			self.savedArchs.append( self.lastSavedArch.items() )
 
 			for items in self.savedArchs[0:-maxRetain]:
-				for name, fileName in items:
+				for name,fileName in items:
 					try:
 						if os.path.exists(fileName):
 							if os.path.isfile(fileName):
@@ -271,7 +271,7 @@ class Supporter:
 		''' 
 		return self.lastSavedArch
    
-	def judge(self, key, condition, threshold, byDeltaRatio=False):
+	def judge(self,key,condition,threshold,byDeltaRatio=False):
 		'''
 		Usage:  obj.judge('train_loss','<',0.0001,byDeltaRatio=True) or obj.judge('epoch','>=',10)
 		
@@ -280,23 +280,23 @@ class Supporter:
 
 		Args:
 			<key>: the name reported.
-			<condition>: a string, condition operators such as ">" or "=="
+			<condition>: a string,condition operators such as ">" or "=="
 			<threshold>: a int or float value.
-			<byDeltaRatio>: bool value, if true, threshold should be a delta ratio value.
+			<byDeltaRatio>: bool value,if true,threshold should be a delta ratio value.
 								deltaRatio = abs((value-value_pre)/value) 
 
 		Return:
 			True or False. 
 		''' 
-		declare.is_instance("condition operator", condition, ['>','>=','<=','<','==','!='])
-		declare.is_classes("threshold", threshold, (int,float))
+		declare.is_instance("condition operator",condition,['>','>=','<=','<','==','!='])
+		declare.is_classes("threshold",threshold,(int,float))
 
 		#if self.currentField != {}:
 		#	self.collect_report(plot=False)
 		
 		if byDeltaRatio is True:
 			p = []
-			for i in range(len(self.globalField)-1, -1, -1):
+			for i in range(len(self.globalField)-1,-1,-1):
 				if key in self.globalField[i].keys():
 					p.append(self.globalField[i][key])
 				if len(p) == 2:
@@ -304,20 +304,20 @@ class Supporter:
 					return eval( value + condition + str(threshold) )
 			return False
 		else:
-			for i in range(len(self.globalField)-1, -1, -1):
+			for i in range(len(self.globalField)-1,-1,-1):
 				if key in self.globalField[i].keys():
 					value = str(self.globalField[i][key])
 					return eval(value + condition + str(threshold))
 			return False
 
-	def dump(self, keepItems=False):
+	def dump(self,keepItems=False):
 		'''
 		Usage:  product = obj.dump()
 		Get all reported information.
 
 		Args:
-			<keepItems>: If True, return a dict object.
-						 Else, return a list of dict objects. 
+			<keepItems>: If True,return a dict object.
+						 Else,return a list of dict objects. 
 		
 		Return:
 			A dict object or list object.
@@ -343,13 +343,13 @@ class Supporter:
 
 class DataIterator:
 
-	def __init__(self, indexTable, processFunc, batchSize, chunks='auto', otherArgs=None, shuffle=False, retainData=0.0):
+	def __init__(self,indexTable,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,retainData=0.0):
 		
-		declare.is_index_table("indexTable", indexTable)
-		declare.is_callable("processFunc", processFunc)	
-		declare.is_positive_int("batchSize", batchSize)
-		declare.is_bool("shuffle", shuffle)
-		declare.in_boundary("retainData", retainData, minV=0.0, maxV=0.9)
+		declare.is_index_table("indexTable",indexTable)
+		declare.is_callable("processFunc",processFunc)	
+		declare.is_positive_int("batchSize",batchSize)
+		declare.is_bool("shuffle",shuffle)
+		declare.in_boundary("retainData",retainData,minV=0.0,maxV=0.9)
 
 		self.processFunc = processFunc
 		self._batchSize = batchSize
@@ -358,7 +358,7 @@ class DataIterator:
 		self._chunks = chunks
 
 		if chunks != 'auto':
-			declare.is_positive_int("chunks", chunks)
+			declare.is_positive_int("chunks",chunks)
 		
 		totalDataNumber = len(indexTable)
 		trainDataNumber = int(  totalDataNumber * (1-retainData) )
@@ -398,23 +398,23 @@ class DataIterator:
 			self.loadDatasetThread = threading.Thread(target=self.load_dataset,args=(1,))
 			self.loadDatasetThread.start()
 
-	def make_dataset_bag(self, shuffle=False):
+	def make_dataset_bag(self,shuffle=False):
 		if shuffle:
 			self.trainTable.shuffle()
 		self.datasetBag = self.trainTable.subset(chunks=self._chunks)
 
-	def load_dataset(self, datasetIndex):
+	def load_dataset(self,datasetIndex):
 		chunkData = load_feat(self.datasetBag[datasetIndex])
 		if self.otherArgs != None:
-			self.nextDataset = self.processFunc(self, chunkData, self.otherArgs)
+			self.nextDataset = self.processFunc(self,chunkData,self.otherArgs)
 		else:
-			self.nextDataset = self.processFunc(self, chunkData)
+			self.nextDataset = self.processFunc(self,chunkData)
 
-		assert isinstance(self.nextDataset, Iterable), "Process function should return an iterable objects."
+		assert isinstance(self.nextDataset,Iterable),"Process function should return an iterable objects."
 		self.nextDataset = [X for X in self.nextDataset]
 
 		if self._batchSize > len(self.nextDataset):
-			print(f"Warning: Batch Size <{self._batchSize}> is extremely large for this dataset, we hope you can use a more suitable value.")
+			print(f"Warning: Batch Size <{self._batchSize}> is extremely large for this dataset,we hope you can use a more suitable value.")
 		
 	def next(self):
 		i = self.currentPosition
@@ -517,9 +517,9 @@ class DataIterator:
 		else:
 			return round(self.currentPosition/len(self.currentDataset),2)
 
-	def get_retained_data(self, processFunc=None, batchSize=None, chunks='auto', otherArgs=None, shuffle=False, retainData=0.0):
+	def get_retained_data(self,processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False,retainData=0.0):
 
-		declare.non_void("retained data", self.evalTable)
+		declare.non_void("retained data",self.evalTable)
 
 		if processFunc is None:
 			processFunc = self.processFunc
@@ -528,35 +528,35 @@ class DataIterator:
 			batchSize = self._batchSize
 
 		if chunks != 'auto':
-			declare.is_positive_int("chunks", chunks)
+			declare.is_positive_int("chunks",chunks)
 
 		if otherArgs is None:
 			otherArgs = self.otherArgs
 
-		reIterator = DataIterator(self.evalTable, processFunc, batchSize, chunks, otherArgs, shuffle, retainData)
+		reIterator = DataIterator(self.evalTable,processFunc,batchSize,chunks,otherArgs,shuffle,retainData)
 
 		return reIterator
 
-def pad_sequence(data, dim=0, maxLength=None, dtype='float32', padding='tail', truncating='tail', value=0.0):
+def pad_sequence(data,dim=0,maxLength=None,dtype='float32',padding='tail',truncating='tail',value=0.0):
 	'''
 	Pad sequence.
 
 	Args:
 		<data>: a list of NumPy arrays.
 		<dim>: which dimmension to pad. All other dimmensions should be the same size.
-		<maxLength>: If larger than this theshold, truncate it.
+		<maxLength>: If larger than this theshold,truncate it.
 		<dtype>: target dtype.
-		<padding>: padding position, "head","tail" or "random".
-		<truncating>: truncating position, "head","tail".
+		<padding>: padding position,"head","tail" or "random".
+		<truncating>: truncating position,"head","tail".
 		<value>: padding value.
 	
 	Return:
-		a two-tuple: (a Numpy array, a list of padding positions). 
+		a two-tuple: (a Numpy array,a list of padding positions). 
 	'''
-	declare.is_classes("data", data, (list,tuple))
-	declare.is_non_negative_int("dim", dim)
-	declare.not_void("data", data)
-	declare.is_classes("value", value, (int,float))
+	declare.is_classes("data",data,(list,tuple))
+	declare.is_non_negative_int("dim",dim)
+	declare.not_void("data",data)
+	declare.is_classes("value",value,(int,float))
 	declare.is_instances("padding",padding,["head","tail","random"])
 	declare.is_instances("truncating",padding,["head","tail"])
 	if maxLength is not None:
@@ -569,13 +569,13 @@ def pad_sequence(data, dim=0, maxLength=None, dtype='float32', padding='tail', t
 	for i in data:
 
 		# verify
-		declare.is_classes("data", i, np.ndarray)
+		declare.is_classes("data",i,np.ndarray)
 		shape = i.shape
 		if exRank is None:
 			exRank = len(shape)
-			assert dim < exRank, f"<dim> is out of range: {dim}>{exRank-1}."
+			assert dim < exRank,f"<dim> is out of range: {dim}>{exRank-1}."
 		else:
-			assert len(shape) == exRank, f"Arrays in <data> has different rank: {exRank}!={len(shape)}."
+			assert len(shape) == exRank,f"Arrays in <data> has different rank: {exRank}!={len(shape)}."
 
 		if dim != 0:
 			# transpose
@@ -587,7 +587,7 @@ def pad_sequence(data, dim=0, maxLength=None, dtype='float32', padding='tail', t
 		if exOtherDims is None:
 			exOtherDims = i.shape[1:]
 		else:
-			assert exOtherDims == i.shape[1:], f"Expect for sequential dimmension, All arrays in <data> has same shape but got: {exOtherDims}!={i.shape[1:]}."
+			assert exOtherDims == i.shape[1:],f"Expect for sequential dimmension,All arrays in <data> has same shape but got: {exOtherDims}!={i.shape[1:]}."
 
 		length = len(i)
 		if maxLength is not None and length > maxLength:
@@ -627,9 +627,9 @@ def pad_sequence(data, dim=0, maxLength=None, dtype='float32', padding='tail', t
 		rank[dim+1] = 1
 		result = result.transpose(rank)
 
-	return result, pos
+	return result,pos
 
-def softmax(data, axis=1):
+def softmax(data,axis=1):
 	'''
 	The softmax function.
 
@@ -639,20 +639,20 @@ def softmax(data, axis=1):
 	Return:
 		A new array.
 	'''
-	declare.is_classes("data", data, np.ndarray)
+	declare.is_classes("data",data,np.ndarray)
 	if len(data.shape) == 1:
 		axis = 0
-	declare.in_boundary("axis", axis, 0, len(data.shape)-1 )
+	declare.in_boundary("axis",axis,0,len(data.shape)-1 )
 	
-	maxValue = data.max(axis, keepdims=True)
+	maxValue = data.max(axis,keepdims=True)
 	dataNor = data - maxValue
 
 	dataExp = np.exp(dataNor)
-	dataExpSum = np.sum(dataExp,axis, keepdims = True)
+	dataExpSum = np.sum(dataExp,axis,keepdims = True)
 
 	return dataExp / dataExpSum
 
-def log_softmax(data, axis=1):
+def log_softmax(data,axis=1):
 	'''
 	The log-softmax function.
 
@@ -662,14 +662,14 @@ def log_softmax(data, axis=1):
 	Return:
 		A new array.
 	'''
-	declare.is_classes("data", data, np.ndarray)
+	declare.is_classes("data",data,np.ndarray)
 	if len(data.shape) == 1:
 		axis = 0
-	declare.in_boundary("axis", axis, 0, len(data.shape)-1 )
+	declare.in_boundary("axis",axis,0,len(data.shape)-1 )
 
 	dataShape = list(data.shape)
 	dataShape[axis] = 1
-	maxValue = data.max(axis, keepdims=True)
+	maxValue = data.max(axis,keepdims=True)
 	dataNor = data - maxValue
 	
 	dataExp = np.exp(dataNor)
@@ -678,26 +678,26 @@ def log_softmax(data, axis=1):
 	
 	return data - dataExpSumLog.reshape(dataShape)
 
-def accuracy(ref, hyp, ignore=None, mode='all'):
+def accuracy(ref,hyp,ignore=None,mode='all'):
 	'''
 	Score one-2-one matching score between two items.
 
 	Args:
-		<ref>, <hyp>: iterable objects like list, tuple or NumPy array. It will be flattened before scoring.
+		<ref>,<hyp>: iterable objects like list,tuple or NumPy array. It will be flattened before scoring.
 		<ignore>: Ignoring specific symbols.
-		<model>: If <mode> is "all", compute one-one matching score. For example, <ref> is (1,2,3,4), and <hyp> is (1,2,2,4), the score will be 0.75.
-				 If <mode> is "present", only the members of <hyp> which appeared in <ref> will be scored no matter which position it is. 
+		<model>: If <mode> is "all",compute one-one matching score. For example,<ref> is (1,2,3,4),and <hyp> is (1,2,2,4),the score will be 0.75.
+				 If <mode> is "present",only the members of <hyp> which appeared in <ref> will be scored no matter which position it is. 
 	Return:
 		a namedtuple object of score information.
 	'''
-	assert type_name(ref)!="Transcription" and type_name(hyp) != "Transcription", "Exkaldi Transcription objects are unsupported in this function."
+	assert type_name(ref)!="Transcription" and type_name(hyp) != "Transcription","Exkaldi Transcription objects are unsupported in this function."
 
-	assert mode in ['all','present'], 'Expected <mode> to be "present" or "all".'
+	assert mode in ['all','present'],'Expected <mode> to be "present" or "all".'
 
 	x = flatten(ref)
-	x = list( filter(lambda i:i!=ignore, x) ) 
+	x = list( filter(lambda i:i!=ignore,x) ) 
 	y = flatten(hyp)
-	y = list( filter(lambda i:i!=ignore, y) ) 
+	y = list( filter(lambda i:i!=ignore,y) ) 
 
 	if mode == 'all':
 		i = 0
@@ -716,8 +716,8 @@ def accuracy(ref, hyp, ignore=None, mode='all'):
 			else:
 				accuracy = score/len(x)
 
-			return namedtuple("Score",["accuracy", "items", "rightItems"])(
-						accuracy, len(x), score
+			return namedtuple("Score",["accuracy","items","rightItems"])(
+						accuracy,len(x),score
 					)
 	else:
 		x = sorted(x)
@@ -733,27 +733,27 @@ def accuracy(ref, hyp, ignore=None, mode='all'):
 		else:
 			accuracy = score/len(y)
 		
-		return namedtuple("Score", ["accuracy", "items", "rightItems"])(
-					accuracy, len(y), score
+		return namedtuple("Score",["accuracy","items","rightItems"])(
+					accuracy,len(y),score
 				)
 
-def pure_edit_distance(ref, hyp, ignore=None):
+def pure_edit_distance(ref,hyp,ignore=None):
 	'''
 	Compute edit-distance score.
 
 	Args:
-		<ref>, <hyp>: iterable objects like list, tuple or NumPy array. It will be flattened before scoring.
+		<ref>,<hyp>: iterable objects like list,tuple or NumPy array. It will be flattened before scoring.
 		<ignore>: Ignoring specific symbols.	 
 	Return:
 		a namedtuple object including score information.	
 	'''
-	assert isinstance(ref, Iterable), "<ref> is not a iterable object."
-	assert isinstance(hyp, Iterable), "<hyp> is not a iterable object."
+	assert isinstance(ref,Iterable),"<ref> is not a iterable object."
+	assert isinstance(hyp,Iterable),"<hyp> is not a iterable object."
 	
 	x = flatten(ref)
-	x = list( filter(lambda i:i!=ignore, x) ) 
+	x = list( filter(lambda i:i!=ignore,x) ) 
 	y = flatten(hyp)
-	y = list( filter(lambda i:i!=ignore, y) ) 
+	y = list( filter(lambda i:i!=ignore,y) ) 
 
 	lenX = len(x)
 	lenY = len(y)
@@ -770,9 +770,42 @@ def pure_edit_distance(ref, hyp, ignore=None):
 				delta = 0
 			else:
 				delta = 1       
-			mapping[i][j] = min(mapping[i-1][j-1]+delta, min(mapping[i-1][j]+1, mapping[i][j-1]+1))
+			mapping[i][j] = min(mapping[i-1][j-1]+delta,min(mapping[i-1][j]+1,mapping[i][j-1]+1))
 	
 	score = int(mapping[lenX][lenY])
-	return namedtuple("Score",["editDistance", "items"])(
-				score, len(x)
+	return namedtuple("Score",["editDistance","items"])(
+				score,len(x)
 			)
+
+def compute_postprob_norm(ali,probDims):
+	'''
+	Compute alignment counts in order to normalize acoustic model posterior probability.
+	For more help information,look at the Kaldi <analyze-counts> command.
+
+	Args:
+		<ali>: exkaldi NumpyAlignmentTrans,NumpyAlignmentPhone or NumpyAlignmentPdf object.
+		<probDims>: the dimensionality of posterior probability.
+		
+	Return:
+		A numpy array of the normalization.
+	''' 
+	declare.kaldi_existed()
+	declare.is_classes("ali",ali,["NumpyAlignmentTrans","NumpyAlignmentPhone","NumpyAlignmentPdf"])
+	declare.is_positive_int("probDims",probDims)
+
+	txt = []
+	for key,vlaue in ali.items():
+		value = " ".join(map(str,vlaue.tolist()))
+		txt.append( key+" "+value )
+	txt = "\n".join(txt)
+
+	cmd = f"analyze-counts --binary=false --counts-dim={probDims} ark:- -"
+	out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=txt)
+	if (isinstance(cod,int) and cod != 0) or out == b"":
+		print(err.decode())
+		raise KaldiProcessError('Analyze counts defailed.')
+	else:
+		out = out.decode().strip().strip("[]").strip().split()
+		counts = np.array(out,dtype=np.float32)
+		countBias = np.log(counts/np.sum(counts))
+		return countBias

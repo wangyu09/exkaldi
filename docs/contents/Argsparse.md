@@ -1,7 +1,7 @@
 # exkaldi.args
 
-This is an instance of exkaldi ArgumentParser class.
-It works at a global scope of all exkaldi programs.
+This is an instance of `exkaldi.utils.argparse.ArgumentParser` class.
+It works in a global scope of all programs where Exkaldi has been imported.
 
 -----------------------------------------------------
 >## args.discribe
@@ -20,14 +20,14 @@ args.discribe("This program is used to train monophone GMM-HMM.")
 ```
 -----------------------------------------------------
 >## args.add
-(optionName,dtype,abbreviation=None,default=None,choices=None,minV=None,maxV=None,discription=None)
+(name,dtype,abbr=None,default=None,choices=None,minV=None,maxV=None,discription=None)
 
 Add a new option.
 
 **Args:**  
-_optionName_: a string which must have a format such as "--exkaldi" (but can not be "--help").  
+_name_: a string which must have a format such as "--exkaldi" (but can not be "--help").  
 _dtype_: one of float, int, str or bool.  
-_abbreviation_: a abbreviation of optionName which must have a format such as "-e" (but can not be "-h").  
+_abbr_: a abbreviation of option name which must have a format such as "-e" (but can not be "-h").  
 _dtype_: the default value or a list/tuple of values.  
 _choices_: a list/tuple of values.  
 _minV_: set the minimum value if dtype is int or float. Enable when _choices_ is None.  
@@ -36,11 +36,15 @@ _maxV_: a string to discribe this option.
 
 **Examples:**  
 ```python
-args.add("--outDir",dtype=str,abbreviation="-o",default="./exp",discription="the output directory.")
+args.add("--outDir",dtype=str,abbr="-o",default="./exp",discription="the output directory.")
 ```
 Added a option of output directory. We allow the default value is a list or tuple. for example:
 ```python
-args.add("--learningRate",dtype=float,abbreviation="-l",default=[0.5,0.2,0.1],discription="the learning rate of optimizer.")
+args.add("--learningRate",dtype=float,abbr="-l",default=[0.5,0.2,0.1],discription="the learning rate of optimizer.")
+```
+Similarly, you can set the option with a list of values in command line with a specified format.
+```shell
+python test.py -l 0.5|0.2|0.1
 ```
 -----------------------------------------------------
 >## args.print_help_and_exit
@@ -49,10 +53,17 @@ args.add("--learningRate",dtype=float,abbreviation="-l",default=[0.5,0.2,0.1],di
 Print help information to standard output and stop program.
 
 -----------------------------------------------------
+>## args.print_args
+()
+
+Print the arguments (command line) on standard output stream.
+
+-----------------------------------------------------
 >## args.parse
 ()
 
 Start to parse the arguments. 
+This operation is necessary after you initialized some options. 
 
 **Examples:**  
 After you have added a option, you can appoint the argument and it will be parsed.
@@ -97,10 +108,10 @@ args.save("conf/test.args")
 >## args.load
 (filePath)
 
-Restorage arguments from file. All arguments can be parsed again with new value.
+Restorage arguments from file. If some options got the "value", they will be parsed directly.All arguments can be parsed again with new value.
 
 **Args:**  
-_filePath_: file name.  
+_filePath_: args file path.  
 
 **Examples:**  
 ```python

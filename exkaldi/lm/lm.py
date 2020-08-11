@@ -15,14 +15,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Exkaldi LM training & HCLG generating associates."""
+"""Language Model"""
 
 import os
-import subprocess
-import tempfile
 import kenlm
 import math
 import sys
+from collections import namedtuple
 
 from exkaldi.utils.utils import check_config, make_dependent_dirs, type_name, run_shell_command
 from exkaldi.utils.utils import FileHandleManager
@@ -33,53 +32,54 @@ from exkaldi.version import WrongPath, KaldiProcessError, ShellProcessError, Ken
 
 def train_ngrams_srilm(lexicons, order, text, outFile, config=None):
 	'''
-	Train n-grams language model with Srilm tookit.
+	Train N-Grams language model with SriLM tookit.
+	If you don't specified the discount by the <config> option, We defaultly use "kndiscount".
 
 	Args:
-		<lexicons>: words.txt file path or Exkaldi LexiconBank object.
-		<order>: the maxinum order of n-grams.
-		<text>: text corpus file or exkaldi transcription object.
-		<outFile>: ARPA out file name.
-		<config>: configures, a Python dict object.
+		<lexicons>: an exkaldi LexiconBank object.
+		<order>: the maximum order of N-Grams.
+		<text>: a text corpus file or an exkaldi transcription object.
+		<outFile>: output file name of arpa LM.
+		<config>: extra configurations, a Python dict object.
 
-	You can use .check_config("train_ngrams_srilm") function to get configure information that you can set.
-	Also you can run shell command "ngram-count" to look their meaning.
+	You can use .check_config("train_ngrams_srilm") function to get a reference of extra configurations.
+	Also you can run shell command "ngram-count" to look their usage.
 	'''
-	declare.is_positive_int("order", order)
-	declare.smaller("order", order, "max order", 9)
-	declare.is_valid_file_name("outFile", outFile)
 	declare.is_lexicon_bank("lexicons", lexicons)
+	declare.is_positive_int("order", order)
 	declare.is_potential_transcription("text", text)
-
+	declare.is_valid_file_name("outFile", outFile)
+	# verify the max order
+	declare.less_equal("order", order, "max order", 9)
+  # prepare srilm tool
 	ExkaldiInfo.prepare_srilm()
 
 	with FileHandleManager() as fhm:
-
-		if isinstance(text,str):
-			## Should check the numbers of lines
+		# check whether this is a reasonable text corpus that should be splited by space.
+		if isinstance(text, str):
 			cmd = f"shuf {text} -n 100"
-			out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+			out,err,cod = run_shell_command(cmd, stdout="PIPE", stderr="PIPE")
 			if (isinstance(cod,int) and cod != 0):
 				print(err.decode())
-				raise ShellProcessError("Failed to sample from text file.")
+				raise ShellProcessError(f"Failed to sample from text file:{text}.")
 			elif out == b'':
-				raise WrongDataFormat("Void text file.")
+				raise WrongDataFormat(f"Void text file:{text}.")
 			else:
 				out = out.decode().strip().split("\n")
 				spaceCount = 0
 				for line in out:
 					spaceCount += line.count(" ")
 				if spaceCount < len(out)//2:
-					raise WrongDataFormat("The text file doesn't seem to be separated by spaces or extremely short.")
+					raise WrongDataFormat("The text file doesn't seem to be separated by spaces or sentences are extremely short.")
+		
 		else:
 			sampleText = text.subset(nRandom=100)
 			spaceCount = 0
 			for key,value in sampleText.items():
-				assert isinstance(value,str), f"Transcription object must be string but got: {type_name(value)}."
+				assert isinstance(value,str), f"Transcription must be string but got: {type_name(value)}."
 				spaceCount += value.count(" ")
 			if spaceCount < len(sampleText)//2:
-				raise WrongDataFormat("The transcription doesn't seem to be separated by spaces or extremely short.")
-					
+				raise WrongDataFormat("The text file doesn't seem to be separated by spaces or sentences are extremely short.")
 			textTemp = fhm.create("a+", suffix=".txt", encoding="utf-8")
 			text.save(textTemp, discardUttID=True)
 			text = textTemp.name
@@ -89,7 +89,6 @@ def train_ngrams_srilm(lexicons, order, text, outFile, config=None):
 		wordlistTemp = fhm.create("w+", encoding='utf-8', suffix=".txt")
 		words = lexicons("words")
 		words = "\n".join(words.keys())
-
 		wordlistTemp.write(words)
 		wordlistTemp.seek(0)
 
@@ -116,75 +115,74 @@ def train_ngrams_srilm(lexicons, order, text, outFile, config=None):
 		make_dependent_dirs(outFile, pathIsFile=True)
 		cmd += f" -lm {outFile}"
 		
-		out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+		out,err,cod = run_shell_command(cmd, stderr="PIPE")
 
-		if (isinstance(cod, int) and cod != 0) or (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
+		if (isinstance(cod,int) and cod != 0) or (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
 			print(err.decode())
 			if os.path.isfile(outFile):
 				os.remove(outFile)
-			raise KaldiProcessError(f'Failed to generate ngrams language model.')
+			raise KaldiProcessError(f'Failed to generate N-Grams language model.')
 
 		return outFile
 
 def train_ngrams_kenlm(lexicons, order, text, outFile, config=None):
 	'''
-	Train n-grams language model with KenLm tookit.
+	Train N-Grams language model with SriLM tookit.
 
 	Args:
-		<lexicons>: words.txt file path or Exkaldi LexiconBank object.
-		<order>: the maxinum order of n-grams.
-		<text>: text corpus file or exkaldi transcription object.
-		<outFile>: ARPA out file name.
-		<config>: configures, a Python dict object.
+		<lexicons>: an exkaldi LexiconBank object.
+		<order>: the maximum order of N-Grams.
+		<text>: a text corpus file or an exkaldi transcription object.
+		<outFile>: output file name of arpa LM.
+		<config>: extra configurations, a Python dict object.
 
-	You can use .check_config("train_ngrams_kenlm") function to get configure information that you can set.
-	Also you can run shell command "lmplz" to look their meaning.
+	You can use .check_config("train_ngrams_kenlm") function to get a reference of extra configurations.
+	Also you can run shell command "lmplz" to look their usage.
 	'''
-	declare.is_positive_int("order", order)
-	declare.smaller("order", order, "max order", 6)
-	declare.is_valid_file_name("outFile", outFile)
 	declare.is_lexicon_bank("lexicons", lexicons)
+	declare.is_positive_int("order", order)
 	declare.is_potential_transcription("text", text)
+	declare.is_valid_file_name("outFile", outFile)
+
+	declare.less_equal("order", order, "max order", 9)
 
 	with FileHandleManager() as fhm:
-
-		if isinstance(text,str):
-			## Should check the numbers of lines
+		# check whether this is a reasonable text corpus that should be splited by space.
+		if isinstance(text, str):
 			cmd = f"shuf {text} -n 100"
-			out, err, cod = run_shell_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+			out,err,cod = run_shell_command(cmd, stdout="PIPE", stderr="PIPE")
 			if (isinstance(cod,int) and cod != 0):
 				print(err.decode())
-				raise ShellProcessError("Failed to sample from text file.")
+				raise ShellProcessError(f"Failed to sample from text file:{text}.")
 			elif out == b'':
-				raise WrongDataFormat("Void text file.")
+				raise WrongDataFormat(f"Void text file:{text}.")
 			else:
 				out = out.decode().strip().split("\n")
 				spaceCount = 0
 				for line in out:
 					spaceCount += line.count(" ")
 				if spaceCount < len(out)//2:
-					raise WrongDataFormat("The text file doesn't seem to be separated by spaces or extremely short.")
+					raise WrongDataFormat("The text file doesn't seem to be separated by spaces or sentences are extremely short.")
+		
 		else:
 			sampleText = text.subset(nRandom=100)
 			spaceCount = 0
 			for key,value in sampleText.items():
-				assert isinstance(value,str), f"Transcription object must be string but got: {type_name(value)}."
+				assert isinstance(value,str), f"Transcription must be string but got: {type_name(value)}."
 				spaceCount += value.count(" ")
 			if spaceCount < len(sampleText)//2:
-				raise WrongDataFormat("The transcription doesn't seem to be separated by spaces or extremely short.")
-					
+				raise WrongDataFormat("The text file doesn't seem to be separated by spaces or sentences are extremely short.")
 			textTemp = fhm.create("a+", suffix=".txt", encoding="utf-8")
 			text.save(textTemp, discardUttID=True)
 			text = textTemp.name
 
 		extraConfig = " "
-		if config != None:
-			assert isinstance(config, dict), f"<config> should be dict object but got: {type_name(config)}."
+		if config is not None:
 			if check_config(name='train_ngrams_kenlm', config=config):
 				if "--temp_prefix" in config.keys() and "-T" in config.keys():
-					raise WrongOperation(f'"--temp_prefix" and "-T" is the same configure so only one of them is expected.')
+					raise WrongOperation(f'"--temp_prefix" and "-T" is the same configuration so only one of them is expected.')
 				if "--memory" in config.keys() and "-S" in config.keys():
-					raise WrongOperation(f'"--memory" and "-S" is the same configure so only one of them is expected.')
+					raise WrongOperation(f'"--memory" and "-S" is the same configuration so only one of them is expected.')
 				for key,value in config.items():
 					if isinstance(value,bool):
 						if value is True:
@@ -199,30 +197,31 @@ def train_ngrams_kenlm(lexicons, order, text, outFile, config=None):
 		wordlistTemp = fhm.create("w+", encoding='utf-8', suffix=".txt")
 		words = lexicons("words")
 		words_count = math.ceil(len(words)/10) * 10
-		
 		words = "\n".join(words.keys())
-
 		wordlistTemp.write(words)
 		wordlistTemp.seek(0)
 
-		KenLMTool = os.path.join(sys.prefix, "exkaldisrc", "tools", "lmplz")
+		KenLMTool = os.path.join(sys.prefix,"exkaldisrc","tools","lmplz")
 
 		cmd = f"{KenLMTool}{extraConfig}-o {order} --vocab_estimate {words_count} --text {text} --arpa {outFile} --limit_vocab_file {wordlistTemp.name}"
-		out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+		out,err,cod = run_shell_command(cmd,stderr="PIPE")
 
 		if (isinstance(cod, int) and cod != 0) or (not os.path.isfile(outFile)) or (os.path.getsize(outFile)==0):
 			print(err.decode())
+			if os.path.isfile(outFile):
+				os.remove(outFile)
 			raise KenlmProcessError("Failed to generate arpa file.")
 
 		return outFile
 
 def arpa_to_binary(arpaFile, outFile):
 	'''
-	Transform ARPA language model file to KenLM binary format file.
+	Transform ARPA language model to KenLM binary format.
 
 	Args:
 		<arpaFile>: ARPA file path.
 		<outFile>: output binary file path.
+
 	Return:
 		output file name with suffix ".binary".
 	'''
@@ -237,10 +236,12 @@ def arpa_to_binary(arpaFile, outFile):
 
 	cmd = os.path.join(sys.prefix,"exkaldisrc","tools","build_binary")
 	cmd += f" -s {arpaFile} {outFile}"
-	out, err, cod = run_shell_command(cmd, stderr=subprocess.PIPE)
+	out, err, cod = run_shell_command(cmd, stderr="PIPE")
 
 	if (cod != 0) or (not os.path.isfile(outFile)) or (os.path.getsize(outFile)==0):
 		print(err.decode())
+		if os.path.isfile(outFile):
+			os.remove(outFile)
 		raise KenlmProcessError("Failed to tansform ARPA to binary format.")
 	
 	else:
@@ -249,6 +250,8 @@ def arpa_to_binary(arpaFile, outFile):
 class KenNGrams(BytesArchive):
 	'''
 	This is a wrapper of kenlm.Model, and we only support n-grams model with binary format.
+
+	If you want to load ARPA format file directly, use the exkaldi.lm.load_ngrams() function.
 	'''
 	def __init__(self, filePath, name="ngram"):
 		declare.is_file("filePath", filePath)
@@ -256,28 +259,24 @@ class KenNGrams(BytesArchive):
 		with open(filePath, "rb") as fr:
 			t = fr.read(50).decode().strip()
 		if t != "mmap lm http://kheafield.com/code format version 5":
-			raise UnsupportedType("This is not a KenLM binary model formation.")
+			raise UnsupportedType("This may be not a KenLM binary model format.")
 		
-		super(KenNGrams, self).__init__(data=b"kenlm", name=name)
+		super(KenNGrams, self).__init__(data=b"placeholder", name=name)
 		self.__model = kenlm.Model(filePath)
 		self._path = None
 
 	@property
-	def path(self):
+	def info(self):
 		'''
-		Gen the model file path.
+		Get the info of this N-grams model.
 		'''
+		order = self.__model.order
 		if self._path is None:
-			return self.__model.path
+			path = self.__model.path
 		else:
-			return self._path
-
-	@property
-	def order(self):
-		'''
-		Get the maxinum value of order.
-		'''
-		return self.__model.order
+			path = self._path
+		
+		return namedtuple("NgramInfo",["order","path"])(order,str(path))
 
 	def score_sentence(self, sentence, bos=True, eos=True):
 		'''
@@ -287,26 +286,25 @@ class KenNGrams(BytesArchive):
 			<sentence>: a string with out boundary symbols.
 			<bos>: If True, add <s> to the head.
 			<eos>: If True, add </s> to the tail.
+
 		Return:
-			a float log-value.
+			a float value.
 		'''
 		declare.is_valid_string("sentence", sentence)
 		declare.is_bool("bos", bos)
 		declare.is_bool("eos", eos)
 
-		if sentence.count(" ") < 1:
-			print(f"Warning: sentence doesn't seem to be separated by spaces or extremely short: {one}.")		
-
 		return self.__model.score(sentence, bos, eos)
 
 	def score(self, transcription, bos=True, eos=True):
 		'''
-		Score transcription.
+		Score a transcription.
 
 		Args:
 			<transcription>: file path or exkaldi Transcription object.
 			<bos>: If True, add <s> to the head.
 			<eos>: If True, add </s> to the tail.
+
 		Return:
 			an exkaldi Metric object.
 		'''
@@ -315,11 +313,11 @@ class KenNGrams(BytesArchive):
 		if isinstance(transcription, str):
 			transcription = load_transcription(transcription)
 		
-		scores = {}
+		scores = Metric(name=f"LMscore({transcription.name})")
 		for uttID, txt in transcription.items():
 			scores[uttID] = self.score_sentence(txt, bos, eos)
 
-		return Metric(scores, name=f"LMscore({transcription.name})")
+		return scores
 
 	def full_scores_sentence(self, sentence, bos=True, eos=True):
 		'''
@@ -329,9 +327,14 @@ class KenNGrams(BytesArchive):
 			<sentence>: a string with out boundary symbols.
 			<bos>: If True, add <s> to the head.
 			<eos>: If True, add </s> to the tail.
+
 		Return:
 			a iterator of (prob, ngram length, oov).
 		'''
+		declare.is_valid_string("sentence", sentence)
+		declare.is_bool("bos", bos)
+		declare.is_bool("eos", eos)
+
 		return self.__model.full_scores(sentence, bos, eos)
 
 	def perplexity_sentence(self, sentence):
@@ -345,14 +348,11 @@ class KenNGrams(BytesArchive):
 		'''
 		declare.is_valid_string("sentence", sentence)
 
-		if sentence.count(" ") < 1:
-			print(f"Warning: sentence doesn't seem to be separated by spaces or extremely short: {one}.")		
-
 		return self.__model.perplexity(sentence)
 
 	def perplexity(self, transcription):
 		'''
-		Compute perplexity of transcription.
+		Compute perplexity of a transcription.
 
 		Args:
 			<transcription>: file path or exkaldi Transcription object.
@@ -365,23 +365,24 @@ class KenNGrams(BytesArchive):
 		if isinstance(transcription, str):
 			transcription = load_transcription(transcription)
 		
-		scores = {}
+		scores = Metric(name=f"LMperplexity({transcription.name})")
 		for uttID, txt in transcription.items():
 			scores[uttID] = self.perplexity_sentence(txt)
 
-		return Metric(scores, name=f"LMperplexity({transcription.name})")
+		return scores
 
 def load_ngrams(target, name="gram"):
 	'''
-	Load a ngrams from arpa or binary language model file.
+	Load a N-Grams from arpa or binary language model file.
 
 	Args:
 		<target>: file path with suffix .arpa or .binary.
 	
 	Return:
-		KenNGrams object
+		a KenNGrams object.
 	'''
 	declare.is_file("target", target)
+	target = target.strip()
 	
 	with FileHandleManager() as fhm:
 
@@ -390,11 +391,13 @@ def load_ngrams(target, name="gram"):
 			arpa_to_binary(target, modelTemp.name)
 			modelTemp.seek(0)
 			model = KenNGrams(modelTemp.name, name=name)
-
-		elif not target.endswith(".binary"):
-			raise UnsupportedType(f"Unknown suffix. Language model file should has a suffix .arpa or .binary but got: {target}.")
+			model._path = target
+			
+		elif target.endswith(".binary"):
 			model = KenNGrams(target, name=name)
 
-		model._path = target
+		else:
+			raise UnsupportedType(f"Unknown suffix. Language model file should has a suffix .arpa or .binary but got: {target}.")
+			
 		return model
 

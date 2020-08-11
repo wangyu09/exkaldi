@@ -1,226 +1,189 @@
 # coding=utf-8
 #
 # Yu Wang (University of Yamanashi)
-# Mar, 2020
+# Mar,2020
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
+# Licensed under the Apache License,Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
+# Unless required by applicable law or agreed to in writing,software
 # distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
 import os
 import numpy as np
-import subprocess
-import struct
-from io import BytesIO
 from collections import namedtuple
 
 from exkaldi.version import info as ExkaldiInfo
-from exkaldi.version import UnsupportedType, WrongOperation, KaldiProcessError, WrongDataFormat
-from exkaldi.utils.utils import run_shell_command, run_shell_command_parallel, type_name, list_files, make_dependent_dirs
+from exkaldi.version import UnsupportedType,WrongOperation,KaldiProcessError,WrongDataFormat
+from exkaldi.utils.utils import run_shell_command,run_shell_command_parallel,type_name,list_files,make_dependent_dirs
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
-from exkaldi.core.archive import BytesFeature, BytesCMVNStatistics, BytesFmllrMatrix, BytesAlignmentTrans, ListTable, BytesArchive, BytesMatrix, BytesVector, NumpyMatrix, NumpyVector
-from exkaldi.core.load import load_index_table, load_list_table
+from exkaldi.core.archive import BytesArchive,BytesMatrix,BytesVector,BytesFeature,BytesCMVNStatistics,BytesFmllrMatrix,BytesAlignmentTrans
+from exkaldi.core.archive import NumpyMatrix,NumpyVector
+from exkaldi.core.archive import ListTable
+from exkaldi.core.load import load_index_table,load_list_table
 
-def tuple_data(archives, frameLevel=False):
+def tuple_dataset(archives,frameLevel=False):
 	'''
 	Tuple feature or alignment archives in "utterance" level or "frame" level.
 
 	Args:
 		<archives>: exkaldi feature or alignment objects.
-		<framelevel>: If True, tuple data in frame level. Or in utterance level.
+		<framelevel>: If True,tuple data in frame level. Or in utterance level.
+
 	Return:
 		List of tupled data.
 	'''
-	declare.is_classes("archives", archives, (tuple,list))
-	assert len(archives) > 1, "<archives> should has multiple items."
-	declare.is_bool("frameLevel", frameLevel)
+	declare.is_classes("archives",archives,(tuple,list))
+	assert len(archives) > 1,"<archives> should has multiple items."
+	declare.is_bool("frameLevel",frameLevel)
 	
 	archives = match_utterances(archives)
 
 	fields = {}
-	for index, data in enumerate(archives):
+	for index,ark in enumerate(archives):
 		if frameLevel is True:
-			declare.belong_classes("achieve", data, (BytesMatrix, BytesVector, NumpyMatrix, NumpyVector))
+			declare.belong_classes("achieves",ark,(BytesMatrix,BytesVector,NumpyMatrix,NumpyVector))
 		else:
-			declare.belong_classes("achieve", data, (BytesMatrix, BytesVector, NumpyMatrix, NumpyVector, ListTable))
+			declare.belong_classes("achieves",ark,(BytesMatrix,BytesVector,NumpyMatrix,NumpyVector,ListTable))
 		
-		if isinstance(data, (BytesMatrix, BytesVector)):
-			archives[index] = data.to_numpy()
+		if isinstance(ark,(BytesMatrix,BytesVector)):
+			ark = ark.to_numpy()
 
-		if data.name not in fields.keys():
-			fields[data.name] = []
-		fields[data.name].append(data)
+		if ark.name not in fields.keys():
+			fields[ark.name] = []
+		fields[ark.name].append(ark)
 
 	fieldNames = list(fields.keys())
 
 	try:
 		if frameLevel:
-			templet = namedtuple(typename="TupledData", field_names=["uttID","frameID",]+fieldNames)
+			templet = namedtuple(typename="TupledData",field_names=["key","frameID",]+fieldNames)
 		else:
-			templet = namedtuple(typename="TupledData", field_names=["uttID",] + fieldNames )
+			templet = namedtuple(typename="TupledData",field_names=["key",]+fieldNames)
 	except ValueError as e:
-		print('While tuple data, use "name" of archives as identity ID so they are expected Python valid identifiers.')
+		print('While tuple data,use "name" of archives as identity ID so they are expected Python valid identifiers.')
 		print('You can use ".rename()" method to rename it and try this function again.')
 		raise e
 
-	def align_tuple_data_to_frame(utt, record, templet):
+	def align_tuple_data_to_frame(key,record,templet):
 
 		if isinstance(record[0],list):
 			frameSize = len(record[0][0])
 		else:
 			frameSize = len(record[0])
 
-		for r in record[1:]:
-			if isinstance(r, list):
-				for sr in r:
+		for re in record[1:]:
+			if isinstance(re,list):
+				for sr in re:
 					if len(sr) != frameSize:
 						raise WrongOperation(f"Cannot tuple data with different frame length to frame level: {frameSize}!={len(sr)}.")
 			else:
-				if len(r) != frameSize:
-					raise WrongOperation(f"Cannot tuple data with different frame length to frame level: {frameSize}!={len(r)}.")				
+				if len(re) != frameSize:
+					raise WrongOperation(f"Cannot tuple data with different frame length to frame level: {frameSize}!={len(re)}.")				
 		
 		result = []
 		for frameIndex in range(frameSize):
 			new = []
-			for r in record:
-				if isinstance(r, list):
+			for re in record:
+				if isinstance(re,list):
 					filedR = []
-					for sr in r:
+					for sr in re:
 						filedR.append( sr[frameIndex] )
 					new.append(filedR)
 				else:
-					new.append( r[frameIndex:frameIndex+1] )
+					new.append( re[frameIndex:frameIndex+1] )
 					
-			result.append(templet( utt, frameIndex, *new  ))
+			result.append(templet( key,frameIndex,*new  ))
 
 		return result
 
-	if isinstance(archives[0], ListTable):
-		uttIDs = list(archives[0].keys())
-	else:
-		uttIDs = archives[0].utts
-
 	result = []
-	for utt in uttIDs:
+	for key in archives[0].keys():
 		oneRecord = []
-
 		for field in fieldNames:
 			fieldData = []
-			for ob in fields[field]:
-				fieldData.append( ob.data[utt] )
+			for ark in fields[field]:
+				fieldData.append( ark.data[key] )
 			if len(fieldData) == 1:
 				fieldData = fieldData[0]
 			oneRecord.append( fieldData )
 
 		if frameLevel:
-			result.extend( align_tuple_data_to_frame(utt, oneRecord, templet) )
+			result.extend( align_tuple_data_to_frame(key,oneRecord,templet) )
 		else:
-			result.append( templet(utt,*oneRecord))
+			result.append( templet(key,*oneRecord))
 	
 	return result
-
-## Bug 20200726
-def compute_postprob_norm(ali, postProbDim):
-	'''
-	Compute alignment counts in order to normalize acoustic model posterior probability.
-	For more help information, look at the Kaldi <analyze-counts> command.
-
-	Args:
-		<ali>: exkaldi NumpyAlignmentPhone or NumpyAlignmentPdf object.
-		<postProbDim>: the dimensionality of posterior probability.
-	Return:
-		A numpy array of the normalization.
-	''' 
-	declare.kaldi_existed()
-	declare.is_classes("ali", ali, ["NumpyAlignmentPhone", "NumpyAlignmentPdf"])
-	declare.is_positive_int("postProbDim", postProbDim)
-
-	cmd = f"analyze-counts --binary=false --counts-dim={postProbDim} ark:- -"
-	out, err, cod = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=ali.data)
-	if (isinstance(cod,int) and cod != 0) or out == b"":
-		print(err.decode())
-		raise KaldiProcessError('Analyze counts defailed.')
-	else:
-		out = out.decode().strip().strip("[]").strip().split()
-		counts = np.array(out, dtype=np.int32)
-		countBias = np.log(counts/np.sum(counts))
-		return countBias
 
 def match_utterances(archives):
 	'''
 	Pick up utterances whose ID has existed in all provided archives.
 
 	Args:
-		<archives>, a list of exkaldi archive objects.
+		<archives>: a list of exkaldi archive objects.
 	
 	Return:
 		a list of new exkaldi archive objects.
 	'''
-	declare.is_classes("archives", archives, [list,tuple])
+	declare.is_classes("archives",archives,[list,tuple])
 
-	shareUttIDs = None
-	for t in archives:
+	shareKeys = None
+	for ark in archives:
 
-		declare.belong_classes("archives", t, [ListTable, BytesMatrix, BytesVector, NumpyMatrix, NumpyVector] )
+		declare.belong_classes("archives",ark,[ListTable,BytesMatrix,BytesVector,NumpyMatrix,NumpyVector] )
+		keys = set(ark.keys())
 
-		if isinstance(t, ListTable):
-			uttIDs = set(t.keys())
+		if shareKeys is None:
+			shareKeys = keys
 		else:
-			uttIDs = set(t.utts)
+			shareKeys &= keys
 
-		if shareUttIDs is None:
-			shareUttIDs = uttIDs
-		else:
-			shareUttIDs &= uttIDs
-
-	shareUttIDs = list(shareUttIDs)
-	if len(shareUttIDs) == 0:
-		raise WrongOperation("Utterance are completely missed. We think it is not reasonable. Please check these archives.")
+	shareKeys = list(shareKeys)
+	if len(shareKeys) == 0:
+		raise WrongOperation("Utterance IDs completely missed. We don't think it is reasonable. Please check these archives.")
 
 	results = []
-	for t in archives:
-		if len(t.utts) == len(shareUttIDs):
-			results.append( t )
+	for ark in archives:
+		if len(ark.keys()) == len(shareKeys):
+			results.append( ark )
 		else:
-			results.append( t.subset(uttIDs=shareUttIDs) )
+			results.append( ark.subset(keys=shareKeys) )
 	
 	return results
 
-def check_multiple_resources(*resources, outFile=None):
+def check_multiple_resources(*resources,outFile=None):
 	'''
 	This function is used to check whether or not use multiple process and verify the resources.
+
 	args:
 		<resources>: objects.
-		<outFile>: None, file name, or a list of None objects, file names.
-				If None, it means standard output stream.
+		<outFile>: None,file name,or a list of None objects,file names.
+				If None,it means standard output stream.
 	
 	Return:
 		lists of resources.
 	'''
-	# check: first pass
-	multipleFlag = [ len(re) if isinstance(re, (list,tuple)) else 1 for re in resources ]
-	multipleFlag = sorted(list(set(multipleFlag)))
+	# check the number of parallels
+	multipleFlag = [ len(re) if isinstance(re,(list,tuple)) else 1 for re in resources ]
+	multipleFlag = list(set(multipleFlag))
 
 	if len(multipleFlag) == 0:
 		raise WrongOperation(f"No any resource has been received.")
 	elif len(multipleFlag) > 2:
-		raise WrongOperation(f"The numbers of resources do not match: {multipleFlag} .")
+		raise WrongOperation(f"The number of resources has various sizes:{multipleFlag}. We hope they have the same amount if their size are not 1.")
 	multipleFlag = max(multipleFlag)
 
-	# check and modify: second pass
+	# check and modify the amount of each resource
 	resources = list(resources)
 	for index,target in enumerate(resources):
-
-		if isinstance(target, (list,tuple)):
+		if isinstance(target,(list,tuple)):
 			if len(target) == 1:
 				resources[index] = [ target[0] for i in range(multipleFlag) ]
 			else:
@@ -229,26 +192,27 @@ def check_multiple_resources(*resources, outFile=None):
 					if exType is None:
 						exType = type_name(t)
 					elif type_name(t) != exType:
-						raise WrongDataFormat(f"Elements of one group should be the same data class, but got: {exType} != {type_name(t)}.")
+						raise WrongDataFormat(f"Elements of one group should be the same data class,but got: {exType} != {type_name(t)}.")
 		else:
 			resources[index] = [ target for i in range(multipleFlag) ]
 
-	# check output file: third pass
+	# check output file format
 	if multipleFlag > 1:
-		assert outFile is not None, "When apply parallel processes, out file name is necessary."
+		assert outFile is not None,"When apply parallel processes,output file name is necessary."
 		outFiles = []
-		declare.is_classes("outFile", outFile, [str, list, tuple])
+		declare.is_classes("outFile",outFile,[str,list,tuple])
 		if isinstance(outFile,str):
-			declare.is_valid_file_name("outFile", outFile)
+			declare.is_valid_file_name("outFile",outFile)
 			outFile = os.path.abspath(outFile)
 			dirName = os.path.dirname(outFile)
 			fileName = os.path.basename(outFile)
-			outFiles = [ os.path.join( dirName, f"{i}_"+fileName ) for i in range(multipleFlag) ]
+			namePattern = f"nj%0{len(str(multipleFlag))}d_{fileName}"
+			outFiles = [ os.path.join(dirName,namePattern%i) for i in range(multipleFlag) ]
 		else:
-			declare.equal("the number of output files", len(outFile), "the number of parallel processes", multipleFlag)
+			declare.equal("the number of output files",len(outFile),"the number of parallel processes",multipleFlag)
 			outFiles = []
 			for f in outFile:
-				declare.is_valid_file_name("outFile", f)
+				declare.is_valid_file_name("outFile",f)
 				outFiles.append(f)
 		
 		resources.append(outFiles)
@@ -257,38 +221,42 @@ def check_multiple_resources(*resources, outFile=None):
 		if outFile is None:
 			outFile = "-"
 		else:
-			declare.is_valid_file_name("outFile", outFile)
+			declare.is_valid_file_name("outFile",outFile)
 
 		resources.append([outFile,])
 
 	return resources
 
-def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeout=ExkaldiInfo.timeout, generateArchive=None, archiveNames=None):
+def run_kaldi_commands_parallel(resources,cmdPattern,analyzeResult=True,timeout=ExkaldiInfo.timeout,generateArchive=None,archiveNames=None):
 	'''
 	Map resources to command pattern and run this command parallelly.
 
 	Args:
 		<resources>: a dict whose keys are the name of resource and values are lists of resources objects.
-					For example: {"feat": [BytesFeature01, BytesFeature02,... ], "outFile":{"newFeat01.ark","newFeat02.ark",...} }.
+					For example: {"feat": [BytesFeature01,BytesFeature02,... ],"outFile":{"newFeat01.ark","newFeat02.ark",...} }.
 					The "outFile" resource is necessary.
-					When there is only one process to run, "outFile" can be "-" which means the standard output stream.
+					When there is only one process to run,"outFile" can be "-" which means the standard output stream.
 
 		<cmdPattern>: a string needed to map the resources.
 					For example: "copy-feat {feat} ark:{outFile}".
 	
 	Return:
-		a list of triples: (return code, error info, output file or buffer)
+		a list of triples: (return code,error info,output file or buffer)
 	'''
 	declare.kaldi_existed()
-	declare.is_classes("resources", resources, dict)
-	declare.is_classes("cmdPattern", cmdPattern, str)
-	assert "outFile" in resources.keys(), "<outFile> key and value is necessary in recources."
+	declare.is_classes("resources",resources,dict)
+	declare.is_classes("cmdPattern",cmdPattern,str)
+	assert "outFile" in resources.keys(),"<outFile> key and value is necessary in recources."
+
+	declare.members_are_classes("the values of resources",resources.values(),[list,tuple])
+	if generateArchive is not None:
+		analyzeResult = True #forcely analyze the result
 
 	# check the format of cmomand pattern
 	nameIndexs = [ i for i,c in enumerate(cmdPattern) if c == "{" or c == "}" ]
-	assert len(nameIndexs)%2 == 0, f"The numbers of braces do not match in command pattern: '{cmdPattern}'. "
+	assert len(nameIndexs)%2 == 0,f"The numbers of braces do not match in command pattern: '{cmdPattern}'. "
 	auxiliaryInfo = {}
-	for i in range(0, len(nameIndexs), 2):
+	for i in range(0,len(nameIndexs),2):
 		name = cmdPattern[nameIndexs[i]+1:nameIndexs[i+1]]
 		if name not in resources:
 			raise WrongDataFormat(f"Resource is necessary but has not been provided: {name}.")
@@ -298,26 +266,26 @@ def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeo
 			if not prefix in auxiliaryInfo[name][1]:
 				auxiliaryInfo[name][1] += prefix
 		else:
-			auxiliaryInfo[name] = [1, prefix]
+			auxiliaryInfo[name] = [1,prefix]
 
-	assert "outFile" in auxiliaryInfo.keys(), "Key: <outFile> is necessary in command pattern."
+	assert "outFile" in auxiliaryInfo.keys(),"Key: <outFile> is necessary in command pattern."
 	_outFileCountInfo = auxiliaryInfo.pop("outFile")
-	assert _outFileCountInfo[0] == 1, f"Only allow <outFile> appear one time in command pattern but: {_outFileCountInfo[0]}."
+	assert _outFileCountInfo[0] == 1,f"Only allow <outFile> appear one time in command pattern but: {_outFileCountInfo[0]}."
 	outFiles = resources.pop("outFile")
 
 	for outFile in outFiles:
 		if outFile != "-":
-			make_dependent_dirs(outFile, pathIsFile=True)
+			make_dependent_dirs(outFile,pathIsFile=True)
 	parallel = len(outFiles)
 
 	if generateArchive is not None:
-		declare.is_instances("generateArchive", generateArchive, ["feat","cmvn","ali","fmllrMat"])
+		declare.is_instances("generateArchive",generateArchive,["feat","cmvn","ali","fmllrMat"])
 		if archiveNames is None:
 			archiveNames = [ generateArchive for i in range(parallel)]
-		elif isinstance(archiveNames, str):
+		elif isinstance(archiveNames,str):
 			archiveNames = [ archiveNames for i in range(parallel)]
-		elif isinstance(archiveNames, (list,tuple)):
-			declare.equal("the number of achieve names", len(archiveNames), "parallel", parallel)
+		elif isinstance(archiveNames,(list,tuple)):
+			declare.equal("the number of achieve names",len(archiveNames),"parallel",parallel)
 		else:
 			raise UnsupportedType(f"<archiveNames> should be string or list or tuple but got: {type_name(archiveNames)}.")
 
@@ -326,8 +294,8 @@ def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeo
 
 		newResources = {}
 		if parallel == 1:
-			# Detect whether or not there is not PIPE.
-			testPlaceholder = dict( (key,value[0]) if isinstance(value[0], str) else (key,"placeholder") for key,value in resources.items() )
+			# Detect whether there is PIPE in command pattern.
+			testPlaceholder = dict( (key,value[0]) if isinstance(value[0],str) else (key,"placeholder") for key,value in resources.items() )
 			testPlaceholder["outFile"] = "placeholder"
 			testCmd = cmdPattern.format(**testPlaceholder)
 			if "|" in testCmd:
@@ -336,203 +304,228 @@ def run_kaldi_commands_parallel(resources, cmdPattern, analyzeResult=True, timeo
 				inputsBuffer = True
 			del testPlaceholder
 			# regularate resources
-			for key, countPrefix in auxiliaryInfo.items():
-				count, prefix = countPrefix
+			for key,countPrefix in auxiliaryInfo.items():
+				count,prefix = countPrefix
 				target = resources[key][0]
 
-				# If target is a list-table, we can not automatically decide whether it is scp-format or ark-format.
+				# If target is a list-table,we can not automatically decide whether it is scp-format or ark-format.
 				# So you should appoint it in the command parttern.
 				if type_name(target) in ["ListTable","Transcription"]:
-					if prefix != ":":
-						raise WrongDataFormat(f"Miss prefix such as 'ark:' or 'scp:' in command pattern before resource: {key}.")
+					if prefix not in [":","="]:
+						errMes = f"There might miss prefix such as 'ark:' or 'scp:' or '--option=' in command pattern before resource: {key}."
+						errMes += "Check the command line please. If you still think there dose not need the prefix,"
+						errMes += "save this ListTable or Transcription into file and instead it will this file name."
+						errMes += "In that case,we will skip checking the prefix."
+						raise WrongOperation(errMes)
+
 					target = target.sort()
 					if (inputsBuffer is True) and count == 1:
 						inputsBuffer = target.save()
-						newResources[key] = f"-"
+						newResources[key] = "-"
 					else:
-						targetTemp = fhm.create("w+", encoding="utf-8")
+						targetTemp = fhm.create("w+",encoding="utf-8")
 						target.save(targetTemp)
 						newResources[key] = f"{targetTemp.name}"
 
-				# If target is an index-table, we automatically recognize it as scp-file, so you do not need appoint it.
+				# If target is an index-table,we automatically recognize it as scp-file,so you do not need appoint it.
 				elif type_name(target) == "ArkIndexTable":
-	
 					if prefix != " ":
-						raise WrongDataFormat(f"Do not need prefix such as 'ark:' or 'scp:' in command pattern before resource: {key}.")
+						errMes = f"Do not need prefix such as 'ark:' or 'scp:' in command pattern before: {key}."
+						errMes += f"Because we will decide the prefix depending on its data type."
+						raise WrongOperation(errMes)
 						
 					target = target.sort()
 					if (inputsBuffer is True) and count == 1:
 						inputsBuffer = target.save()
-						newResources[key] = f"scp:-"
+						newResources[key] = "scp:-"
 					else:
-						targetTemp = fhm.create("w+", suffix=".scp", encoding="utf-8")
+						targetTemp = fhm.create("w+",suffix=".scp",encoding="utf-8")
 						target.save(targetTemp)
 						newResources[key] = f"scp:{targetTemp.name}"
 				
-				elif isinstance(target, (str,int,float)):
+				elif isinstance(target,(str,int,float)):
 					# file or other value parameter
 					newResources[key] = f"{target}"
 			
-				elif isinstance(target, (BytesMatrix, BytesVector)):
+				elif isinstance(target,(BytesMatrix,BytesVector)):
 					if prefix != " ":
-						raise WrongDataFormat(f"Do not need prefix such as 'ark:' or 'scp:' in command pattern before resource: {key}.")
+						errMes = f"Do not need prefix such as 'ark:' or 'scp:' in command pattern before: {key}."
+						errMes += f"Because we will decide the prefix depending on its data type."						
+						raise WrongOperation(errMes)
+
 					target = target.sort()
 					if (inputsBuffer is True) and count == 1:
 						inputsBuffer = target.data
-						newResources[key] = f"ark:-"
+						newResources[key] = "ark:-"
 					else:					
-						targetTemp = fhm.create("wb+", suffix=".ark")
+						targetTemp = fhm.create("wb+",suffix=".ark")
 						target.save(targetTemp)
 						newResources[key] = f"ark:{targetTemp.name}"		
 
-				elif isinstance(target, (NumpyMatrix, NumpyVector)):
+				elif isinstance(target,(NumpyMatrix,NumpyVector)):
 					if prefix != " ":
-						raise WrongDataFormat(f"Do not need prefix such as 'ark:' or 'scp:' in command pattern before resource: {key}.")
+						errMes = f"Do not need prefix such as 'ark:' or 'scp:' in command pattern before: {key}."
+						errMes += f"Because we will decide the prefix depending on its data type."		
+						raise WrongOperation(errMes)
+
 					target = target.sort()
 					if (inputsBuffer is True) and count == 1:
 						inputsBuffer = target.to_bytes().data
-						newResources[key] = f"ark:-"
+						newResources[key] = "ark:-"
 					else:
 						target = target.to_bytes()
-						targetTemp = fhm.create("wb+", suffix=".ark")
+						targetTemp = fhm.create("wb+",suffix=".ark")
 						target.save(targetTemp)
 						newResources[key] = f"ark:{targetTemp.name}"	
 
-				elif isinstance(target, BytesArchive):
+				elif isinstance(target,BytesArchive):
 					if (inputsBuffer is True) and count == 1:
 						inputsBuffer = target.data
-						newResources[key] = f"-"
+						newResources[key] = "-"
 					else:
 						targetTemp = fhm.create("wb+")
 						target.save(targetTemp)
 						newResources[key] = f"{targetTemp.name}"
 
 				else:
-					raise UnsupportedType(f"<target> should be ArkIndexTable, ListTable, file name, or exkaldi achieve object but got: {type_name(target)}.")
+					raise UnsupportedType(f"<target> should be ArkIndexTable,ListTable,file name,int or float value,or exkaldi achieve object but got: {type_name(target)}.")
 			
-			# Now, process output stream
+			# Then,process output stream
 			outFile = outFiles[0]
 			newResources["outFile"] = outFile
 			inputsBuffer = None if isinstance(inputsBuffer,bool) else inputsBuffer
 			# Then rum command
 			finalCmd = cmdPattern.format(**newResources)
-
-			out, err, cod = run_shell_command(finalCmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=inputsBuffer)
+			out,err,cod = run_shell_command(finalCmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=inputsBuffer)
 			
 			if analyzeResult:
 				if cod != 0:
 					print(err.decode())
-					finalCmd = finalCmd.split("|")[-1].strip().split(maxsplit=1)[0]
-					raise KaldiProcessError(f"Failed to run kaldi command: {finalCmd}.")
+					finalCmd = ",".join([cmd.strip().split(maxsplit=1)[0] for cmd in finalCmd.split("|")])
+					raise KaldiProcessError(f"Failed to run Kaldi command: {finalCmd}.")
 			
 			if outFile == "-":
 				if generateArchive is not None:
 					if generateArchive == "feat":
-						out = BytesFeature(data=out, name=archiveNames[0])
+						out = BytesFeature(data=out,name=archiveNames[0])
 					elif generateArchive == "ali":
-						out = BytesAlignmentTrans(data=out, name=archiveNames[0])
+						out = BytesAlignmentTrans(data=out,name=archiveNames[0])
 					elif generateArchive == "cmvn":
-						out = BytesCMVNStatistics(data=out, name=archiveNames[0])
+						out = BytesCMVNStatistics(data=out,name=archiveNames[0])
 					else:
-						out = BytesFmllrMatrix(data=out, name=archiveNames[0])
+						out = BytesFmllrMatrix(data=out,name=archiveNames[0])
 					return out
 				else:
 					return (cod,err,out)
 			else:
 				if generateArchive is not None:
-					return load_index_table(outFile, name=archiveNames[0], useSuffix="ark")
+					return load_index_table(outFile,name=archiveNames[0],useSuffix="ark")
 				else:
 					return (cod,err,outFile)
 
 		else:
-			# In this case, all input IO stream must be files.
-			for key, countPrefix in auxiliaryInfo.items():
-				count, prefix = countPrefix
+			# In this case,all input IO stream must be files.
+			for key,countPrefix in auxiliaryInfo.items():
+				count,prefix = countPrefix
 				values = resources[key]
-				newvalues = []
+				newValues = []
 				for target in values:
 
 					# If target is scp resource
 					if type_name(target) in ["ListTable","Transcription"]:
-						if prefix != ":":
-							raise WrongDataFormat(f"Miss prefix such as 'ark:' or 'scp:' in command pattern before resource: {key}.")						
+						if prefix not in [":","="]:
+							errMes = f"There might miss prefix such as 'ark:' or 'scp:' or '--option=' in command pattern before resource: {key}."
+							errMes += "Check the command line please. If you still think there dose not need the prefix,"
+							errMes += "save this ListTable or Transcription into file and instead it will this file name."
+							errMes += "In that case,we will skip checking the prefix."
+							raise WrongOperation(errMes)		
+
 						target = target.sort()
-						targetTemp = fhm.create("w+", encoding="utf-8")
+						targetTemp = fhm.create("w+",encoding="utf-8")
 						target.save(targetTemp)
-						newvalues.append(f"{targetTemp.name}")						
+						newValues.append(f"{targetTemp.name}")						
 
 					elif type_name(target) == "ArkIndexTable":
 						if prefix != " ":
-							raise WrongDataFormat(f"Do not need any prefixs such as 'ark:' or 'scp:' in command pattern before resource: {key}.")						
+							errMes = f"Do not need prefix such as 'ark:' or 'scp:' in command pattern before: {key}."
+							errMes += f"Because we will decide the prefix depending on its data type."
+							raise WrongOperation(errMes)		
+
 						target = target.sort()
-						targetTemp = fhm.create("w+", suffix=".scp", encoding="utf-8")
+						targetTemp = fhm.create("w+",suffix=".scp",encoding="utf-8")
 						target.save(targetTemp)
-						newvalues.append(f"scp:{targetTemp.name}")
+						newValues.append(f"scp:{targetTemp.name}")
 				
-					elif isinstance(target, (str,float,int)):
+					elif isinstance(target,(str,float,int)):
 						# file name or other value parameters
-						newvalues.append(f"{target}")
+						newValues.append(f"{target}")
 				
-					elif isinstance(target, (BytesMatrix, BytesVector)):
+					elif isinstance(target,(BytesMatrix,BytesVector)):
 						if prefix != " ":
-							raise WrongDataFormat(f"Do not need any prefixs such as 'ark:' or 'scp:' in command pattern before resource: {key}.")			
+							errMes = f"Do not need prefix such as 'ark:' or 'scp:' in command pattern before: {key}."
+							errMes += f"Because we will decide the prefix depending on its data type."						
+							raise WrongOperation(errMes)	
+
 						target = target.sort()
-						targetTemp = fhm.create("wb+", suffix=".ark")
+						targetTemp = fhm.create("wb+",suffix=".ark")
 						target.save(targetTemp)
-						newvalues.append(f"ark:{targetTemp.name}")			
+						newValues.append(f"ark:{targetTemp.name}")			
 
-					elif isinstance(target, (NumpyMatrix, NumpyVector)):
+					elif isinstance(target,(NumpyMatrix,NumpyVector)):
 						if prefix != " ":
-							raise WrongDataFormat(f"Do not need any prefixs such as 'ark:' or 'scp:' in command pattern before resource: {key}.")
-						target = target.sort().to_bytes()
-						targetTemp = fhm.create("wb+", suffix=".ark")
-						target.save(targetTemp)
-						newvalues.append(f"ark:{targetTemp.name}")
+							errMes = f"Do not need prefix such as 'ark:' or 'scp:' in command pattern before: {key}."
+							errMes += f"Because we will decide the prefix depending on its data type."						
+							raise WrongOperation(errMes)
 
-					elif isinstance(target, BytesArchive):
+						target = target.sort().to_bytes()
+						targetTemp = fhm.create("wb+",suffix=".ark")
+						target.save(targetTemp)
+						newValues.append(f"ark:{targetTemp.name}")
+
+					elif isinstance(target,BytesArchive):
 						targetTemp = fhm.create("wb+")
 						target.save(targetTemp)	
-						newvalues.append(f"{targetTemp.name}")
+						newValues.append(f"{targetTemp.name}")
 
 					else:
-						raise UnsupportedType(f"<target> should be ArkIndexTable, ListTable, Transcription, file, int or float values or exkaldi achieve object but got: {type_name(target)}.")
+						raise UnsupportedType(f"<target> should be ArkIndexTable,ListTable,Transcription,file,int or float values or exkaldi achieve object but got: {type_name(target)}.")
 				
-				newResources[key] = newvalues
+				newResources[key] = newValues
 			
 			newResources["outFile"] = outFiles
 			# assign these resources to each process and generate multiple commands
 			parallelResources = []
 			for i in range(parallel):
 				parallelResources.append({})
-				for key, items in newResources.items():
+				for key,items in newResources.items():
 					parallelResources[-1][key] = items[i]
 			cmds = [ cmdPattern.format(**re) for re in parallelResources ]
 			# run
-			flags = run_shell_command_parallel(cmds, timeout=timeout)
+			flags = run_shell_command_parallel(cmds,timeout=timeout)
 
 			finalResult = []
 			done = True
 			for index,info in enumerate(flags):
-				cod, err = info
+				cod,err = info
 				if analyzeResult and cod != 0:
 					print(f"{index}/{len(flags)} error tracking")
 					print(err.decode())
 					done = False	
-				finalResult.append( (cod, err, outFiles[index]) )
+				finalResult.append( (cod,err,outFiles[index]) )
 
 			if analyzeResult and (not done):
-				finalCmd = cmds[0].split("|")[-1].strip().split(maxsplit=1)[0]
-				raise KaldiProcessError(f"Failed to run kaldi command: {finalCmd}. Look the error messages above.")
+				finalCmd = ",".join([cmd.strip().split(maxsplit=1)[0] for cmd in finalCmd.split("|")])
+				raise KaldiProcessError(f"Failed to run Kaldi command: {finalCmd}. Look the error messages above.")
 			else:
 				if generateArchive is not None:
-					for i, fileName in enumerate(outFiles):
-						finalResult[i] = load_index_table(fileName, name=archiveNames[i], useSuffix="ark")
+					for i,fileName in enumerate(outFiles):
+						finalResult[i] = load_index_table(fileName,name=archiveNames[i],useSuffix="ark")
 
 			return finalResult
 
-def utt2spk_to_spk2utt(utt2spk, outFile=None):
+def utt2spk_to_spk2utt(utt2spk,outFile=None):
 	'''
-	Transform utt2spk file to spk2utt file.
+	Transform utt2spk to spk2utt.
 
 	Args:
 		<utt2spk>: file name or exkaldi ListTable object.
@@ -541,7 +534,7 @@ def utt2spk_to_spk2utt(utt2spk, outFile=None):
 	Return:
 		file name or exakldi ListTable object.
 	'''
-	declare.is_potential_list_table("utt2spk", utt2spk)
+	declare.is_potential_list_table("utt2spk",utt2spk)
 	if outFile is not None:
 		declare.is_valid_file_name(outFile)
 	
@@ -549,15 +542,16 @@ def utt2spk_to_spk2utt(utt2spk, outFile=None):
 		utt2spk = load_list_table(utt2spk)
 
 	spk2utt = ListTable(name="spk2utt")
-	for utt, spk in utt2spk.items():
-		declare.is_valid_string("utterance ID", utt)
-		declare.is_valid_string("speaker ID", spk)
-		assert utt.count(" ") == 0, f"<utterance ID> is not a continuous string but spaces existed: {utt}."
-		assert spk.count(" ") == 0, f"<spkeaker ID> is not a continuous string but spaces existed: {utt}."
-		if spk not in spk2utt.keys():
-			spk2utt[spk] = utt
-		else:
+	for utt,spk in utt2spk.items():
+		declare.is_valid_string("utterance ID",utt)
+		declare.is_valid_string("speaker ID",spk)
+		assert utt.count(" ") == 0,f"<utterance ID> is not a continuous string but spaces existed: {utt}."
+		assert spk.count(" ") == 0,f"<speaker ID> is not a continuous string but spaces existed: {spk}."
+		
+		try:
 			spk2utt[spk] += f" {utt}"
+		except KeyError:
+			spk2utt[spk] = utt
 
 	if outFile is None:
 		return spk2utt
@@ -565,15 +559,18 @@ def utt2spk_to_spk2utt(utt2spk, outFile=None):
 		spk2utt.save(outFile)
 		return outFile
 
-def spk2utt_to_utt2spk(spk2utt, outFile=None):
+def spk2utt_to_utt2spk(spk2utt,outFile=None):
 	'''
 	Transform spk2utt file to utt2spk file.
 
 	Args:
 		<spk2utt>: file name or exkaldi ListTable object.
 		<outFile>: file name or None.
+
+	Return:
+		file name or exakldi ListTable object.
 	'''
-	declare.is_potential_list_table("spk2utt", spk2utt)
+	declare.is_potential_list_table("spk2utt",spk2utt)
 	if outFile is not None:
 		declare.is_valid_file_name(outFile)
 	
@@ -581,15 +578,18 @@ def spk2utt_to_utt2spk(spk2utt, outFile=None):
 		spk2utt = load_list_table(spk2utt)
 
 	utt2spk = ListTable(name="utt2spk")
-	for spk, utts in spk2utt.items():
-		declare.is_valid_string("utterance IDs", utts)
-		declare.is_valid_string("speaker ID", spk)
-		assert spk.count(" ") == 0, f"<spkeaker ID> is not a continuous string but spaces existed: {utt}."
+	for spk,utts in spk2utt.items():
+		declare.is_valid_string("utterance IDs",utts)
+		declare.is_valid_string("speaker ID",spk)
+		assert spk.count(" ") == 0,f"<speaker ID> is not a continuous string but spaces existed: {spk}."
 
 		for utt in utts.split():
-			if utt in utt2spk.keys():
-				raise WrongDataFormat(f"utterance ID:{utt} has existed towards to multiple speakers..")
-			utt2spk[utt] = spk
+			try:
+				utt2spk[utt]
+			except KeyError:
+				utt2spk[utt] = spk
+			else:
+				raise WrongDataFormat(f"utterance ID:{utt} has existed toward multiple speakers.")
 
 	if outFile is None:
 		return utt2spk
@@ -600,7 +600,8 @@ def spk2utt_to_utt2spk(spk2utt, outFile=None):
 def merge_archives(archives):
 	'''
 	Merge multiple archives to one.
-	Lattice objects also support this operation.
+	Particularly,exkaldi Lattice objects also support this operation.
+	Do the plus operation between all archives.
 
 	Args:
 		<archives>: a list or tuple of multiple exkaldi archive objects which are the same class.
@@ -608,39 +609,44 @@ def merge_archives(archives):
 	Return:
 		a new archive object.
 	'''
-	declare.is_classes("archives", archives, (list,tuple))
-	declare.not_void("archives", archives)
+	declare.is_classes("archives",archives,(list,tuple))
+	declare.not_void("archives",archives)
 	
 	if type_name(archives[0]) != "Lattice":
 		declare.belong_classes("archives",archives[0],[BytesMatrix,BytesVector,ListTable,NumpyMatrix,NumpyVector])
+
 	result = archives[0]
 	typeName = type_name(archives[0])
 	names = [archives[0].name]
 
-	for ar in archives[1:]:
-		assert type_name(ar) == typeName, f"All archives needed to be merged must be the same class but got: {typeName}!={type_name(ar)}."
-		result += ar
-		names.append(ar.name)
+	for ark in archives[1:]:
+		assert type_name(ark) == typeName,f"All archives needed to be merged must be the same class but got: {typeName}!={type_name(ark)}."
+		result += ark
+		names.append(ark.name)
 	
 	names = ",".join(names)
 	result.rename(f"merge({names})")
 	return result
 
-def spk_to_utt(spks, spk2utt):
+def spk_to_utt(spks,spk2utt):
 	'''
-	Accept a list of speakers and return their corresponding utt IDs.
+	Accept a list of speaker IDs and return their corresponding utterance IDs.
 
 	Args:
-		<spks>: a list or tuple of speaker IDs.
+		<spks>: a string or list or tuple of speaker IDs.
 		<spk2utt>: spk2utt file or ListTable object.
 	
 	Return:
 		a list of utterance IDs.
 	'''
-	declare.is_classes("speaker IDs", spks, (tuple,list))
-	declare.members_are_valid_strings("speaker IDs", spks)
-	declare.is_potential_list_table("spk2utt", spk2utt)
+	declare.is_classes("speaker IDs",spks,(str,tuple,list))
 
+	if not isinstance(spks,str):
+		declare.members_are_valid_strings("speaker IDs",spks)
+	else:
+		spks = [spks,]
+		
+	declare.is_potential_list_table("spk2utt",spk2utt)
 	if isinstance(spk2utt,str):
 		spk2utt = load_list_table(spk2utt)
 	
@@ -654,23 +660,26 @@ def spk_to_utt(spks, spk2utt):
 			declare.is_valid_string("The value of spk2utt",utt)
 			utts.extend(utt.strip().split())
 	
-	return utts
+	return sorted(list(set(utts)))
 
-def utt_to_spk(utts, utt2spk):
+def utt_to_spk(utts,utt2spk):
 	'''
 	Accept a list of utterance IDs and return their corresponding speaker IDs.
 
 	Args:
-		<utts>: a list or tuple of utterance IDs.
+		<utts>: a string or list or tuple of utterance IDs.
 		<utt2spk>: utt2spk file or ListTable object.
 	
 	Return:
 		a list of speaker IDs.
 	'''
-	declare.is_classes("utterance IDs", utts, (tuple,list))
-	declare.members_are_valid_strings("utterance IDs", utts)
-	declare.is_potential_list_table("utt2spk", utt2spk)
+	declare.is_classes("utterance IDs",utts,(str,tuple,list))
+	if not isinstance(utts,str):
+		declare.members_are_valid_strings("utterance IDs",utts)
+	else:
+		utts = [utts,]	
 
+	declare.is_potential_list_table("utt2spk",utt2spk)
 	if isinstance(utt2spk,str):
 		utt2spk = load_list_table(utt2spk)
 	
@@ -683,7 +692,7 @@ def utt_to_spk(utts, utt2spk):
 		else:
 			declare.is_valid_string("The value of utt2spk",utt)
 			spktemp = spk.strip().split(maxsplit=1)
-			assert len(spktemp) == 1, f"speaker ID in utt2spk has unexpected space: {spk}."
+			assert len(spktemp) == 1,f"speaker ID in utt2spk has unexpected space: {spk}."
 			spks.append(spktemp[0])
 	
-	return list(set(spks))
+	return sorted(list(set(spks)))

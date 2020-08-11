@@ -37,7 +37,7 @@ Get the central position.
 An int value.
 
 >### .accumulate_stats
-(feat, hmm, alignment, outFile, lexicons=None)
+(feat, hmm, ali, outFile, lexicons=None)
 
 Accumulate tree statistics in order to compile questions.  
 
@@ -47,7 +47,7 @@ _lexicons_: None. If no any lexicons provided in DecisionTree, this is expected.
 
 **Parallel Args:**  
 _feat_: exkaldi feature or index table object.  
-_alignment_: exkaldi alignment or index table object.  
+_ali_: exkaldi alignment or index table object.  
 _outFile_: file name. If use parallel processes, _outFile_ is necessary.  
 
 **Return:**  
@@ -89,7 +89,7 @@ Null.
 the path of out file.
 
 >### .train
-(feat, hmm, alignment, topoFile, numLeaves, tempDir, clusterThresh=-1, lexicons=None)
+(feat, hmm, ali, topoFile, numLeaves, tempDir, clusterThresh=-1, lexicons=None)
 
 This is a hign-level API to build a decision tree.
 
@@ -102,7 +102,7 @@ _lexicons_: None. If no any lexicons provided in DecisionTree, this is expected.
 
 **Parallel Args:**  
 _feat_: exkaldi feature object.  
-_alignment_: file path or exkaldi transition-ID Alignment object.  
+_ali_: file path or exkaldi transition-ID Alignment object.  
 
 >### .save  
 (fileName="tree")
@@ -205,7 +205,7 @@ _outFile_. output filename. If use parallel processes, output file name is neces
 exkaldi alignment object or index table object.
 
 >### .accumulate_stats
-(feat, alignment, outFile)
+(feat, ali, outFile)
 
 Accumulate GMM statistics in order to update GMM parameters.
 
@@ -214,7 +214,7 @@ Null.
 
 **Parallel Args:**  
 _feat_: exkaldi feature object.  
-_alignment_: exkaldi transitionID alignment object or file path.  
+_ali_: exkaldi transitionID alignment object or file path.  
 _outFile_: file name.  
 
 **Return:**  
@@ -426,12 +426,12 @@ the path of generated file.
 
 -----------------------------------------
 >## hmm.convert_alignment
-(alignment, originHmm, targetHmm, tree, outFile=None)
+(ali, originHmm, targetHmm, tree, outFile=None)
 
 Convert alignment.
 
 **Args:**  
-_alignment_: file path or exkaldi transition-ID alignment object.  
+_ali_: file path or exkaldi transition-ID alignment object.  
 _originHmm_: file path or exkaldi HMM object.  
 _targetHmm_: file path or exkaldi HMM object.  
 _tree_: file path or exkaldi DecisionTree object.  
@@ -469,7 +469,7 @@ exkaldi Transcription object.
 
 ------------------------------------------
 >## hmm.accumulate_LDA_stats
-(alignment, lexicons, hmm, feat, outFile, silenceWeight=0.0, randPrune=4)
+(ali, lexicons, hmm, feat, outFile, silenceWeight=0.0, randPrune=4)
 
 Acumulate LDA statistics to estimate LDA tansform matrix.
 
@@ -480,13 +480,13 @@ _silenceWeight_.
 _randPrune_.  
 
 **Parallel Args:**  
-_alignment_: exkaldi alignment or index table object.  
+_ali_: exkaldi alignment or index table object.  
 _feat_: exkaldi feature or index object.  
 _outFile_: output file name.  
 
 ------------------------------------------
 >## hmm.accumulate_MLLT_stats
-(alignment, lexicons, hmm, feat, outFile, silenceWeight=0.0, randPrune=4)
+(ali, lexicons, hmm, feat, outFile, silenceWeight=0.0, randPrune=4)
 
 Acumulate MLLT statistics to estimate LDA+MLLT tansform matrix.
 
@@ -497,7 +497,7 @@ _silenceWeight_.
 _randPrune_.  
 
 **Parallel Args:**  
-_alignment_: exkaldi alignment or index table object.  
+_ali_: exkaldi alignment or index table object.  
 _feat_: exkaldi feature or index object.  
 _outFile_: output file name.  
 

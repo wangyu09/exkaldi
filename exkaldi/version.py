@@ -15,15 +15,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections import namedtuple
 import subprocess
 import os
 import copy
 from glob import glob
+from collections import namedtuple
 
 '''Some Exception Classes'''
 
-class WrongPath(Exception): pass
+class WrongPath(Exception):pass
 class WrongOperation(Exception):pass
 class WrongDataFormat(Exception):pass
 class ShellProcessError(Exception):pass
@@ -36,17 +36,19 @@ class UnsupportedKaldiVersion(Exception): pass
 
 _MAJOR_VERSION = '1'
 _MINOR_VERSION = '3'
-_PATCH_VERSION = '0'
+_PATCH_VERSION = '2'
 
 _EXPECTED_KALDI_VERSION = "5.5"
 
-_TIMEOUT = 300
+_TIMEOUT = 500
 
-class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
-
+class ExKaldiInfo( namedtuple("ExKaldiInfo",["version","major","minor","patch"]) ):
+	'''
+	Generate a object that carries various Exkaldi configurations.
+	'''
 	def initialize(self):
 		'''
-		Initialize kaldi root information.
+		Initialize.
 		'''
 		self.__KALDI_ROOT = None
 		self.__ENV = None
@@ -63,7 +65,7 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 	@property
 	def EXKALDI(self):
 		'''
-		Get the exkaldi version infomation.
+		Get the Exkaldi version information.
 
 		Return:
 		    A named tuple.
@@ -73,10 +75,15 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 	@property
 	def KALDI(self):
 		'''
-		The kaldi version information. It will search the .version file in kaldi root path.
+		Get Kaldi version number. It will consult the ".version" file in Kaldi root path.
 
 		Return:
-			None, "unknown", or a string of version Number.
+			if Kaldi has not been found:
+				return None
+			elif ".version" has not been found:
+				return "unknown"
+			else:
+				return a named tuple of version number.
 		'''
 		if self.__KALDI_ROOT is None:
 			print("Warning: Kaldi toolkit was not found.")
@@ -91,36 +98,37 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 					v = fr.readline().strip()
 					major, minor = v.split(".")[0:2]
 				if v != _EXPECTED_KALDI_VERSION:
-					raise UnsupportedKaldiVersion(f"Current Exkaldi supports Kaldi version=={_EXPECTED_KALDI_VERSION} but got {v}.")
+					raise UnsupportedKaldiVersion(f"Current Exkaldi only supports Kaldi version=={_EXPECTED_KALDI_VERSION} but got {v}.")
 				else:
 					return namedtuple("Kaldi", ["version", "major", "minor"])(v, major, minor)
 
 	@property
 	def KALDI_ROOT(self):
 		'''
-		The kaldi root path. We allow Kaldi does not exist but we expect it will be assigned later. 
+		Get The kaldi root path. 
+		We allow Kaldi does not exist now but we expect it will be appointed later. 
 
 		Return:
-			None if kaldi is not existed, or a path.
+			None if Kaldi has not been found in system PATH, or a string.
 		'''
 		if self.__KALDI_ROOT is None:
 			cmd = "which copy-feats"
 			p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=os.environ.copy())
 			out, err = p.communicate()
 			if out == b'':
-				print("Warning: Kaldi root directory was not found in system PATH. You can assign it:")
-				print("exkaldi.version.reset_kaldi_root( yourPath )")
-				print("If not, ERROR will occur when implementing parts of core functions.")
+				print("Warning: Kaldi root directory was not found in system PATH. You can appoint it:")
+				print("exkaldi.info.reset_kaldi_root( yourPath )")
+				print("If not, ERROR will occur when implementing some core functions.")
 			else:
 				self.__KALDI_ROOT = out.decode().strip()[0:-23]
-				self.reset_kaldi_root(self.__KALDI_ROOT) # In order to reset the environment
+				self.reset_kaldi_root(self.__KALDI_ROOT)
 
 		return self.__KALDI_ROOT
 	
 	@property
 	def ENV(self):
 		'''
-		System environment information.
+		Get the system environment in which ExKaldi are running.
 
 		Return:
 			a dict object.
@@ -133,19 +141,19 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 
 	def reset_kaldi_root(self, path):
 		'''
-		Set the root directory of Kaldi toolkit and add it to system PATH manually.
-		And it will also make a default log folder.
+		Reset the root path of Kaldi toolkit and add related directories to system PATH manually.
 
 		Args:
-			<path>: a directory.
+			<path>: a directory path.
 		'''
 		assert isinstance(path, str), "<path> should be a directory name-like string."
-		
+		path = path.strip()
 		if not os.path.isdir(path):
 			raise WrongPath(f"No such directory: {path}.")
 		else:
-			path = os.path.abspath(path.strip())
+			path = os.path.abspath(path)
 
+		# verify this path roughly
 		cmd = os.path.join(f"ls {path}", "src", "featbin", "copy-feats")
 		p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=os.environ.copy())
 		out, err = p.communicate()
@@ -182,7 +190,7 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 			else:
 				systemPATH.append(i)
 
-		# Add new kaldi path of environment
+		# collect new paths
 		systemPATH.append( os.path.join(path, "src", "bin") )
 		systemPATH.append( os.path.join(path, "tools", "openfst") )
 		systemPATH.append( os.path.join(path, "tools", "openfst", "bin") )
@@ -194,13 +202,26 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 		systemPATH.append( os.path.join(path, "src", "latbin") )
 		systemPATH.append( os.path.join(path, "src", "gmmbin") )
 		
-		# Assign new environment
+		# reset the environment
 		systemPATH = ":".join(systemPATH)
+		self.__ENV['PATH'] = systemPATH
+
+	def export_path(self, path):
+		'''
+		Add a path to Exkaldi environment PATH.
+		
+		Args:
+			<path>: a path.
+		'''
+		if not os.path.exists(path):
+			raise WrongPath(f"No such path: {path}.")
+		systemPATH = self.ENV["PATH"]
+		systemPATH += f":{path}"
 		self.__ENV['PATH'] = systemPATH
 
 	def prepare_srilm(self):
 		'''
-		Prepare srilm toolkit and add it to system PATH.
+		Prepare SriLM toolkit and add it to Exkaldi system PATH.
 		'''
 		if self.KALDI_ROOT is None:
 			raise WrongPath("Kaldi toolkit was not found.")
@@ -230,43 +251,31 @@ class ExKaldi( namedtuple("ExKaldi",["version","major","minor","patch"]) ):
 			systemPATH = ":".join(systemPATH)
 			self.__ENV['PATH'] = systemPATH
 
-	def export_path(self, path):
-		'''
-		Add a directory to environment PATH.
-		
-		Args:
-			<path>: a string.
-		'''
-		if not os.path.exists(path):
-			raise WrongPath(f"No such path: {path}.")
-		systemPATH = self.ENV
-		systemPATH += f":{path}"
-		self.__ENV['PATH'] = systemPATH
-
 	@property
 	def timeout(self):
 		return _TIMEOUT
 
+	def set_timeout(self,timeout):
+		'''
+		Reset the global timeout value.
+
+		Args:
+			<timeout>: a positive int value.
+		'''
+		assert isinstance(timeout, int) and timeout > 0, f"<timeout> must be a positive int value but got: {timeout}."
+		global _TIMEOUT
+		_TIMEOUT = timeout
+
 # initialize version infomation
-info = ExKaldi(
+info = ExKaldiInfo(
             '.'.join([_MAJOR_VERSION,_MINOR_VERSION,_PATCH_VERSION]),
             _MAJOR_VERSION,
             _MINOR_VERSION,
-			_PATCH_VERSION,
+						_PATCH_VERSION,
         ).initialize()
 
-# clear the temporary files possibly being left as garbage.
+# clear the temporary files possibly being left.
 garbageFiles = glob(os.path.join(" ","tmp","exkaldi_*").lstrip())
 for t in garbageFiles:
 	os.remove(t)
 
-def set_timeout(timeout):
-	'''
-	Set the global timeout value.
-
-	Args:
-		<timeout>: apositive int value.
-	'''
-	assert isinstance(timeout, int) and timeout > 0, f"<timeout> must be positive int value but got: {timeout}."
-	global _TIMEOUT
-	_TIMEOUT = timeout

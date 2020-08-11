@@ -1,4 +1,4 @@
-compute_fbank = {
+config = {
             "--blackman-coeff":[0.42,float],
             "--channel":[-1,int],
             "--debug-mel":["false",str],

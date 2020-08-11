@@ -4,6 +4,7 @@ from exkaldi.core.archive import ListTable
 from exkaldi.core.archive import ArkIndexTable
 from exkaldi.core.archive import Transcription
 from exkaldi.core.archive import Metric
+from exkaldi.core.archive import WavSegment
 
 from exkaldi.core.archive import BytesFeature
 from exkaldi.core.archive import BytesCMVNStatistics
@@ -41,8 +42,7 @@ from exkaldi.core.feature import decompress_feat
 from exkaldi.core.feature import add_delta
 from exkaldi.core.feature import splice_feature
 
-from exkaldi.core.common import compute_postprob_norm
-from exkaldi.core.common import tuple_data
+from exkaldi.core.common import tuple_dataset
 from exkaldi.core.common import match_utterances
 from exkaldi.core.common import merge_archives
 from exkaldi.core.common import utt_to_spk
