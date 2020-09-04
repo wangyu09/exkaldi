@@ -2,7 +2,6 @@
 - Glance
   -[The Concept of ExKaldi](contents/Concept.md)
   -[Parallel Processes](contents/Parallel.md)
-
 - API
   - [Archives Classes](contents/Archives.md)
   - [Exkaldi Configure](contents/Config.md)

@@ -1,4 +1,4 @@
-## The Concept of Exkaldi
+# The Concept of Exkaldi
 We use three data structures to discribe the Kaldi numerical data archives: __Index Table__, __Bytes Object__ and __NumPy Array__. They all stand for the same data.  
 
 ![three approaches](images/threeApproachs.png)  

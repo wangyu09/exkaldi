@@ -1,5 +1,5 @@
 
-## Parallel Processes In Exkaldi
+# Parallel Processes In Exkaldi
 Starting from version 1.3, we support multiple processes so as to deal with a large-scale corpus. When process a small one, such as TIMIT coupus in our examples, we prefer to apply the single process that will hold on data in memory, and defaultly appoint buffer as IO streams during the processing. For example, we want to compute the MFCC feature from a script-table file:
 ```
 # Single process
