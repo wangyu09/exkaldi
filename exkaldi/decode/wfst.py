@@ -1052,7 +1052,7 @@ def gmm_align(hmm,feat,alignGraphFile=None,tree=None,transcription=None,LFile=No
 			optionSilence = ":".join(lexicons("optional_silence",True))
 			hmmTemp = fhm.create("wb+",suffix=".mdl")
 			cmd = f'gmm-boost-silence --boost={boostSilence} {optionSilence} {hmm} {hmmTemp.name}'
-			out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")			
+			out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
 
 		else:
 			if lexicons is None:

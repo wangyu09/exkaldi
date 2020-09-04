@@ -607,7 +607,7 @@ class LexiconBank:
 	def __add_disambig_to_lexiconp(self,dictType="lexiconp"):
 		'''
 		This method is used to add phone-level disambiguation to [lexiconp] or [lexiconp_silprob]
-		Lexicon,[disambig],will be gained and parameter,"ndisambig",will be updated selmeanwhile
+		Lexicon,[disambig],will be gained and parameter,"ndisambig",will be updated selmeanwhile.
 		'''
 		declare.is_instances("dictType",dictType,["lexiconp","lexiconp_silprob"])
 
@@ -882,7 +882,7 @@ class LexiconBank:
 			So if you require them,a warning message will be printed and nothing will be saved. 
 		
 		Return:
-			file name,file handle or a string.
+			file name, file handle or a string.
 		'''
 		if fileName is not None:
 			declare.is_valid_file_name_or_handle("fileName",fileName)
@@ -1381,6 +1381,19 @@ class LexiconBank:
 		
 		else:
 			raise UnsupportedType("<targetFile> is an unknown lexicon format.")
+
+	def force_reset_lexicon(self,name,lexicon):
+		'''
+		Forcely reset specified lexicon.
+
+		Args:
+			<name>: lexicon name.
+			<lexicon>: lexicon object.
+		
+		Return:
+			Null.
+		'''
+		raise WrongOperation("This function is reserved.")
 
 def lexicon_bank(pronFile,silWords=["<sil>"],unkSymbol="unk",optionalSilPhone="<sil>",extraQuestions=[],
 					positionDependent=False,shareSilPdf=False,extraDisambigPhoneNumbers=1,extraDisambigWords=[]):

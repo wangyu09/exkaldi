@@ -17,7 +17,7 @@
 
 import sys
 from exkaldi.utils import declare
-from exkaldi.utils.utils import make_dependent_dirs, flatten
+from exkaldi.utils.utils import make_dependent_dirs, flatten, list_files
 from exkaldi.version import WrongOperation, WrongDataFormat
 from collections import namedtuple
 
@@ -37,6 +37,13 @@ class ArgumentParser:
 		self.__name2Abb = {}
 		self.__argv = None 
 		self.__discription = "Arguments for Exkaldi program"
+
+	@property
+	def view(self):
+		'''
+		Check all added options.
+		'''
+		return self.__arguments.copy()
 
 	def __capture(self):
 		'''
@@ -68,7 +75,7 @@ class ArgumentParser:
 	def __detect_special_char(self,item):
 		item = flatten(item)
 		assert "|" not in item, f"'|' is special char which is not be allowed to use in option definition."
-		assert "," not in item, f"',' is special char which is not be allowed to use in option definition."
+		#assert "," not in item, f"',' is special char which is not be allowed to use in option definition."
 
 	def add(self,name,dtype,abbr=None,default=None,choices=None,minV=None,maxV=None,discription=None):
 		'''
@@ -175,7 +182,7 @@ class ArgumentParser:
 		Print the arguments (command line) on standard output stream.
 		'''
 		self.__capture()
-		print( " ".join (self.__argv ))
+		print(" ".join(self.__argv))
 
 	def parse(self):
 		'''
@@ -442,7 +449,7 @@ class ArgumentParser:
 			values["minV"] = boundary["minV"]
 			values["maxV"] = boundary["maxV"]
 			# then parse the default and value
-			if values["default"] in ["none", "None"]:
+			if values["default"].lower() == "none":
 				values["default"] = None
 			else:
 				default = values["default"].split("|")
@@ -451,7 +458,7 @@ class ArgumentParser:
 				values["default"] = default if len(default) > 1 else default[0]
 			
 			# the judgement of "default" will be done by .parse() function, so here we only verify "value"
-			if values["value"] in ["none", "None"]:
+			if values["value"].lower() == "none":
 				values["value"] = None
 			else:
 				value = values["value"].split("|")
@@ -465,6 +472,8 @@ class ArgumentParser:
 						if values["maxV"] is not None:
 							declare.less_equal("Option value", v, "maximum expected value", values["maxV"])
 					value[i] = v
+				if len(value) == 1:
+					value = value[0]
 				values["value"] = value
 			
 			# check abbreviation
@@ -488,3 +497,23 @@ class ArgumentParser:
 				self.__setattr__(values["name"], values["value"])
 
 args = ArgumentParser()
+
+def load_args(target):
+	'''
+	Load arguments from file.
+
+	Args:
+		<target>:file path.
+	
+	Return:
+		an ArgumentParser object.
+	'''
+	fileName = list_files(target)
+	assert len(fileName) == 1, "Cannot load auguments from multiple files."
+
+	global args
+
+	args.reset()
+	args.load(fileName[0])
+
+	return args

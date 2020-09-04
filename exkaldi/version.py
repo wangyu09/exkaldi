@@ -22,7 +22,6 @@ from glob import glob
 from collections import namedtuple
 
 '''Some Exception Classes'''
-
 class WrongPath(Exception):pass
 class WrongOperation(Exception):pass
 class WrongDataFormat(Exception):pass
@@ -79,9 +78,9 @@ class ExKaldiInfo( namedtuple("ExKaldiInfo",["version","major","minor","patch"])
 
 		Return:
 			if Kaldi has not been found:
-				return None
+				return None.
 			elif ".version" has not been found:
-				return "unknown"
+				return "unknown".
 			else:
 				return a named tuple of version number.
 		'''
@@ -278,4 +277,3 @@ info = ExKaldiInfo(
 garbageFiles = glob(os.path.join(" ","tmp","exkaldi_*").lstrip())
 for t in garbageFiles:
 	os.remove(t)
-

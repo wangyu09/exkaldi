@@ -105,7 +105,7 @@ def train_ngrams_srilm(lexicons, order, text, outFile, config=None):
 					else:
 						extraConfig += f" {key} {value}"
 
-		cmd = f"ngram-count -text {text} -order {order} -limit-vocab -vocab {wordlistTemp.name} -unk -map-unk {unkSymbol} "
+		cmd = f'ngram-count -text {text} -order {order} -limit-vocab -vocab {wordlistTemp.name} -unk -map-unk "{unkSymbol}" '
 		if specifyDiscount is False:
 			cmd += "-kndiscount "
 		cmd += "-interpolate "
@@ -358,18 +358,22 @@ class KenNGrams(BytesArchive):
 			<transcription>: file path or exkaldi Transcription object.
 
 		Return:
-			an exkaldi Metric object.
+			an named tuple: PPL(probs,sentences,words,ppl,ppl1).
 		'''
 		declare.is_potential_transcription("transcription", transcription)
 
 		if isinstance(transcription, str):
 			transcription = load_transcription(transcription)
 		
-		scores = Metric(name=f"LMperplexity({transcription.name})")
-		for uttID, txt in transcription.items():
-			scores[uttID] = self.perplexity_sentence(txt)
+		prob = self.score(transcription)
+		sentences = len(prob)
+		words = transcription.sentence_length().sum()
 
-		return scores
+		sumProb = prob.sum()
+		ppl = 10**(-sumProb/(sentences+words))
+		ppl1 = 10**(-sumProb/(words))
+
+		return namedtuple("PPL",["prob","sentences","words","ppl","ppl1"])(round(sumProb,2),sentences,words,round(ppl,2),round(ppl1,2))
 
 def load_ngrams(target, name="gram"):
 	'''

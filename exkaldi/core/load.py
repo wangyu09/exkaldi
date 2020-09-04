@@ -674,10 +674,6 @@ def load_transcription(target,name="transcription",checkSpace=True):
 
 
 
-			
-
-
-
 
 		
 

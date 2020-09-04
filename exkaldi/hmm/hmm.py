@@ -810,7 +810,7 @@ class MonophoneHMM(BaseHMM):
 			<initialBeam>: initial search beam size.
 			<beam>: search beam size.
 			<retryBeam>: retry beam size.
-			<boostSilence>: boost silence.
+			<boostSilence>: a factor to boost silence probability.
 			<careful>: a bool value.
 			<power>: a float value.
 			<minGaussianOccupancy>. minimum gaussian occupancy.
@@ -1338,9 +1338,9 @@ def sum_tree_stats(statsFiles,outFile):
 
 	return __sum_statistics_files(tool,statsFiles,outFile)
 
-def make_toponology(lexicons,outFile,numNonsilStates=3,numSilStates=5):
+def make_topology(lexicons,outFile,numNonsilStates=3,numSilStates=5):
 	'''
-	Make toponology file.
+	Make topology file.
 
 	Args:
 		<lexicons>: an LexiconBank object.
@@ -1382,7 +1382,7 @@ def convert_alignment(ali,originHmm,targetHmm,tree,outFile=None):
 	Convert alignment.
 
 	Share Args:
-		Null
+		Null.
 
 	Parallel Args:
 		<ali>: exkaldi transition-ID alignment or index table object.

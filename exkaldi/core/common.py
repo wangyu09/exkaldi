@@ -514,7 +514,7 @@ def run_kaldi_commands_parallel(resources,cmdPattern,analyzeResult=True,timeout=
 				finalResult.append( (cod,err,outFiles[index]) )
 
 			if analyzeResult and (not done):
-				finalCmd = ",".join([cmd.strip().split(maxsplit=1)[0] for cmd in finalCmd.split("|")])
+				finalCmd = ",".join([cmd.strip().split(maxsplit=1)[0] for cmd in cmds[0].split("|")])
 				raise KaldiProcessError(f"Failed to run Kaldi command: {finalCmd}. Look the error messages above.")
 			else:
 				if generateArchive is not None:

@@ -216,7 +216,7 @@ def split_txt_file(filePath,chunks=2):
 		each file has a a prefix such as "ck0_" which _0_ is the chunk ID.
 	'''
 	declare.is_file("filePath",filePath)
-	declare.in_boundary("chunks",chunks,minV=2)
+	declare.greater_equal("chunks",chunks,"minimum chunk size",2)
 
 	with open(filePath,'r',encoding='utf-8') as fr:
 		data = fr.readlines()

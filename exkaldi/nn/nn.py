@@ -636,6 +636,7 @@ def softmax(data,axis=1):
 	Args:
 		<data>: a Numpy array.
 		<axis>: the dimension to softmax.
+		
 	Return:
 		A new array.
 	'''
