@@ -29,7 +29,7 @@ less kaldi/src/INSTALL
 2. Clone the ExKaldi source code from our github project, then install it.
 ```
 git clone https://github.com/wangyu09/exkaldi.git
-cd ExKaldi
+cd exkaldi
 bash quick_install.sh
 ```
 
@@ -43,7 +43,7 @@ python -c "import exkaldi"
 
 In [exkaldi/tutorials](tutorials) directory, we prepared a simple tutorial to show how to use ExKaldi APIs to build a ASR system from the scratch.
 The data is from librispeech train_100_clean dataset. This tutorial includes:
-1. Extract and process feature.  
+1. Extract and process MFCC feature.  
 2. Train and querying a N-grams language model.  
 3. Train monophone GMM-HMM, build decision tree, triphone GMM-HMM.  
 4. Train a DNN acoustic model with tensorflow.  
@@ -55,8 +55,7 @@ This ASR symtem built here is just a dummy model, and we have done some formal e
 
 ## Experiments
 
-We have done some experiments to test ExKaldi toolkit, and it achived a good performance.
-(We will upload the results of experiments little by little.)
+We have done some experiments to test ExKaldi toolkit, and it achieved a good performance.
 
 #### TIMIT
 
@@ -68,7 +67,7 @@ We have done some experiments to test ExKaldi toolkit, and it achived a good per
 | __ExKaldi srilm__         | 14.42        | 13.05       | 13.67       | 14.30       | 14.53       |
 | __ExKaldi kenlm__         | 14.39        | 12.75       | 12.75       | 12.70       | __12.25__   |
 
-2, The phone error rate(PER) of various GMM-HMM-based systems. All these systems are trained with TIMIT train dataset and tested with TIMIT test dataset. The Language model backend used in ExKaldi is KenLM. From the results, we can know than KenLm is avaliable to optimize the language model. And what's more, with ExKaldi, we cherry-picked the N-grams by testing the perplexity and it improved the performance of ASR system.
+2, The phone error rate (PER) of various GMM-HMM-based systems. All these systems are trained with TIMIT train dataset and tested with TIMIT test dataset. The Language model backend used in ExKaldi is KenLM. From the results, we can know than KenLm is avaliable to optimize the language model. And what's more, with ExKaldi, we cherry-picked the N-grams by testing the perplexity and it improved the performance of ASR system.
 
 |                           | __mono__  | __tri1__ | __tri2__ | __tri3__ |
 | :-----------------------: | :-------: | :------: | :------: | :------: |
@@ -76,7 +75,7 @@ We have done some experiments to test ExKaldi toolkit, and it achived a good per
 | __ExKaldi 2grams__        | 32.53     | 25.89    | 23.63    | 21.43    |
 | __ExKaldi 6grams__        | 29.83     | 24.07    | 22.40    |__20.01__ |
 
-3, The phone error rate(PER) of various DNN-HMM-based systems. We trained our models with Tensorflow 2.3. The version of PyTorch-Kaldi toolkit is 1.0 in our experiment. (We are tuning the hyperparameter for more better result)
+3, The phone error rate (PER) of various DNN-HMM-based systems. We trained our models with Tensorflow 2.3. The version of PyTorch-Kaldi toolkit is 1.0 in our experiment. (We are tuning the hyperparameter for more better result)
 
 |                    | __DNN__   | __LSTM__ |
 | :----------------: | :-------: | :------: |
