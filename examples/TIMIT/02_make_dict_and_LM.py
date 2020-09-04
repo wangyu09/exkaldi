@@ -35,8 +35,8 @@ def main():
     # 1. Add a discription of this program
     args.discribe("This program is used to make dictionaries and language model") 
     # 2. Add options
-    args.add("--expDir", abbreviation="-e", dtype=str, default="exp", discription="The data and output path of current experiment.")
-    args.add("--order", abbreviation="-o", dtype=int, default=3, minV=1, maxV=6, discription="The maximum order of N-grams language model.")
+    args.add("--expDir", abbr="-e", dtype=str, default="exp", discription="The data resources and output path of current experiment.")
+    args.add("--order", abbr="-o", dtype=int, default=6, minV=1, maxV=6, discription="The maximum order of N-grams language model.")
     # 3. Then start to parse arguments. 
     args.parse()
     # 4. Take a backup of arguments
@@ -46,12 +46,12 @@ def main():
 
     # ------- Make the word-pronumciation lexicon file ------
     textFile = os.path.join(args.expDir,"data","train","text")
-    trainTrans = exkaldi.load_transcription(textFile) # trans is an exkaldi Transcription object
+    trainTrans = exkaldi.load_transcription(textFile) # "trans" is an exkaldi Transcription object
     wordCount = trainTrans.count_word().sort() # accumulate all words and their frequency in the transcription
 
-    word2pron = dict( (word, word) for word in wordCount.keys() ) # word to pronunciation
-    word2pron = exkaldi.ListTable(word2pron) 
-    pronFile = os.path.join(args.expDir, "dict", "pronunciation.txt")
+    word2pron = exkaldi.ListTable( dict((word,word) for word in wordCount.keys()) )   # word to pronunciation
+    
+    pronFile = os.path.join(args.expDir,"dict","pronunciation.txt")
     word2pron.save( pronFile ) # save it to file
 
     # -------  Make lexicons ------
@@ -60,10 +60,10 @@ def main():
     lexicons = exkaldi.decode.graph.lexicon_bank(
                 pronFile, 
                 silWords={"sil":"sil"},  
-                unkSymbol={"sil":"sil"}, 
-                optionalSilPhone="sil",
-                extraQuestions=[],
-                positionDependent=False, 
+                unkSymbol={"sil":"sil"},  
+                optionalSilPhone="sil",  
+                extraQuestions=[],  
+                positionDependent=False,  
                 shareSilPdf=False,
                 extraDisambigPhoneNumbers=1,
                 extraDisambigWords=[]
@@ -96,7 +96,7 @@ def main():
     print(f"Generate disambiguation lexicon fst done.")
 
     # -------  Make GMM-HMM topological structure for GMM-HMM ------
-    exkaldi.hmm.make_toponology(
+    exkaldi.hmm.make_topology(
                             lexicons,
                             outFile=os.path.join(args.expDir,"dict","topo"),
                             numNonsilStates=3,
@@ -111,7 +111,7 @@ def main():
     exkaldi.lm.train_ngrams_kenlm(
                             lexicons,
                             order=args.order,
-                            text=trainTrans,  # If "text" received an exkaldi Transcription object, the infomation of utterance IDs will be omitted automatically.
+                            text=trainTrans,  # If "text" received an exkaldi Transcription object, the information of utterance IDs will be omitted automatically.
                             outFile=os.path.join(args.expDir,"lm",f"{args.order}grams.arpa"), 
                             config={"--discount_fallback":True,"-S":"20%"},
                         )
@@ -122,15 +122,14 @@ def main():
                             arpaFile=os.path.join(args.expDir,"lm",f"{args.order}grams.arpa"),
                             outFile=os.path.join(args.expDir,"lm",f"{args.order}grams.binary"),
                         )
-    model = exkaldi.load_ngrams( os.path.join(args.expDir,"lm",f"{args.order}grams.binary") ) # Actually, "load_ngrams" also accept arpa format file.
+    model = exkaldi.load_ngrams( os.path.join(args.expDir,"lm",f"{args.order}grams.binary") ) # Actually, "load_ngrams" function also accepts ARPA format file.
 
     # 3. Prepare test transcription
     testTrans = exkaldi.load_transcription(os.path.join(args.expDir,"data","test","text"))
 
     # 4. score
     perScore = model.perplexity(testTrans)
-    meanScore = perScore.mean(weight=testTrans.sentence_length())
-    print(f"The weighted average perplexity of this model is: {meanScore}.")
+    print(f"The weighted average perplexity of this model is: {perScore}.")
     del model
     del testTrans
 
@@ -145,8 +144,8 @@ def main():
 
     # ------- Compose LG fst for futher use ------
     exkaldi.decode.graph.compose_LG(
-                            Lfile=os.path.join(args.expDir,"dict","L_disambig.fst"), 
-                            Gfile=os.path.join(args.expDir,"lm",f"G.{args.order}.fst"),
+                            LFile=os.path.join(args.expDir,"dict","L_disambig.fst"), 
+                            GFile=os.path.join(args.expDir,"lm",f"G.{args.order}.fst"),
                             outFile=os.path.join(args.expDir,"lm",f"LG.{args.order}.fst"),
                         )
     print(f"Compose LG fst done.")

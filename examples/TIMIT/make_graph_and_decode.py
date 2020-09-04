@@ -31,9 +31,9 @@ def make_WFST_graph(outDir, hmm, tree):
 
     print("Start to make WFST graph.")
     exkaldi.utils.make_dependent_dirs(outDir, pathIsFile=False)
-
-    lexicons = exkaldi.load_lex(os.path.join(args.expDir,"dict","lexicons.lex"))
     print(f"Load lexicon bank.")
+    lexicons = exkaldi.load_lex(os.path.join(args.expDir,"dict","lexicons.lex"))
+    
     # iLabel file will be generated in this step.
     _, ilabelFile = exkaldi.decode.graph.compose_CLG(
                                             lexicons,
@@ -45,7 +45,7 @@ def make_WFST_graph(outDir, hmm, tree):
     exkaldi.decode.graph.compose_HCLG(
                                     hmm,
                                     tree,
-                                    CLGfile=os.path.join(outDir,f"CLG.{args.order}.fst"),
+                                    CLGFile=os.path.join(outDir,f"CLG.{args.order}.fst"),
                                     iLabelFile=ilabelFile,
                                     outFile=os.path.join(outDir,f"HCLG.{args.order}.fst"),
                                 )
@@ -60,14 +60,12 @@ def GMM_decode_mfcc_and_score(outDir, hmm, HCLGfile, tansformMatFile=None):
     featFile = os.path.join(args.expDir,"mfcc","test","mfcc_cmvn.ark")
     feat = exkaldi.load_feat(featFile)
     if tansformMatFile is None:
-        print("Feature type is delta")
+        print(f"Feature type is delta. Add {args.delta}-order deltas.")
         feat = feat.add_delta(order=args.delta)
-        print(f"Add {args.delta}-order deltas.")
     else:
-        print("Feature type is lda+mllt")
+        print(f"Feature type is lda+mllt. Transform feature.")
         feat = feat.splice(left=args.splice,right=args.splice)
         feat = exkaldi.transform_feat(feat, tansformMatFile)
-        print("Transform feature")
     
     if args.parallel > 1:
         feat = feat.subset(chunks=args.parallel)
@@ -75,7 +73,8 @@ def GMM_decode_mfcc_and_score(outDir, hmm, HCLGfile, tansformMatFile=None):
     print("Start to decode")
     st = time.time()
     lat = exkaldi.decode.wfst.gmm_decode(
-                                    feat, hmm, 
+                                    feat, 
+                                    hmm, 
                                     HCLGfile, 
                                     symbolTable=lexicons("words"),
                                     beam=args.beam, 
@@ -83,16 +82,16 @@ def GMM_decode_mfcc_and_score(outDir, hmm, HCLGfile, tansformMatFile=None):
                                     acwt=args.acwt,
                                     outFile=os.path.join(outDir,"test.lat"),
                                 )
-    print("Decode time cost: ",time.time()-st,"seconds")
+    print("Decode time cost: ","%.2f"%(time.time()-st),"seconds")
     if isinstance(lat,list):
-        lat = exkaldi.merge_archieves(lat)
+        lat = exkaldi.merge_archives(lat)
 
     print(f"Generate lattice done.")
     # Restorage 48-39  
     phoneMapFile = os.path.join("exp","dict","phones.48_to_39.map")
     phoneMap = exkaldi.load_list_table(phoneMapFile,name="48-39")
     refText = exkaldi.load_transcription(os.path.join(args.expDir,"data","test","text"))
-    refText = refText.convert(phoneMap, None)
+    refText = refText.convert(phoneMap)
     refText.save(os.path.join(outDir,"ref.txt") ) # Take a backup
     print("Generate reference text done.")
 
@@ -103,27 +102,25 @@ def GMM_decode_mfcc_and_score(outDir, hmm, HCLGfile, tansformMatFile=None):
         for LMWT in range(1, 11):
             # Add penalty
             newLat = lat.add_penalty(penalty)
-            # Get 1-best result (word-level)
-            result = newLat.get_1best(lexicons("words"), hmm, lmwt=LMWT, acwt=1)
+            # Get 1-best result (phone-level)
+            result = newLat.get_1best(lexicons("phones"), hmm, lmwt=LMWT, acwt=1, phoneLevel=True)
             # Transform from int value format to text format
-            result = exkaldi.hmm.transcription_from_int(result, lexicons("words"))
+            result = exkaldi.hmm.transcription_from_int(result, lexicons("phones"))
             # Transform 48-phones to 39-phones
             result = result.convert(phoneMap, None)
-            # Compute WER
+            # Compute PER
             score = exkaldi.decode.score.wer(ref=refText, hyp=result, mode="present")
             if score.WER < bestWER[0]:
                 bestResult = result
                 bestWER = (score.WER, penalty, LMWT)
-            print(f"Penalty: {penalty}, LMWT: {LMWT}, WER: {score.WER}%")
-    print("Score done. Save the best result.")
+            print(f"Penalty: {penalty}, LMWT: {LMWT}, PER: {score.WER}%")
+    print("Score done. Saved the best result.")
     bestResult.save(os.path.join(outDir, "hyp.txt") )
-    with open(os.path.join(outDir,"best_WER"),"w") as fw:
-        fw.write( f"WER {bestWER[0]}, penalty {bestWER[1]}, LMWT {bestWER[2]}" )
+    with open(os.path.join(outDir,"best_PER"),"w") as fw:
+        fw.write( f"PER {bestWER[0]}, penalty {bestWER[1]}, LMWT {bestWER[2]}" )
 
 def GMM_decode_fmllr_and_score(outDir, hmm, HCLGfile, tansformMatFile=None):
-
     exkaldi.utils.make_dependent_dirs(outDir, pathIsFile=False)
-
     lexicons = exkaldi.load_lex(os.path.join(args.expDir,"dict","lexicons.lex"))
     print(f"Load test feature.")
     featFile = os.path.join(args.expDir,"mfcc","test","mfcc_cmvn.ark")
@@ -203,19 +200,19 @@ def GMM_decode_fmllr_and_score(outDir, hmm, HCLGfile, tansformMatFile=None):
     ## 3. Compose the primary matrix and secondary matrix and get the final transform matrix.
     print("Compose the primary and secondary transform matrix.")
     finalTransMatrix = exkaldi.hmm.compose_transform_matrixs(
-                                                matA=preTransMatrix,
-                                                matB=secTransMatrix,
-                                                bIsAffine=True,
-                                            )
+                                                        matA=preTransMatrix,
+                                                        matB=secTransMatrix,
+                                                        bIsAffine=True,
+                                                    )
     finalTransMatrix.save(os.path.join(outDir,"trans.ark"))
     print("Transform feature with final matrix.")
     ## 4. Transform feature with the final transform matrix and use it to decode.
     ## We directly use the lattice generated in the second step. The final lattice is obtained.
     finalFmllrFeat = exkaldi.use_fmllr(
-                        feat,
-                        finalTransMatrix,
-                        utt2spk=os.path.join(args.expDir,"data","test","utt2spk"),
-                    )
+                                    feat,
+                                    finalTransMatrix,
+                                    utt2spk=os.path.join(args.expDir,"data","test","utt2spk"),
+                                )
     del finalTransMatrix
     print("Rescore secondary lattice.")
     lat = secLat.am_rescore(
@@ -229,7 +226,7 @@ def GMM_decode_fmllr_and_score(outDir, hmm, HCLGfile, tansformMatFile=None):
 
     phoneMapFile = os.path.join(args.expDir,"dict","phones.48_to_39.map")
     phoneMap = exkaldi.load_list_table(phoneMapFile,name="48-39")
-    refText = exkaldi.load_transcription(os.path.join(args.expDir,"data","test","text")).convert(phoneMap, None)
+    refText = exkaldi.load_transcription(os.path.join(args.expDir,"data","test","text")).convert(phoneMap)
     refText.save(os.path.join(outDir,"ref.txt") )
     print("Generate reference text done.")
 
@@ -240,19 +237,19 @@ def GMM_decode_fmllr_and_score(outDir, hmm, HCLGfile, tansformMatFile=None):
         for LMWT in range(1, 11):
             # Add penalty
             newLat = lat.add_penalty(penalty)
-            # Get 1-best result (word-level)
-            result = newLat.get_1best(lexicons("words"), hmm, lmwt=LMWT, acwt=1)
+            # Get 1-best result (phone-level)
+            result = newLat.get_1best(lexicons("phones"), hmm, lmwt=LMWT, acwt=1, phoneLevel=True)
             # Transform from int value format to text format
-            result = exkaldi.hmm.transcription_from_int(result, lexicons("words"))
+            result = exkaldi.hmm.transcription_from_int(result, lexicons("phones"))
             # Transform 48-phones to 39-phones
             result = result.convert(phoneMap, None)
-            # Compute WER
+            # Compute PER
             score = exkaldi.decode.score.wer(ref=refText, hyp=result, mode="present")
             if score.WER < bestWER[0]:
                 bestResult = result
                 bestWER = (score.WER, penalty, LMWT)
-            print(f"Penalty: {penalty}, LMWT: {LMWT}, WER: {score.WER}%")
+            print(f"Penalty: {penalty}, LMWT: {LMWT}, PER: {score.WER}%")
     print("Score done. Save the best result.")
     bestResult.save(os.path.join(outDir, "hyp.txt") )
-    with open(os.path.join(outDir,"best_WER"),"w") as fw:
-        fw.write( f"WER {bestWER[0]}, penalty {bestWER[1]}, LMWT {bestWER[2]}" )
+    with open(os.path.join(outDir,"best_PER"),"w") as fw:
+        fw.write( f"PER {bestWER[0]}, penalty {bestWER[1]}, LMWT {bestWER[2]}" )

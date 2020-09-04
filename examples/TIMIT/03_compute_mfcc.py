@@ -36,9 +36,9 @@ def main():
     # 1. Add a discription of this program
     args.discribe("This program is used to compute MFCC feature and CMVN statistics") 
     # 2. Add options
-    args.add("--expDir", abbreviation="-e", dtype=str, default="exp", discription="The data and output path of current experiment.")
-    args.add("--useEnergy", abbreviation="-u", dtype=bool, default=False, discription="Whether add energy to MFCC feature.")
-    args.add("--parallel", abbreviation="-p", dtype=int, default=4, minV=1, maxV=10, discription="The number of parallel process to compute feature of train dataset.")
+    args.add("--expDir", abbr="-e", dtype=str, default="exp", discription="The data and output path of current experiment.")
+    args.add("--useEnergy", abbr="-u", dtype=bool, default=False, discription="Whether add energy to MFCC feature.")
+    args.add("--parallel", abbr="-p", dtype=int, default=4, minV=1, maxV=10, discription="The number of parallel process to compute train feature of train dataset.")
     # 3. Then start to parse arguments. 
     args.parse()
     # 4. Take a backup of arguments
@@ -66,7 +66,7 @@ def main():
                                     config=mfccConfig,
                                     outFile=os.path.join(args.expDir,"mfcc","train","raw_mfcc.ark")
                                 )
-            feat = exkaldi.merge_archieves(feats)
+            feat = exkaldi.merge_archives(feats)
         else:
             feat = exkaldi.compute_mfcc(
                                     os.path.join(args.expDir,"data",Name,"wav.scp"), 

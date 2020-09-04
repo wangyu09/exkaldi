@@ -205,7 +205,7 @@ _target_: file name with suffix .lex.
 an exkaldi LexiconBank object.
 
 ------------------------------------------
->## load_lat
+>## exkaldi.load_lat
 (target, name="lat")
 
 Load lattice data from file.
@@ -216,3 +216,15 @@ _name_: a string.
 
 **Return:**  
 An exkaldi lattice object.
+
+------------------------------------------
+>## exkaldi.load_args
+(target)
+
+Load arguments from file.
+
+**Args:**  
+_target_: exkaldi argument file name.
+
+**Return:**  
+An args object.

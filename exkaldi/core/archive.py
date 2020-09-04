@@ -135,7 +135,7 @@ class ListTable(dict):
 			file name,file handle or a string of contents.
 		'''
 		declare.not_void(type_name(self),self)
-		declare.in_boundary("chunks",chunks,minV=1)
+		declare.greater_equal("chunks",chunks,"minimum chunk",1)
 		if fileName is not None:
 			declare.is_valid_file_name_or_handle("fileName",fileName)
 
@@ -1808,7 +1808,7 @@ class BytesMatrix(BytesArchive):
 		'''
 		declare.not_void(type_name(self),self)
 		declare.is_valid_file_name_or_handle("fileName",fileName)
-		declare.in_boundary("chunks",chunks,minV=1)
+		declare.greater_equal("chunks",chunks,None,1)
 		declare.is_bool("returnIndexTable",returnIndexTable)
 
 		if isinstance(fileName,str):
@@ -2991,11 +2991,6 @@ class BytesVector(BytesArchive):
 				(utt,typeSize,frames,bufSize,buf) = self.__read_one_record(sp)
 				if utt == None:
 					break
-				try:
-					mat = np.frombuffer(buf,dtype=np.int32)
-				except Exception as e:
-					print(f"Wrong vector data format at utterance {utt}.")
-					raise e
 				
 				oneRecordLen = len(utt) + 8 + frames * 5
 				# Update the index table.
@@ -3058,7 +3053,7 @@ class BytesVector(BytesArchive):
 		'''
 		declare.not_void( type_name(self),self)
 		declare.is_valid_file_name_or_handle("fileName",fileName)
-		declare.in_boundary("chunks",chunks,minV=1)
+		declare.greater_equal("chunks",chunks,"minimum chunk",1)
 		declare.is_bool("returnIndexTable",returnIndexTable)
 
 		if isinstance(fileName,str):
@@ -3789,7 +3784,7 @@ class NumpyMatrix(NumpyArchive):
 		'''
 		declare.not_void( type_name(self),self)
 		declare.is_valid_string("fileName",fileName)
-		declare.in_boundary("chunks",chunks,minV=1)
+		declare.greater_equal("chunks",chunks,"minimum chunk",1)
 		fileName = fileName.strip()
 
 		if not fileName.endswith('.npy'):
@@ -4194,7 +4189,7 @@ class NumpyFeature(NumpyMatrix):
 					else:
 						if i[0] > i[1]:
 							i[0],i[1] = i[1],i[0]
-						declare.in_boundary("dims",i[1],maxV=_dim-1)
+						declare.less_than("dims",i[1],"maximum dimension",_dim-1)
 						selectFlag.extend([x for x in range(int(i[0]),int(i[1])+1)])
 		else:
 			raise WrongOperation(f'Expected <dims> is int value or string like 1,4-9,12 but got {type_name(dims)}.')

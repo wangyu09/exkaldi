@@ -411,10 +411,10 @@ _outFile_: output file path.
 the path of accumulated file.
 
 ------------------------------------------
->## hmm.make_toponology
+>## hmm.make_topology
 (lexicons, outFile, numNonsilStates=3, numSilStates=5)
 
-Make GMM-HMM toponology file.
+Make GMM-HMM topology file.
 
 **Args:**  
 _lexicons_: an LexiconBank object.  

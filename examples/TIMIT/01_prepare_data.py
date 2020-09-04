@@ -23,7 +23,6 @@ Part 1: prepare TIMIT data.
 '''
 import os
 import glob
-import subprocess
 import gc
 
 import exkaldi
@@ -59,20 +58,19 @@ def generate_data(wavFiles, expDir, sphFlag, sph2pipeTool, txtFileSuffix, phoneM
         # 4. transcription
         txtFile = Name[:-3] + txtFileSuffix
         phones = []
-        with open(txtFile, "r", encoding="utf-8") as fr:
+        with open(txtFile,"r",encoding="utf-8") as fr:
             lines = fr.readlines()
         for line in lines:
             line = line.strip()
             if len(line) == 0:
                 continue
             phone = line.split()[-1]
-            if phone == "q":
+            if phone == "q": # discard phone "q"
                 continue
             else:
                 phone = phoneMap_60_to_48[phone]
             phones.append(phone)
         transcription[uttID] = " ".join(phones)
-
     # Save to files
     wavScp.save( os.path.join(expDir, "wav.scp") )
     utt2spk.save( os.path.join(expDir, "utt2spk") )
@@ -85,22 +83,20 @@ def main():
     # ------------- Parse arguments from command line ----------------------
     # 1. Add a discription of this program
     args.discribe("This program is used to prepare TIMIT data.") 
-    # 2. Add options
-    args.add("--timitRoot", dtype=str, default="/Corpus/TIMIT", discription="The root path of timit dataset.")
-    args.add("--expDir", dtype=str, default="exp", discription="The output path to save generated data.")
+    # 2. Add some options
+    args.add("--timitRoot", dtype=str, abbr="-t", default="/Corpus/TIMIT", discription="The root path of timit dataset.")
+    args.add("--expDir", dtype=str, abbr="-e", default="exp", discription="The output path to save generated data.")
     # 3. Then start to parse arguments. 
     args.parse()
     # 4. Take a backup of arguments
-    args.print_args() # print arguments to display
-    argsLogFile = os.path.join(args.expDir, "conf", "prepare_data.args")
-    args.save(argsLogFile)
+    args.save( os.path.join(args.expDir,"conf","prepare_data.args") )
 
     # ------------- Do some preparative work ----------------------
-    # 2. Ensure kaldi has existed
+    # 2. Ensure Kaldi has existed
     declare.kaldi_existed()
     # 3. sph2pipe tool will be used if the timit data is sph format.
-    sph2pipeTool = os.path.join( info.KALDI_ROOT, "tools", "sph2pipe_v2.5", "sph2pipe")
-    declare.is_file("sph2pipe tool", sph2pipeTool)
+    sph2pipeTool = os.path.join(info.KALDI_ROOT,"tools","sph2pipe_v2.5","sph2pipe")
+    declare.is_file("sph2pipe tool",sph2pipeTool)
 
     # ------------- Check TIMIT data format -------------
     # 1. Get the directory name
@@ -110,21 +106,21 @@ def main():
         uppercaseFlag = True
         trainResourceDir = "TRAIN"
         testResourceDir = "TEST"
-        testWavFile = os.path.join(args.timitRoot,"TRAIN","DR1","FCJF0","SA1.WAV")
+        testWavFile = os.path.join(args.timitRoot,"TRAIN","DR1","FCJF0","SA1.WAV") # used to test the file format
         wavFileSuffix = "WAV"
         txtFileSuffix = "PHN"
     elif "train" in dirNames and "test" in dirNames:
         uppercaseFlag = False
         trainResourceDir = "train"
         testResourceDir = "test"
-        testWavFile = os.path.join(args.timitRoot,"train","dr1","fcjf0","sa1.wav")
+        testWavFile = os.path.join(args.timitRoot,"train","dr1","fcjf0","sa1.wav") # used to test the file format
         wavFileSuffix = "wav"
         txtFileSuffix = "phn"
     else:
         raise Exception(f"Wrong format of train or test data directories.")
-    # 2. check whether or not wav file is sph format.
+    # 2. check whether wave file is sph format.
     formatCheckCmd = f"{sph2pipeTool} -f wav {testWavFile}"
-    out, err, cod = exkaldi.utils.run_shell_command(formatCheckCmd, stderr=subprocess.PIPE)
+    out,err,cod = exkaldi.utils.run_shell_command(formatCheckCmd, stderr="PIPE")
     if cod == 0:
         sphFlag = True
     else:
@@ -136,7 +132,7 @@ def main():
     phoneMap_48_to_39 = exkaldi.ListTable(name="48-39")
     mapFile = os.path.join(info.KALDI_ROOT,"egs","timit","s5","conf","phones.60-48-39.map")
     declare.is_file("60-48-39 phone map", mapFile) # Check whether or not it existed
-    with open(mapFile, "r", encoding="utf-8") as fr:
+    with open(mapFile,"r",encoding="utf-8") as fr:
         lines = fr.readlines()
         for line in lines:
             line = line.strip().split()
@@ -154,7 +150,7 @@ def main():
 
     # --------- Generate dev and test data --------
     for Name in ["dev", "test"]:
-        spkListFile = os.path.join(info.KALDI_ROOT,"egs","timit","s5","conf",f"{Name}_spk.list")
+        spkListFile = os.path.join( info.KALDI_ROOT,"egs","timit","s5","conf",f"{Name}_spk.list" )
         declare.is_file(f"speakers list for {Name}", spkListFile) # Check whether or not it existed
         with open(spkListFile,"r",encoding="utf-8") as fr:
             spkList = fr.readlines()
