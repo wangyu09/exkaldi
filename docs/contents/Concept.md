@@ -1,11 +1,20 @@
 # The Concept of Exkaldi
-We use three data structures to discribe the Kaldi numerical data archives: __Index Table__, __Bytes Object__ and __NumPy Array__. They all stand for the same data.  
+We use three data structures to discribe the Kaldi numerical data archives: __Index Table__, __Bytes Object__ and __NumPy Array__. They all stand for the same data.    
 
-![three approaches](images/threeApproachs.png)  
-  
-__Index Table__: hold the index information of archive which has been saved in files.  
-__Bytes Object__: hold the data in memory with bytes format.   
-__NumPy Array__: hold the data in memory with NumPy array format.
+|                           | Discription of data structures  | 
+| :-----------------------: | :----------: | 
+| __Index Table__  |  Hold the index information of archive which has been saved in files.    | 
+| __Bytes Object__ |  Hold the data in memory with bytes format.    | 
+| __NumPy Array__  |  Hold the data in memory with NumPy array format.    |    
+
+
+All these three structures hold the same data but with different format and they can convert to one another easily.  
+
+|                           | Example of data structures  | 
+| :-----------------------: | :----------: | 
+| __Index Table__  |  Hold the index information of archive which has been saved in files.    | 
+| __Bytes Object__ |  Hold the data in memory with bytes format.    | 
+| __NumPy Array__  |  Hold the data in memory with NumPy array format.    | 
 
 These three structures have been designed as various specified classes in Exkaldi. Basesd on these classes, Exkaldi interacts with Kaldi command-line API to process archives and build ASR system via Python subprocess.  
 Basically, these three data structures have these features:  
