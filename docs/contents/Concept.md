@@ -1,11 +1,11 @@
 # The Concept of Exkaldi
 We use three data structures to discribe the Kaldi numerical data archives: __Index Table__, __Bytes Object__ and __NumPy Array__.   
 
-|                  | Discription  |  Examples    |
-| :------------- : | :----------  |  :---------- | 
-| __Index Table__  |  The index information of archive saved in files.     | {'uttID':Index(frames=1,startIndex=0,dataSize=33,filePath=./dummy.ark)} |
+|                  | Discription   |  Examples    |
+| :--------------: | :----------   |  :---------- | 
+| __Index Table__  |  The index information of archive saved in files. | {'uttID':Index(frames=1,startIndex=0,dataSize=33,filePath=./dummy.ark)} |
 | __Bytes Object__ |  The data instance saved in memory with bytes format. | b'uttID \x00BFM \x04\x01\x00\x00\x00\x04\x03\x00\x00\x00\x00\x00\x80?\x00\x00\x00@\x00\x00@@' |
-| __NumPy Array__  |  The data instance saved in memory with NumPy array format. | {'uttID': array([[1., 2., 3.]], dtype=float32)} |    
+| __NumPy Array__  |  The data instance saved in memory with NumPy array format. | {'uttID': array([[1., 2., 3.]], dtype=float32)} |
 
 Basically, these three data structures have these features:  
 1. All these three structures hold the same data and they can convert to one another easily.  
