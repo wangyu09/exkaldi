@@ -8,7 +8,7 @@ function install_package(){
         fi
     done || exit 1;
 
-    python setup.py sdist bdist_wheel && cd dist && pip install * || exit 1;
+    python3 setup.py sdist bdist_wheel && cd dist && pip install * || exit 1;
 
     cd ..
 
