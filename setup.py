@@ -10,7 +10,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 #    requirement = fr.readlines()
 
 def read_version_info():
-    cmd = 'cd exkaldi && python -c "import version; print(version.version.version)"'
+    cmd = 'cd exkaldi && python3 -c "import version; print(version.info.version)"'
     p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
     if p.returncode != 0:
