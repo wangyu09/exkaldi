@@ -18,11 +18,11 @@ In the follow table, there is a glance of Exkaldi numerical data archive class g
 
 |                  | Base Class   |  Subclass    |
 | :--------------: | :----------  |  :---------- | 
-| __Index Table__  |  ArkIndexTable        |              |
-| __Bytes Object__ |  BytesMatrix | BytesFeature,BytesCMVNStatistics,BytesProbability,BytesFmllrMatrix |
-| __Bytes Object__ |  BytesVector | BytesAlignmentTrans |
-| __NumPy Array__  |  NumpyMatrix | NumpyFeature,NumpyCMVNStatistics,NumpyProbability,NumpyFmllrMatrix |
-| __NumPy Array__  |  NumpyVector | NumpyAlignmentTrans,NumpyAlignment,NumpyAlignmentPdf,NumpyAlignmentPhone |
+| __Index Table__  |  IndexTable        |              |
+| __Bytes Object__ |  BytesMatrix | BytesFeat,BytesCMVN,BytesProb,BytesFmllr |
+| __Bytes Object__ |  BytesVector | BytesAliTrans |
+| __NumPy Array__  |  NumpyMatrix | NumpyFeat,NumpyCMVN,NumpyProb,NumpyFmllr |
+| __NumPy Array__  |  NumpyVector | NumpyAliTrans,NumpyAli,NumpyAliPdf,NumpyAliPhone |
 
 Beside above, Exkaldi has complete approaches to carry and process other archives and objects.  
 In the follow table, there is a glance of other main data classes in Exkaldi:  

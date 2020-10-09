@@ -23,14 +23,14 @@ import os
 from io import BytesIO
 
 from exkaldi.version import info as ExkaldiInfo
-from exkaldi.version import WrongPath,WrongOperation,WrongDataFormat,UnsupportedType,ShellProcessError,KaldiProcessError
+from exkaldi.error import *
 from exkaldi.utils.utils import run_shell_command,type_name,list_files
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
-from exkaldi.core.archive import BytesArchive,BytesMatrix,BytesFeature,BytesCMVNStatistics,BytesProbability,BytesFmllrMatrix,BytesAlignmentTrans
-from exkaldi.core.archive import NumpyMatrix,NumpyFeature,NumpyCMVNStatistics,NumpyProbability,NumpyAlignmentTrans,NumpyFmllrMatrix
-from exkaldi.core.archive import NumpyAlignment,NumpyAlignmentPhone,NumpyAlignmentPdf
-from exkaldi.core.archive import Transcription,ArkIndexTable,ListTable,WavSegment
+from exkaldi.core.archive import BytesArchive,BytesMatrix,BytesFeat,BytesCMVN,BytesProb,BytesFmllr,BytesAliTrans
+from exkaldi.core.archive import NumpyMatrix,NumpyFeat,NumpyCMVN,NumpyProb,NumpyAliTrans,NumpyFmllr
+from exkaldi.core.archive import NumpyAli,NumpyAliPhone,NumpyAliPdf
+from exkaldi.core.archive import Transcription,IndexTable,ListTable,WavSegment
 
 # load list table
 def load_list_table(target,name="listTable"):
@@ -58,9 +58,7 @@ def load_list_table(target,name="listTable"):
 			for index,line in enumerate(lines,start=1):
 				t = line.strip().split(maxsplit=1)
 				if len(t) < 2:
-					print(f"Line Number: {index}")
-					print(f"Line Content: {line}")
-					raise WrongDataFormat(f"Missing paired key and value information in file:{filePath}.")
+					raise WrongDataFormat(f"Line Number: {index}\n"+f"Line Content: {line}\n"+f"Missing paired key and value information in file:{filePath}.")
 				else:
 					newTable[t[0]] = t[1]
 
@@ -123,7 +121,7 @@ def __read_index_table_from_ark_file(fileName):
 	Read index table from ark file.
 	'''
 	fileName = os.path.abspath(fileName)
-	newTable = ArkIndexTable()
+	newTable = IndexTable()
 	startIndex = 0
 	with open(fileName,"rb") as fr:
 		while True:
@@ -140,7 +138,7 @@ def __read_index_table_from_scp_file(fileName):
 	'''
 	Read index table from scp file.
 	'''
-	newTable = ArkIndexTable()
+	newTable = IndexTable()
 	
 	with FileHandleManager() as fhm:
 
@@ -152,16 +150,14 @@ def __read_index_table_from_scp_file(fileName):
 			if len(line) == 0:
 				continue
 			elif len(line) == 1:
-				print(f"line {lineID}: {lineTxt}")
-				raise WrongDataFormat("Missed complete utterance-filepath information.")
+				raise WrongDataFormat(f"line {lineID}: {lineTxt}\n"+"Missed complete utterance-filepath information.")
 			elif len(line) > 2:
 				raise WrongDataFormat("We don't support reading index table from binary data generated via PIPE line. The second value should be ark file path and the shift.")
 			else:
 				uttID = line[0]
 				line = line[1].split(":")
 				if len(line) != 2:
-					print(f"line {lineID}: {lineTxt}")
-					raise WrongDataFormat("Missed complete file path and shift value information.")
+					raise WrongDataFormat(f"line {lineID}: {lineTxt}\n"+"Missed complete file path and shift value information.")
 				arkFileName = line[0]
 				startIndex = int(line[1]) - 1 - len(uttID)
 
@@ -181,15 +177,15 @@ def load_index_table(target,name="index",useSuffix=None):
 	Load an index table from dict,or archive table file.
 
 	Args:
-		<target>: dict object,.ark or .scp file,ArkIndexTable object,bytes archive object.
+		<target>: dict object,.ark or .scp file,IndexTable object,bytes archive object.
 		<name>: a string.
 		<useSuffix>: "ark" or "scp". We will check the file type by its suffix. 
 								But if <target> is file path and not default suffix (ark or scp),you have to declare which type it is.
 
 	Return:
-		an exkaldi ArkIndexTable object.
+		an exkaldi IndexTable object.
 	'''
-	newTable = ArkIndexTable(name=name)
+	newTable = IndexTable(name=name)
 
 	if type_name(target) == "dict":
 		for key,value in target.items():
@@ -203,7 +199,7 @@ def load_index_table(target,name="index",useSuffix=None):
 		
 		return newTable
 
-	elif type_name(target) == "ArkIndexTable":
+	elif type_name(target) == "IndexTable":
 		newTable.update(target)
 		return newTable
 	
@@ -279,8 +275,7 @@ def __read_data_from_file(fileName,useSuffix=None):
 		cmd += '{} ark:-'.format(fileName)
 		out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
 		if (isinstance(cod,int) and cod != 0) or out == b'':
-			print(err.decode())
-			raise KaldiProcessError('Failed to read archive table.')
+			raise KaldiProcessError('Failed to read archive table.',err.decode())
 		else:
 			#if sys.getsizeof(out) > 10000000000:
 			#    print('Warning: Data is extramely large. We don't recommend use load_index_table to replace it.') 
@@ -322,21 +317,21 @@ def load_feat(target,name="feat",useSuffix=None):
 								But if <target> is file path and not default suffix (ark or scp),you have to declare which type it is.
 
 	Return:
-		A BytesFeature or NumpyFeature object.
+		A BytesFeat or NumpyFeat object.
 	'''
 	declare.is_valid_string("name",name)
 
 	if isinstance(target,dict):
-		result = NumpyFeature(target,name)
+		result = NumpyFeat(target,name)
 		result.check_format()
 		return result
 
 	elif isinstance(target,bytes):
-		result = BytesFeature(target,name)
+		result = BytesFeat(target,name)
 		result.check_format()
 		return result
 
-	elif isinstance(target,(NumpyFeature,BytesFeature)):
+	elif isinstance(target,(NumpyFeat,BytesFeat)):
 		result = copy.deepcopy(target)
 		result.rename(name)
 		return result
@@ -344,13 +339,13 @@ def load_feat(target,name="feat",useSuffix=None):
 	elif isinstance(target,str):
 		allData_bytes,allData_numpy,dataType = __read_data_from_file(target,useSuffix)
 		if dataType == "numpy":
-			result = NumpyFeature(allData_numpy) + BytesFeature(allData_bytes)
+			result = NumpyFeat(allData_numpy) + BytesFeat(allData_bytes)
 		else:
-			result = BytesFeature(allData_bytes) + NumpyFeature(allData_numpy)
+			result = BytesFeat(allData_bytes) + NumpyFeat(allData_numpy)
 		result.rename(name)
 		return result
 
-	elif isinstance(target,ArkIndexTable):
+	elif isinstance(target,IndexTable):
 		return target.fetch(arkType="feat",name=name)
 
 	else:
@@ -367,21 +362,21 @@ def load_cmvn(target,name="cmvn",useSuffix=None):
 								But if <target> is file path and not default suffix (ark or scp),you have to declare which type it is.
 
 	Return:
-		A BytesFeature or NumpyFeature object.
+		A BytesFeat or NumpyFeat object.
 	'''
 	declare.is_valid_string("name",name)
 
 	if isinstance(target,dict):
-		result = NumpyCMVNStatistics(target,name)
+		result = NumpyCMVN(target,name)
 		result.check_format()
 		return result
 
 	elif isinstance(target,bytes):
-		result = BytesCMVNStatistics(target,name)
+		result = BytesCMVN(target,name)
 		result.check_format()
 		return result
 
-	elif isinstance(target,(NumpyCMVNStatistics,BytesCMVNStatistics)):
+	elif isinstance(target,(NumpyCMVN,BytesCMVN)):
 		result = copy.deepcopy(target)
 		result.rename(name)
 		return result
@@ -389,13 +384,13 @@ def load_cmvn(target,name="cmvn",useSuffix=None):
 	elif isinstance(target,str):
 		allData_bytes,allData_numpy,dataType = __read_data_from_file(target,useSuffix)
 		if dataType == "npy":
-			result = NumpyCMVNStatistics(allData_numpy) + BytesCMVNStatistics(allData_bytes)
+			result = NumpyCMVN(allData_numpy) + BytesCMVN(allData_bytes)
 		else:
-			result = BytesCMVNStatistics(allData_bytes) + NumpyCMVNStatistics(allData_numpy)
+			result = BytesCMVN(allData_bytes) + NumpyCMVN(allData_numpy)
 		result.rename(name)
 		return result
 
-	elif isinstance(target,ArkIndexTable):
+	elif isinstance(target,IndexTable):
 		return target.fetch(arkType="cmvn",name=name)
 
 	else:
@@ -412,21 +407,21 @@ def load_prob(target,name="prob",useSuffix=None):
 								But if <target> is file path and not default suffix (ark or scp),you have to declare which type it is.
 							
 	Return:
-		A BytesProbability or NumpyProbability object.
+		A BytesProb or NumpyProb object.
 	'''
 	declare.is_valid_string("name",name)
 
 	if isinstance(target,dict):
-		result = NumpyProbability(target,name)
+		result = NumpyProb(target,name)
 		result.check_format()
 		return result
 
 	elif isinstance(target,bytes):
-		result = BytesProbability(target,name)
+		result = BytesProb(target,name)
 		result.check_format()
 		return result
 
-	elif isinstance(target,(NumpyProbability,BytesProbability)):
+	elif isinstance(target,(NumpyProb,BytesProb)):
 		result = copy.deepcopy(target)
 		result.rename(name)
 		return result
@@ -434,13 +429,13 @@ def load_prob(target,name="prob",useSuffix=None):
 	elif isinstance(target,str):
 		allData_bytes,allData_numpy,dataType = __read_data_from_file(target,useSuffix)
 		if dataType == "numpy":
-			result = NumpyProbability(allData_numpy) + BytesProbability(allData_bytes)
+			result = NumpyProb(allData_numpy) + BytesProb(allData_bytes)
 		else:
-			result = BytesProbability(allData_bytes) + NumpyProbability(allData_numpy)
+			result = BytesProb(allData_bytes) + NumpyProb(allData_numpy)
 		result.rename(name)
 		return result
 
-	elif isinstance(target,ArkIndexTable):
+	elif isinstance(target,IndexTable):
 		return target.fetch(arkType="prob",name=name)
 
 	else:
@@ -457,21 +452,21 @@ def load_fmllr(target,name="prob",useSuffix=None):
 								But if <target> is file path and not default suffix (ark or scp),you have to declare which type it is.
 
 	Return:
-		A BytesFmllrMatrix or NumpyFmllrMatrix object.
+		A BytesFmllr or NumpyFmllr object.
 	'''
 	declare.is_valid_string("name",name)
 
 	if isinstance(target,dict):
-		result = NumpyFmllrMatrix(target,name)
+		result = NumpyFmllr(target,name)
 		result.check_format()
 		return result
 
 	elif isinstance(target,bytes):
-		result = BytesFmllrMatrix(target,name)
+		result = BytesFmllr(target,name)
 		result.check_format()
 		return result
 
-	elif isinstance(target,(NumpyFmllrMatrix,BytesFmllrMatrix)):
+	elif isinstance(target,(NumpyFmllr,BytesFmllr)):
 		result = copy.deepcopy(target)
 		result.rename(name)
 		return result
@@ -479,14 +474,14 @@ def load_fmllr(target,name="prob",useSuffix=None):
 	elif isinstance(target,str):
 		allData_bytes,allData_numpy,dataType = __read_data_from_file(target,useSuffix)
 		if dataType == "npy":
-			result = NumpyFmllrMatrix(allData_numpy) + BytesFmllrMatrix(allData_bytes)
+			result = NumpyFmllr(allData_numpy) + BytesFmllr(allData_bytes)
 		else:
-			result = BytesFmllrMatrix(allData_bytes) + NumpyFmllrMatrix(allData_numpy)
+			result = BytesFmllr(allData_bytes) + NumpyFmllr(allData_numpy)
 		result.rename(name)
 		return result
 
-	elif isinstance(target,ArkIndexTable):
-		return target.fetch(arkType="fmllrMat",name=name)
+	elif isinstance(target,IndexTable):
+		return target.fetch(arkType="fmllr",name=name)
 
 	else:
 		raise UnsupportedType(f"Expected Python dict,bytes object,exkaldi fmllr matrix object,index table object or file path but got{type_name(target)}.")
@@ -511,8 +506,7 @@ def load_ali(target,aliType="transitionID",name="ali",hmm=None):
 	def transform(data,cmd):
 		out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=data)
 		if (isinstance(cod,int) and cod != 0) and out == b'':
-			print(err.decode())
-			raise KaldiProcessError('Failed to transform alignment.')
+			raise KaldiProcessError('Failed to transform alignment.',err.decode())
 		else:
 			result = {}
 			sp = BytesIO(out)
@@ -526,24 +520,24 @@ def load_ali(target,aliType="transitionID",name="ali",hmm=None):
 
 	if isinstance(target,dict):
 		if aliType is None:
-			result = NumpyAlignment(target,name)
+			result = NumpyAli(target,name)
 		elif aliType == "transitionID":
-			result = NumpyAlignmentTrans(target,name)
+			result = NumpyAliTrans(target,name)
 		elif aliType == "phoneID":
-			result = NumpyAlignmentPhone(target,name)
+			result = NumpyAliPhone(target,name)
 		elif aliType == "pdfID":
-			result = NumpyAlignmentPdf(target,name)
+			result = NumpyAliPdf(target,name)
 		else:
 			raise WrongOperation(f"<aliType> should be None,'transitionID','phoneID' or 'pdfID' but got {aliType}.")
 		result.check_format()
 		return result
 
-	elif isinstance(target,(NumpyAlignment,NumpyAlignmentTrans,BytesAlignmentTrans)):
+	elif isinstance(target,(NumpyAli,NumpyAliTrans,BytesAliTrans)):
 		result = copy.deepcopy(target)
 		result.rename(name)
 		return result
 
-	elif isinstance(target,ArkIndexTable):
+	elif isinstance(target,IndexTable):
 		result = target.fetch(arkType="ali")
 		if aliType in ["phoneID","pdfID"]:
 			result = result.to_numpy(aliType,hmm)
@@ -575,8 +569,7 @@ def load_ali(target,aliType="transitionID",name="ali",hmm=None):
 					if aliType is None or aliType == "transitionID":
 						out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
 						if (isinstance(cod,int) and cod != 0 ) or out == b'':
-							print(err.decode())
-							raise ShellProcessError(f"Failed to get the alignment data from file: {fileName}.")
+							raise ShellProcessError(f"Failed to get the alignment data from file: {fileName}.",err.decode())
 						else:
 							bytesAli.append( out )
 					
@@ -602,26 +595,26 @@ def load_ali(target,aliType="transitionID",name="ali",hmm=None):
 			bytesAli = b"".join(bytesAli)
 			if aliType is None:
 				if len(numpyAli) == 0:
-					return BytesAlignmentTrans(bytesAli,name=name)
+					return BytesAliTrans(bytesAli,name=name)
 				elif len(bytesAli) == 0:
-					return NumpyAlignment(numpyAli,name=name)
+					return NumpyAli(numpyAli,name=name)
 				else:
-					result = NumpyAlignmentTrans(numpyAli) + BytesAlignmentTrans(bytesAli)
+					result = NumpyAliTrans(numpyAli) + BytesAliTrans(bytesAli)
 					result.rename(name)
 					return result
 			elif aliType == "transitionID":
 				if len(numpyAli) == 0:
-					return BytesAlignmentTrans(bytesAli,name=name)
+					return BytesAliTrans(bytesAli,name=name)
 				elif len(bytesAli) == 0:
-					return NumpyAlignmentTrans(numpyAli,name=name)
+					return NumpyAliTrans(numpyAli,name=name)
 				else:
-					result = NumpyAlignmentTrans(numpyAli) + BytesAlignmentTrans(bytesAli)
+					result = NumpyAliTrans(numpyAli) + BytesAliTrans(bytesAli)
 					result.rename(name)
 					return result
 			elif aliType == "phoneID":		
-				return NumpyAlignmentPhone(numpyAli,name=name)
+				return NumpyAliPhone(numpyAli,name=name)
 			else:
-				return NumpyAlignmentPdf(numpyAli,name=name)
+				return NumpyAliPdf(numpyAli,name=name)
 
 	else:
 		raise UnsupportedType(f"<target> should be dict,file name or exkaldi alignment or index table object but got: {type_name(target)}.")
@@ -649,9 +642,7 @@ def load_transcription(target,name="transcription",checkSpace=True):
 		for index,line in enumerate(lines,start=1):
 			t = line.strip().split(maxsplit=1)
 			if len(t) < 2:
-				print(f"Line Number: {index}")
-				print(f"Line Content: {line}")
-				raise WrongDataFormat("Missing entire key and value information.")
+				raise WrongDataFormat(f"Line Number: {index}\n"+f"Line Content: {line}\n"+"Missing entire key and value information.")
 			else:
 				result[t[0]] = t[1]
 	else:

@@ -23,7 +23,7 @@ a List of tupled data.
 Compute alignment counts in order to normalize acoustic model posterior probability.
 
 **Args:**
-_ali_: exkaldi NumpyAlignmentTrans, NumpyAlignmentPhone or NumpyAlignmentPdf object.  
+_ali_: exkaldi NumpyAliTrans, NumpyAliPhone or NumpyAliPdf object.  
 _probDims_: count size for probability.  
 
 **Return:**
@@ -45,7 +45,7 @@ print(norm)
 A data iterator for training NN with a large-scale corpus. 
 
 **Initial Args:**  
-_indexTable_: exkaldi ArkIndexTable object including file path information.    
+_indexTable_: exkaldi IndexTable object including file path information.    
 _processFunc_: a function to process index table to dataset.  
 _batchSize_: mini batch size.  
 _chunks_: an int value. how many chunks to split data.    

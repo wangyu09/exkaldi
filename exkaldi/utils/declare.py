@@ -18,7 +18,7 @@
 '''This package includes some function to check format of arguments.'''
 
 import os
-from exkaldi.version import info as ExkaldiInfo
+from exkaldi.version import info as ExKaldiInfo
 from collections import Iterable
 import inspect
 
@@ -56,7 +56,7 @@ def kaldi_existed():
 	'''
 	Verify whether or not Kaldi toolkit has existed in system environment.
 	'''
-	assert ExkaldiInfo.KALDI_ROOT is not None,"Kaldi toolkit was not found in system PATH."
+	assert ExKaldiInfo.KALDI_ROOT is not None,"Kaldi toolkit was not found in system PATH."
 
 # data type
 @declare_wrapper
@@ -213,6 +213,7 @@ def not_void(name,obj):
 	'''
 	Verify whether or not this is a void object.
 	'''
+	assert obj is not None, f"{name} is None."
 	if __type_name(obj) in ["list","tuple","dict","str"]:
 		assert len(obj) > 0,f"{name} has nothing provided."
 	else:
@@ -381,70 +382,70 @@ def is_callable(name,obj):
 @declare_wrapper
 def is_index_table(name,indexTable):
 	'''
-	Verify whether or not this is an Exkaldi ArkIndexTable object.
+	Verify whether or not this is an Exkaldi IndexTable object.
 	'''
-	assert __type_name(indexTable) == "ArkIndexTable",f"{name} should be exkaldi index table object but got: {__type_name(indexTable)}."
+	assert __type_name(indexTable) == "IndexTable",f"{name} should be exkaldi index table object but got: {__type_name(indexTable)}."
 
 @declare_wrapper
 def is_matrix(name,mat):
 	'''
-	Verify whether or not this is a reasonable Exkaldi matrix archive object that is ArkIndexTable or NumpyMatrix or BytesMatrix object.
+	Verify whether or not this is a reasonable Exkaldi matrix archive object that is IndexTable or NumpyMatrix or BytesMatrix object.
 	'''
-	targetClasses = ["ArkIndexTable","NumpyMatrix","BytesMatrix"]
+	targetClasses = ["IndexTable","NumpyMatrix","BytesMatrix"]
 
 	is_classes(f"Exkaldi matrix data: {name}",mat,targetClasses)
 
 @declare_wrapper
 def is_vector(name,vec):
 	'''
-	Verify whether or not this is a reasonable Exkaldi vector archive object that is ArkIndexTable or NumpyVector or BytesVector object.
+	Verify whether or not this is a reasonable Exkaldi vector archive object that is IndexTable or NumpyVector or BytesVector object.
 	'''
-	targetClasses = ["ArkIndexTable","NumpyVector","BytesVector"]
+	targetClasses = ["IndexTable","NumpyVector","BytesVector"]
 
 	is_classes(f"Exkaldi vector data: {name}",vec,targetClasses)
 
 @declare_wrapper
 def is_feature(name,feat):
 	'''
-	Verify whether or not this is a reasonable Exkaldi feature archive object that is ArkIndexTable or NumpyFeature or BytesFeature object.
+	Verify whether or not this is a reasonable Exkaldi feature archive object that is IndexTable or NumpyFeat or BytesFeat object.
 	'''
-	targetClasses = ["ArkIndexTable","NumpyFeature","BytesFeature"]
+	targetClasses = ["IndexTable","NumpyFeat","BytesFeat"]
 
 	is_classes(f"Exkaldi feature data: {name}",feat,targetClasses)
 
 @declare_wrapper
 def is_probability(name,prob):
 	'''
-	Verify whether or not this is a reasonable Exkaldi probability archive object that is ArkIndexTable or NumpyProbability or BytesProbability object.
+	Verify whether or not this is a reasonable Exkaldi probability archive object that is IndexTable or NumpyProb or BytesProb object.
 	'''
-	targetClasses = ["ArkIndexTable","BytesProbability","NumpyProbability"]
+	targetClasses = ["IndexTable","BytesProb","NumpyProb"]
 
 	is_classes(f"Exkaldi probability data: {name}",prob,targetClasses)
 
 @declare_wrapper
 def is_cmvn(name,cmvn):
 	'''
-	Verify whether or not this is a reasonable Exkaldi CMVN archive object that is ArkIndexTable or NumpyCMVNStatistics or BytesCMVNStatistics object.
+	Verify whether or not this is a reasonable Exkaldi CMVN archive object that is IndexTable or NumpyCMVN or BytesCMVN object.
 	'''
-	targetClasses = ["ArkIndexTable","BytesCMVNStatistics","NumpyCMVNStatistics"]
+	targetClasses = ["IndexTable","BytesCMVN","NumpyCMVN"]
 
 	is_classes(f"Exkaldi CMVN data: {name}",cmvn,targetClasses)
 
 @declare_wrapper
 def is_fmllr_matrix(name,fmllrMat):
 	'''
-	Verify whether or not this is a reasonable Exkaldi CMVN archive object that is ArkIndexTable or NumpyFmllrMatrix or BytesFmllrMatrix object.
+	Verify whether or not this is a reasonable Exkaldi CMVN archive object that is IndexTable or NumpyFmllr or BytesFmllr object.
 	'''
-	targetClasses = ["ArkIndexTable","BytesFmllrMatrix","NumpyFmllrMatrix"]
+	targetClasses = ["IndexTable","BytesFmllr","NumpyFmllr"]
 
 	is_classes(f"Exkaldi fmllr transform matrix: {name}",fmllrMat,targetClasses)
 
 @declare_wrapper
 def is_alignment(name,ali):
 	'''
-	Verify whether or not this is a reasonable Exkaldi transition alignment archive object that is ArkIndexTable or NumpyAlignmentTrans or BytesAlignmentTrans object.
+	Verify whether or not this is a reasonable Exkaldi transition alignment archive object that is IndexTable or NumpyAliTrans or BytesAliTrans object.
 	'''
-	targetClasses = ["ArkIndexTable","BytesAlignmentTrans","NumpyAlignmentTrans"]
+	targetClasses = ["IndexTable","BytesAliTrans","NumpyAliTrans"]
 
 	is_classes(f"Exkaldi transition alignment matrix: {name}",ali,targetClasses)
 

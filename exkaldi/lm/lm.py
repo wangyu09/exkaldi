@@ -27,8 +27,8 @@ from exkaldi.utils.utils import check_config, make_dependent_dirs, type_name, ru
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
 from exkaldi.core.archive import BytesArchive, Metric
-from exkaldi.version import info as ExkaldiInfo
-from exkaldi.version import WrongPath, KaldiProcessError, ShellProcessError, KenlmProcessError, UnsupportedType, WrongOperation, WrongDataFormat
+from exkaldi.version import info as ExKaldiInfo
+from exkaldi.error import *
 
 def train_ngrams_srilm(lexicons, order, text, outFile, config=None):
 	'''
@@ -52,7 +52,7 @@ def train_ngrams_srilm(lexicons, order, text, outFile, config=None):
 	# verify the max order
 	declare.less_equal("order", order, "max order", 9)
   # prepare srilm tool
-	ExkaldiInfo.prepare_srilm()
+	ExKaldiInfo.prepare_srilm()
 
 	with FileHandleManager() as fhm:
 		# check whether this is a reasonable text corpus that should be splited by space.
@@ -60,8 +60,7 @@ def train_ngrams_srilm(lexicons, order, text, outFile, config=None):
 			cmd = f"shuf {text} -n 100"
 			out,err,cod = run_shell_command(cmd, stdout="PIPE", stderr="PIPE")
 			if (isinstance(cod,int) and cod != 0):
-				print(err.decode())
-				raise ShellProcessError(f"Failed to sample from text file:{text}.")
+				raise ShellProcessError(f"Failed to sample from text file:{text}.",err.decode())
 			elif out == b'':
 				raise WrongDataFormat(f"Void text file:{text}.")
 			else:
@@ -118,10 +117,9 @@ def train_ngrams_srilm(lexicons, order, text, outFile, config=None):
 		out,err,cod = run_shell_command(cmd, stderr="PIPE")
 
 		if (isinstance(cod,int) and cod != 0) or (not os.path.isfile(outFile)) or os.path.getsize(outFile) == 0:
-			print(err.decode())
 			if os.path.isfile(outFile):
 				os.remove(outFile)
-			raise KaldiProcessError(f'Failed to generate N-Grams language model.')
+			raise KaldiProcessError(f'Failed to generate N-Grams language model.',err.decode())
 
 		return outFile
 
@@ -152,8 +150,7 @@ def train_ngrams_kenlm(lexicons, order, text, outFile, config=None):
 			cmd = f"shuf {text} -n 100"
 			out,err,cod = run_shell_command(cmd, stdout="PIPE", stderr="PIPE")
 			if (isinstance(cod,int) and cod != 0):
-				print(err.decode())
-				raise ShellProcessError(f"Failed to sample from text file:{text}.")
+				raise ShellProcessError(f"Failed to sample from text file:{text}.",err.decode())
 			elif out == b'':
 				raise WrongDataFormat(f"Void text file:{text}.")
 			else:
@@ -207,10 +204,9 @@ def train_ngrams_kenlm(lexicons, order, text, outFile, config=None):
 		out,err,cod = run_shell_command(cmd,stderr="PIPE")
 
 		if (isinstance(cod, int) and cod != 0) or (not os.path.isfile(outFile)) or (os.path.getsize(outFile)==0):
-			print(err.decode())
 			if os.path.isfile(outFile):
 				os.remove(outFile)
-			raise KenlmProcessError("Failed to generate arpa file.")
+			raise KenlmProcessError("Failed to generate arpa file.",err.decode())
 
 		return outFile
 
@@ -239,10 +235,9 @@ def arpa_to_binary(arpaFile, outFile):
 	out, err, cod = run_shell_command(cmd, stderr="PIPE")
 
 	if (cod != 0) or (not os.path.isfile(outFile)) or (os.path.getsize(outFile)==0):
-		print(err.decode())
 		if os.path.isfile(outFile):
 			os.remove(outFile)
-		raise KenlmProcessError("Failed to tansform ARPA to binary format.")
+		raise KenlmProcessError("Failed to tansform ARPA to binary format.",err.decode())
 	
 	else:
 		return outFile

@@ -21,10 +21,10 @@ import sys
 from itertools import groupby
 import subprocess
 
-from exkaldi.version import WrongPath, UnsupportedType, WrongDataFormat, WrongOperation
+from exkaldi.error import *
 from exkaldi.utils.utils import run_shell_command, type_name
 from exkaldi.utils import declare
-from exkaldi.core.archive import Transcription, NumpyProbability
+from exkaldi.core.archive import Transcription, NumpyProb
 from exkaldi.nn.nn import softmax
 
 def convert_field(prob, originVocabs, targetVocabs, retainOOV=False):
@@ -44,9 +44,9 @@ def convert_field(prob, originVocabs, targetVocabs, retainOOV=False):
     assert len(targetVocabs) > 0, f"Target vocabulary is void."
 
     declare.is_probability("prob", prob)
-    if type_name(prob) == "BytesProbability":
+    if type_name(prob) == "BytesProb":
         prob = prob.to_numpy()
-    elif type_name(prob) == "ArkIndexTable":
+    elif type_name(prob) == "IndexTable":
         prob = prob.read_record("prob").to_numpy()
     
     probDim = prob.dim
@@ -86,7 +86,7 @@ def convert_field(prob, originVocabs, targetVocabs, retainOOV=False):
         results[utt] = new
     
     newName = f"convert({prob.name})"
-    return NumpyProbability(data=results, name=newName), newTargetVocabs
+    return NumpyProb(data=results, name=newName), newTargetVocabs
 
 def beam_search(prob, vocab, beam=5):
     '''
@@ -108,9 +108,9 @@ def ctc_greedy_search(prob, vocabs, blankID=None):
     declare.is_classes("vocabs", vocabs, list)
 
     declare.is_probability("prob", prob)
-    if type_name(prob) == "BytesProbability":
+    if type_name(prob) == "BytesProb":
         prob = prob.to_numpy()
-    elif type_name(prob) == "ArkIndexTable":
+    elif type_name(prob) == "IndexTable":
         prob = prob.read_record("prob").to_numpy()
     
     probDim = prob.dim
@@ -136,7 +136,7 @@ def ctc_greedy_search(prob, vocabs, blankID=None):
         try:
             results[utt] = " ".join(best_chars_collapsed)
         except Exception as e:
-            print("<vocab> might has non-string items.")
+            e.args = ( "<vocab> might has non-string items.\n" + e.args[0], )
             raise e
     return results
 
@@ -161,9 +161,9 @@ def ctc_prefix_beam_search(prob, vocabs, blankID=None, beam=5, cutoff=0.999, str
     declare.is_classes("vocabs", vocabs, [tuple,list])
 
     declare.is_probability("prob", prob)
-    if type_name(prob) == "BytesProbability":
+    if type_name(prob) == "BytesProb":
         prob = prob.to_numpy()
-    elif type_name(prob) == "ArkIndexTable":
+    elif type_name(prob) == "IndexTable":
         prob = prob.read_record("prob").to_numpy() 
 
     if lmFile is not None:
@@ -216,8 +216,7 @@ def ctc_prefix_beam_search(prob, vocabs, blankID=None, beam=5, cutoff=0.999, str
     out, err, _ = run_shell_command(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, inputs=sources)
 
     if len(out) == 0:
-        print(err.decode())
-        raise Exception("Failed to beam search decode.")
+        raise Exception("Failed to beam search decode.",err.decode())
     else:
         results = Transcription(name="beamSearchResults")
         out = out.decode().strip().split("file")

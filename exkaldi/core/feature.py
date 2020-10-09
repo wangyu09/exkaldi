@@ -22,12 +22,12 @@ import numpy as np
 from io import BytesIO
 import struct
 
-from exkaldi.version import info as ExkaldiInfo
-from exkaldi.version import WrongPath,UnsupportedType,KaldiProcessError,WrongOperation,ShellProcessError,WrongDataFormat
+from exkaldi.version import info as ExKaldiInfo
+from exkaldi.error import *
 from exkaldi.utils.utils import type_name,make_dependent_dirs,list_files,check_config
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
-from exkaldi.core.archive import BytesFeature,BytesCMVNStatistics,ListTable,ArkIndexTable
+from exkaldi.core.archive import BytesFeat,BytesCMVN,ListTable,IndexTable
 from exkaldi.core.load import load_list_table,load_index_table
 from exkaldi.core.common import check_multiple_resources,run_kaldi_commands_parallel
 
@@ -52,10 +52,10 @@ def __compute_feature(target,kaldiTool,useSuffix=None,name="feat",outFile=None):
 		segments = []
 		for index,kaldiTool,target,useSuffix,name in zip(range(len(outFiles)),kaldiTools,targets,useSuffixs,names):
 			
-			declare.is_classes("target",target,["str","ListTable","WavSegment"])
+			declare.is_classes("target",target,["str","list","ListTable","WavSegment"])
 			declare.is_valid_string("name",name)
 
-			if isinstance(target,str):		
+			if isinstance(target,(str,list)):		
 		
 				allFiles = list_files(target)
 				target = ListTable()
@@ -119,7 +119,8 @@ def compute_mfcc(target,rate=16000,frameWidth=25,frameShift=10,
 		Null
 	
 	Parallel Args:
-		<target>: wave file,scp file,exkaldi ListTable object or WavSegment object. If it is wave file,we will use it's file name as utterance ID.
+		<target>: wave file(s), scp file(s), a list of file paths, exkaldi ListTable object or WavSegment object. If it is wave file,we will use it's file name as utterance ID.
+						If it is file name, regular grammar is available.
 		<rate>: sample rate.
 		<frameWidth>: frame windows width (ms).
 		<frameShift>: shift windows width (ms).
@@ -501,7 +502,7 @@ def use_cmvn_sliding(feat,windowSize=None,std=False):
 	Return:
 		exkaldi feature object.
 	'''
-	declare.is_classes("feat",feat, ["BytesFeature","NumpyFeature"])
+	declare.is_classes("feat",feat, ["BytesFeat","NumpyFeat"])
 	declare.is_bool("std",std)
 
 	if windowSize is None:
@@ -519,11 +520,10 @@ def use_cmvn_sliding(feat,windowSize=None,std=False):
 	cmd = f'apply-cmvn-sliding --cmn-window={windowSize} --min-cmn-window=100 --norm-vars={std} ark:- ark:-'
 	out,err,cod = run_shell_command(cmd,stdin="PIPE",stderr="PIPE",stdout="PIPE",inputs=feat.data)
 	if cod != 0:
-		print(err.decode())
-		raise KaldiProcessError("Failed to compute sliding cmvn.")
+		raise KaldiProcessError("Failed to compute sliding cmvn.",err.decode())
 	
 	newName = f"cmvn({feat.name},{windowSize})"
-	return BytesFeature(out,name=newName,indexTable=None)
+	return BytesFeat(out,name=newName,indexTable=None)
 
 def add_delta(feat,order=2,outFile=None):
 	'''
@@ -677,4 +677,4 @@ def decompress_feat(feat,name="decompressedFeat"):
 			else:
 				raise WrongDataFormat('Miss right binary symbol.')
 
-	return BytesFeature(b''.join(newData),name=name)
+	return BytesFeat(b''.join(newData),name=name)

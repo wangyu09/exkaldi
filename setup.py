@@ -14,8 +14,7 @@ def read_version_info():
     p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
     if p.returncode != 0:
-        print(err.decode())
-        raise Exception("Detect version error.")
+        raise Exception("Failed to detect ExKaldi version.\n"+err.decode())
     else:
         return out.decode().strip().split("\n")[-1].strip()
 

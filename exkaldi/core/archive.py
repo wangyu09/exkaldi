@@ -23,9 +23,8 @@ import struct
 import os
 from collections import namedtuple
 import sys
- 
-from exkaldi.version import info as ExkaldiInfo
-from exkaldi.version import WrongPath,WrongOperation,WrongDataFormat,UnsupportedType,ShellProcessError,KaldiProcessError
+
+from exkaldi.error import *
 from exkaldi.utils.utils import type_name,run_shell_command,make_dependent_dirs,list_files
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
@@ -50,10 +49,7 @@ class ListTable(dict):
 		Return:
 			True or False.
 		'''
-		if len(self.keys()) == 0:
-			return True
-		else:
-			return False
+		return len(self.keys()) == 0
 
 	@property
 	def name(self):
@@ -84,28 +80,32 @@ class ListTable(dict):
 		Reset the data.
 
 		Args:
-			<data>: a iterable object that can be converted to dict object.
+			<data>: an iterable object that can be converted to dict object.
 		'''
 		if data is None:
 			self.clear()
 		else:
-			newData = dict(data) #try to check it
+			newData = dict(data) #check it
 			self.clear()
-			self.update(data)
+			self.update(newData)
 
 	def record(self,key,value):
 		'''
-		Enter a record.
+		Enter a record. This is an universal API to add an item.
+
+		Args:	
+			_key_,_value_: python objects.
 		'''
 		super().__setitem__(key,value)
 
 	def sort(self,by="key",reverse=False):
 		'''
-		Sort by key or value.
+		Sort by key or value. 
+		This is just a pseudo sort operation for the dict object but it works after python 3.6.
 
 		Args:
 			<by>: "key" or "value".
-			<reverse>: If reverse,sort in descending order.
+			<reverse>: If reverse, sort in descending order.
 		
 		Return:
 			A new ListTable object.
@@ -134,17 +134,15 @@ class ListTable(dict):
 		Return:
 			file name,file handle or a string of contents.
 		'''
-		declare.not_void(type_name(self),self)
-		declare.greater_equal("chunks",chunks,"minimum chunk",1)
-		if fileName is not None:
-			declare.is_valid_file_name_or_handle("fileName",fileName)
+		declare.greater_equal("chunks",chunks,None,1)
+		if fileName:
+			declare.is_valid_file_name_or_handle("file name",fileName)
 
 		def purely_concat(item):
 			try:
 				return f"{item[0]} {item[1]}"
 			except Exception:
-				print(f"Utterance ID: {item[0]}")
-				raise WrongDataFormat(f"Wrong key and value format: {type_name(item[0])} and {type_name(item[1])}. ")
+				raise WrongDataFormat(f"Cannot convert to string and concatenate: {type_name(item[0])} and {type_name(item[1])}. ")
 		
 		def save_chunk_data(chunkData,concatFunc,fileName):
 			contents = "\n".join(map(concatFunc,chunkData.items())) + "\n"
@@ -154,10 +152,10 @@ class ListTable(dict):
 				make_dependent_dirs(fileName,pathIsFile=True)
 				with open(fileName,"w",encoding="utf-8") as fw:
 					fw.write(contents)
-				return fileName				
+				return fileName
 
-		if concatFunc is not None:
-			declare.is_callable("concatFunc",concatFunc)
+		if concatFunc:
+			declare.is_callable("concat function",concatFunc)
 		else:
 			concatFunc = purely_concat
 
@@ -234,7 +232,11 @@ class ListTable(dict):
 
 		elif nRandom > 0:
 			declare.is_positive_int("nRandom",nRandom)
-			new = random.choices(list(self.items()),k=nRandom)
+			if nRandom > self.lens:
+				new = self
+				nRandom = self.lens
+			else:
+				new = random.sample(list(self.items()),k=nRandom)
 			newName = f"subset({self.name},random {nRandom})"
 			return ListTable(data=new,name=newName)	
 
@@ -272,21 +274,17 @@ class ListTable(dict):
 
 			newDict = {}
 			for k in keys:
-				try:
-					value = self[k]
-				except KeyError:
-					continue
-				else:
-					newDict[k] = value
+				if k in self.keys():
+					newDict[k] = self[k]
 
 			return ListTable(data=newDict,name=newName)
 		
 		else:
-			raise WrongOperation("At least one mode should work but all got default values.")
+			raise WrongOperation("When subset, at least one mode should be specified but all got default values.")
 
 	def __add__(self,other):
 		'''
-		Integrate two ListTable objects. If key existed in both two objects,the former will be retained.
+		Integrate two ListTable objects. If key existed in both two objects, the former will be retained.
 
 		Args:
 			<other>: another ListTable object.
@@ -298,12 +296,8 @@ class ListTable(dict):
 
 		new = copy.deepcopy(self)
 		for k in other.keys():
-			try:
-				new[k]
-			except KeyError:
+			if k not in new.keys():
 				new[k] = other[k]
-			else:
-				continue
 		newName = f"plus({self.name},{other.name})"
 		new.rename(newName)
 		return new
@@ -311,19 +305,19 @@ class ListTable(dict):
 	def reverse(self):
 		'''
 		Exchange the position of key and value. 
+		Key and value must be one-one matching, or Error will be raised.
 
-		Key and value must be one-one matching,or Error will be raised.
+		Return:
+			a new ListTable object.
 		'''
 		newname = f"reverse({self.name})"
 		new = ListTable(name=newname)
 		for key,value in self.items():
-			try:
-				new[value]
-			except KeyError:
-				new[value] = key
-			else:
+			if value in new.keys():
 				raise WrongDataFormat(f"Only one-one matching table can be reversed but multiple {value} have existed.")
-		
+			else:
+				new[value] = key
+				
 		return new
 
 	def key_existed(self,key):
@@ -336,12 +330,17 @@ class ListTable(dict):
 		Return:
 			A bool value.
 		'''
-		try:
-			self[key]
-		except KeyError:
-			return False
-		else:
-			return True
+		return key in self.keys()
+
+	@property
+	def lens(self):
+		'''
+		Get the numbers os records.
+
+		Return:
+			an int value.
+		'''
+		return len(self)
 
 class Transcription(ListTable):
 	'''
@@ -385,6 +384,13 @@ class Transcription(ListTable):
 		declare.is_valid_string("value",value)
 
 		super().__setitem__(key,value)
+
+	@property
+	def utts(self):
+		'''
+		Get a list of all utterance IDs.
+		'''
+		return list(self.keys())
 
 	def sort(self,by="utt",reverse=False):
 		'''
@@ -448,7 +454,7 @@ class Transcription(ListTable):
 			<chunks>: If it > 1,split data into N chunks.
 			<keys>: If it is not None,pick out these utterances whose ID in keys.
 		Return:
-			a new ArkIndexTable object or a list of new ArkIndexTable objects.
+			a new Transcription object or a list of new Transcription objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
@@ -544,8 +550,7 @@ class Transcription(ListTable):
 				else:
 					return f"{item[0]} {item[1]}"
 			except Exception:
-				print(f"Utterance ID: {item[0]}")
-				raise WrongDataFormat(f"Wrong key and value format: {type_name(item[0])} and {type_name(item[1])}. ")
+				raise WrongDataFormat(f"Cannot cancatenate these key and value: {type_name(item[0])} and {type_name(item[1])}. ")
 		
 		return super().save(fileName=fileName,chunks=chunks,concatFunc=lambda x:concat(x,discardUttID) )
 
@@ -569,13 +574,6 @@ class Transcription(ListTable):
 					result.record(w, result[w]+1)
 
 		return result
-
-	@property
-	def utts(self):
-		'''
-		Get a list of all utterance IDs.
-		'''
-		return list(self.keys())
 
 class Metric(ListTable):
 	'''
@@ -718,11 +716,10 @@ class Metric(ListTable):
 
 			totalSum = 0
 			for key,value in self.items():
-				try:
-					W = weight[key]
-				except KeyError:
+				if key not in weight.keys():
 					raise WrongOperation(f"Miss weight for: {key}.")
 				else:
+					W = weight[key]
 					declare.is_classes("weight",W,[int,float])
 					totalSum += W*value
 			
@@ -749,11 +746,10 @@ class Metric(ListTable):
 			numerator = 0
 			denominator = epsilon
 			for key,value in self.items():
-				try:
-					W = weight[key]
-				except KeyError:
+				if key not in weight.keys():
 					raise WrongOperation(f"Miss weight for: {key}.")
 				else:
+					W = weight[key]
 					declare.is_classes("weight",W,[int,float])
 					numerator += W*value
 					denominator += W
@@ -806,26 +802,329 @@ class Metric(ListTable):
 
 		return Metric(new,name=f"mapped({self.name})")
 
+class IndexTable(ListTable):
+	'''
+	For accelerate to find utterance and reduce memory cost of intermidiate operation.
+	This is used to hold the utterance index informat of Kaldi archive table (binary format). It just like the script-table file but is more useful.
+	Its format like this:
+	{ "utt0": namedtuple(frames=100,startIndex=1000,dataSize=10000,filePath="./feat.ark") }
+	'''
+	def __init__(self,data={},name="indexTable"):
+		declare.is_classes("data",data,[dict,IndexTable])
+		super().__init__(name=name)
+		for key,value in data.items():
+			self[key] = value
+
+	def __setitem__(self,key,value):
+		'''Overlap this method to avoid the wrong assignment.'''
+		if isinstance(value,(list,tuple)):
+			assert len(value) in [3,4],f"Expected (frames,start index,data size[,file path]) but {value} does not match."
+			self.record(key,*value)
+		elif isinstance(value,IndexInfo):
+			super().__setitem__(key,value)
+		else:
+			raise UnsupportedType(f"The value of index table shou be list, tuple or IndexInfo object but got: {type_name(value)}.")
+
+	def setdefault(self,key,value=None):
+		'''Overlap this method to avoid the wrong assignment.'''
+		if self.key_existed(key):
+			return self[key]
+		else:
+			self.__setitem__(key,value)
+	
+	def update(self,other):
+		'''
+		Args:
+			<other>: exkaldi IndexTable object.
+		'''
+		declare.is_classes("other",other,IndexTable)
+
+		super().update(other)
+
+	def record(self,key,frames=None,startIndex=None,dataSize=None,filePath=None):
+		'''
+		Add or modify a record.
+		
+		Args:
+			<key>: a string. The utterance ID.
+			<frames>: an int value.
+			<startIndex>: an int value. The start index of an archive record. Including the size of utterance ID.
+			<dataSize>: an int value. The total size of an archive record. Including the size of utterance ID.
+			<filePath>: a string. The total size of an archive record.
+		'''
+		declare.is_valid_string("key",key)
+
+		if self.key_existed(key):
+			value = self[key]
+			if frames is not None:
+				declare.is_positive_int("frames", frames)
+				value = value._replace(frames=frames)
+			if startIndex is not None:
+				declare.is_non_negative_int("startIndex", startIndex)
+				value = value._replace(startIndex=startIndex)
+			if dataSize is not None:
+				declare.is_positive_int("dataSize", dataSize)
+				value = value._replace(dataSize=dataSize)		
+			if filePath is not None:
+				declare.is_file("filePath", filePath)
+				value = value._replace(filePath=filePath)
+
+		else:
+			declare.is_positive_int("frames",frames)
+			declare.is_non_negative_int("startIndex",startIndex)
+			declare.is_positive_int("dataSize",dataSize)
+			if filePath is not None:
+				declare.is_file("filePath",filePath)
+			value = self.spec(frames,startIndex,dataSize,filePath)
+
+		super().__setitem__(key,value)
+
+	@property
+	def spec(self):
+		'''
+		The index info spec.
+
+		Return:
+			a namedtuple class.
+		'''
+		spec = namedtuple("IndexInfo",["frames","startIndex","dataSize","filePath"])
+		spec.__new__.__defaults__ = (None,)
+		return spec
+
+	def sort(self,by="utt",reverse=False):
+		'''
+		Sort utterances by frame length,utterance ID or start index or file path name.
+
+		Args:
+			<by>: "key"/"utt","value"/"frame" or "startIndex" or "filePath".
+			<reverse>: If True,sort in descending order.
+		
+		Return:
+			A new IndexTable object.
+		''' 
+		declare.is_instances("by",by,["utt","key","frame","value","startIndex","filePath"])
+
+		if by in ["utt","key"]:
+			items = sorted(self.items(),key=lambda x:x[0],reverse=reverse)
+		elif by in ["frame","value"]:
+			items = sorted(self.items(),key=lambda x:x[1].frames,reverse=reverse)
+		elif by == "startIndex":
+			items = sorted(self.items(),key=lambda x:x[1].startIndex,reverse=reverse)
+		else:
+			try:
+				items = sorted(self.items(),key=lambda x:x[1].filePath,reverse=reverse)
+			except TypeError:
+				items = self.items()
+		
+		newName = f"sort({self.name},{by})"
+		return IndexTable(dict(items),name=newName)
+
+	def __add__(self,other):
+		'''
+		Integrate two IndexTable objects. If utterance has existed in both two objects,the former will be retained.
+
+		Args:
+			<other>: another IndexTable object.
+
+		Return:
+			A new IndexTable object.
+		'''
+		declare.is_classes("other",other,IndexTable)
+
+		result = super().__add__(other)
+		return IndexTable(result.data,name=result.name)
+
+	def shuffle(self):
+		'''
+		Random shuffle the index table.
+
+		Return:
+			A new IndexTable object.
+		'''
+		result = super().shuffle()
+
+		return IndexTable(result.data,name=self.name)
+	
+	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
+		'''
+		Subset.
+		Only one mode will work when it is not the default value. 
+		The priority order is: nHead > nTail > nRandom > chunks > keys.
+		
+		Args:
+			<nHead>: If it > 0,extract N head utterances.
+			<nTail>: If it > 0,extract N tail utterances.
+			<nRandom>: If it > 0,randomly sample N utterances.
+			<chunks>: If it > 1,split data into N chunks.
+			<keys>: If it is not None,pick out these utterances whose ID in keys.
+
+		Return:
+			a new IndexTable object or a list of new IndexTable objects.
+		''' 
+		result = super().subset(nHead,nTail,nRandom,chunks,keys)
+
+		if isinstance(result,list):
+			for index in range(len(result)):
+				temp = result[index]
+				result[index] = IndexTable(temp.data,temp.name)
+		else:
+			result = IndexTable(result.data,result.name)
+
+		return result
+
+	def save(self,fileName=None,chunks=1):
+		'''
+		Save this index informat to text file with kaidi script-file table format.
+		Note that the frames informat will be discarded.
+
+		Args:
+			<fileName>: file name or file handle.  
+			<chunks>: an int value. If > 1,split it into N chunks and save them.  
+								This option only work when _fileName_ is a file name.  
+		
+		Return:
+			file name,file handle or a string.
+		'''
+		declare.not_void(type_name(self),self)
+
+		def concat(item):
+			utt,indexInfo = item
+			if indexInfo.filePath is None:
+				raise WrongOperation("Cannot save to script file becase miss the file path info.")
+			else:
+				startIndex = indexInfo.startIndex + len(utt) + 1
+				return f"{utt} {indexInfo.filePath}:{startIndex}"
+
+		return super().save(fileName,chunks,concat)
+	
+	def fetch(self,arkType="mat",keys=None):
+		"""
+		Fetch records from file.
+
+		Args:
+			<keys>: utterance ID or a list of utterance IDs.
+			<arkType>: If None,return BytesMatrix or BytesVector object.
+					   If "feat",return BytesFeat object.
+					   If "cmvn",return BytesCMVN object.
+					   If "prob",return BytesProb object.
+					   If "ali",return BytesAliTrans object.
+					   If "fmllr",return BytesFmllr object.
+					   If "mat",return BytesMatrix object.
+					   If "vec",return BytesVector object.
+		
+		Return:
+		    an exkaldi bytes achieve object. 
+		"""
+		declare.not_void(type_name(self),self)
+		declare.is_instances("arkType",arkType,[None,"mat","vec","feat","cmvn","prob","ali","fmllrMat"])
+
+		if keys is None:
+			keys = self.keys()
+		else:
+			declare.is_classes("keys",keys,[str,list,tuple])
+			if isinstance(keys,str):
+				keys = [keys,]
+			else:
+				declare.members_are_valid_strings("keys",keys)
+
+		newTable = IndexTable(name=self.name)
+
+		def is_matrix(oneRecord):
+			with BytesIO(oneRecord) as sp:
+				while True:
+					char = sp.read(1).decode()
+					if (char == '') or (char == ' '):
+						break
+				sp.read(2)
+				sizeSymbol = sp.read(1).decode()
+				if sizeSymbol == '\4':	
+					return False
+				else:
+					return True
+
+		with FileHandleManager() as fhm:
+
+			startIndex = 0
+			datas = []
+
+			for k in keys:
+				if k in self.keys():
+					indexInfo = self[k]
+					if indexInfo.filePath is None:
+						raise WrongDataFormat(f"Miss file path information in the index table: {k}.")
+					
+					fr = fhm.call(indexInfo.filePath)
+					if fr is None:
+						fr = fhm.open(indexInfo.filePath,mode="rb")
+						
+					fr.seek(indexInfo.startIndex)
+					buf = fr.read(indexInfo.dataSize)
+					newTable[k] = newTable.spec( indexInfo.frames,startIndex,indexInfo.dataSize,None )
+					startIndex += indexInfo.dataSize
+					datas.append(buf)
+
+			if len(datas) == 0:
+				raise WrongOperation("Miss all utterance IDs. We don't think it's a reasonable result. Check the provided <keys> please.")
+
+			matrixFlag = is_matrix(buf)
+			
+			if arkType is None:
+				if matrixFlag is True:
+					result = BytesMatrix( b"".join(datas),name=self.name,indexTable=newTable )
+				else:
+					result = BytesVector( b"".join(datas),name=self.name,indexTable=newTable )
+			elif arkType == "mat":
+				result = BytesMatrix( b"".join(datas),name=self.name,indexTable=newTable )
+			elif arkType == "vec":
+				result = BytesVector( b"".join(datas),name=self.name,indexTable=newTable )		
+			elif arkType == "feat":
+				result = BytesFeat( b"".join(datas),name=self.name,indexTable=newTable )
+			elif arkType == "cmvn":
+				result = BytesCMVN( b"".join(datas),name=self.name,indexTable=newTable )
+			elif arkType == "prob":
+				result = BytesProb( b"".join(datas),name=self.name,indexTable=newTable )
+			elif arkType == "ali":
+				result = BytesAliTrans( b"".join(datas),name=self.name,indexTable=newTable )
+			else:
+				result = BytesFmllr( b"".join(datas),name=self.name,indexTable=newTable )
+			
+			result.check_format()
+
+			return result
+
+	@property
+	def utts(self):
+		'''
+		Get a list of all utterance IDs.
+		'''
+		return list(self.keys())
+
+	@property
+	def spks(self):
+		'''
+		The same as self.utts.
+		'''
+		return self.utts
+
 class WavSegment(ListTable):
 	'''
 	It is a class to hold segment info.
 	'''
 	def __init__(self,data={},name="segment"):
-		declare.is_classes("data",data,[dict,Segment])
+		declare.is_classes("data",data,[dict,WavSegment])
 		super().__init__(name=name)
-		
 		for key,value in data.items():
 			self[key] = value
 
 	def __setitem__(self,key,value):
 		'''Overlap this method to avoid the wrong assignment.'''
 		if isinstance(value,[list,tuple]):
-			assert len(value) in [4,5],f"Expected (fileID,startTime,endTine,filePath[,text]) but {value} does not match."
+			assert len(value) in [4,5],f"Expected (fileID,startTime,endTime,filePath[,text]) but {value} does not match."
 			self.record(key,*value)
 		elif isinstance(value,SegmentInfo):
 			super().__setitem__(key,value)
 		else:
-			raise UnsupportedType(f"The value of index table shou be list, tuple or SegmentInfo object but got: {type_name(value)}.")
+			raise UnsupportedType(f"The value of index table should be list, tuple or SegmentInfo object but got: {type_name(value)}.")
 
 	def setdefault(self,key,value=None):
 		'''Overlap this method to avoid the wrong assignment.'''
@@ -864,8 +1163,8 @@ class WavSegment(ListTable):
 			declare.is_non_negative_float("startTime",startTime)
 			declare.is_positive_float("endTime",endTime)
 
-			st = str("%.2f"%startTime).replace(".","")
-			et = str("%.2f"%endTime).replace(".","")
+			st = str("%.3f"%startTime).replace(".","")
+			et = str("%.3f"%endTime).replace(".","")
 			key = f"{fileID}-{st}-{et}" 
 
 			if self.key_existed(key):
@@ -934,11 +1233,11 @@ class WavSegment(ListTable):
 		Sort utterances utterance ID or start time or file path name.
 
 		Args:
-			<by>: "key"/"utt","value"/"start" or "filePath".
+			<by>: "key"/"utt","value"/"startTime" or "filePath".
 			<reverse>: If True,sort in descending order.
 		
 		Return:
-			A new ArkIndexTable object.
+			A new WavSegment object.
 		''' 
 		declare.is_instances("by",by,["utt","key","value","startTime","filePath"])
 
@@ -1067,8 +1366,7 @@ class WavSegment(ListTable):
 			cmd = f"extract-segments scp:{wavTemp.name} {segTemp.name} ark:-"
 			out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
 			if cod != 0:
-				print(err.decode())
-				raise KaldiProcessError("Failed to extract segment.")
+				raise KaldiProcessError("Failed to extract segment.",err.decode())
 			else:
 				segWavs = ListTable(name=f"extract({self.name})")
 				with BytesIO(out) as sp:
@@ -1123,314 +1421,6 @@ class WavSegment(ListTable):
 		Get a list of all utterance IDs.
 		'''
 		return list(self.keys())
-
-class ArkIndexTable(ListTable):
-	'''
-	For accelerate to find utterance and reduce memory cost of intermidiate operation.
-	This is used to hold the utterance index informat of Kaldi archive table (binary format). It just like the script-table file but is more useful.
-	Its format like this:
-	{ "utt0": namedtuple(frames=100,startIndex=1000,dataSize=10000,filePath="./feat.ark") }
-	'''
-	def __init__(self,data={},name="indexTable"):
-		declare.is_classes("data",data,[dict,ArkIndexTable])
-		super().__init__(name=name)
-		
-		for key,value in data.items():
-			self[key] = value
-
-	def __setitem__(self,key,value):
-		'''Overlap this method to avoid the wrong assignment.'''
-		if isinstance(value,(list,tuple)):
-			assert len(value) in [3,4],f"Expected (frames,start index,data size[,file path]) but {value} does not match."
-			self.record(key,*value)
-		elif isinstance(value,IndexInfo):
-			super().__setitem__(key,value)
-		else:
-			raise UnsupportedType(f"The value of index table shou be list, tuple or IndexInfo object but got: {type_name(value)}.")
-
-	def setdefault(self,key,value=None):
-		'''Overlap this method to avoid the wrong assignment.'''
-		if self.key_existed(key):
-			return self[key]
-		else:
-			self.__setitem__(key,value)
-	
-	def update(self,other):
-		'''
-		Args:
-			<other>: exkaldi ArkIndexTable object.
-		'''
-		declare.is_classes("other",other,ArkIndexTable)
-
-		super().update(other)
-
-	def record(self,key,frames=None,startIndex=None,dataSize=None,filePath=None):
-		'''
-		Add or modify a record.
-		
-		Args:
-			<key>: a string. The utterance ID.
-			<frames>: an int value.
-			<startIndex>: an int value. The start index of an archive record. Including the size of utterance ID.
-			<dataSize>: an int value. The total size of an archive record. Including the size of utterance ID.
-			<filePath>: a string. The total size of an archive record.
-		'''
-		declare.is_valid_string("key",key)
-
-		if self.key_existed(key):
-			value = self[key]
-			if frames is not None:
-				declare.is_positive_int("frames", frames)
-				value = value._replace(frames=frames)
-			if startIndex is not None:
-				declare.is_non_negative_int("startIndex", startIndex)
-				value = value._replace(startIndex=startIndex)
-			if dataSize is not None:
-				declare.is_positive_int("dataSize", dataSize)
-				value = value._replace(dataSize=dataSize)		
-			if filePath is not None:
-				declare.is_file("filePath", filePath)
-				value = value._replace(filePath=filePath)
-
-		else:
-			declare.is_positive_int("frames",frames)
-			declare.is_non_negative_int("startIndex",startIndex)
-			declare.is_positive_int("dataSize",dataSize)
-			if filePath is not None:
-				declare.is_file("filePath",filePath)
-			value = self.spec(frames,startIndex,dataSize,filePath)
-
-		super().__setitem__(key,value)
-
-	@property
-	def spec(self):
-		'''
-		The index info spec.
-
-		Return:
-			a namedtuple class.
-		'''
-		spec = namedtuple("IndexInfo",["frames","startIndex","dataSize","filePath"])
-		spec.__new__.__defaults__ = (None,)
-		return spec
-
-	def sort(self,by="utt",reverse=False):
-		'''
-		Sort utterances by frame length,utterance ID or start index or file path name.
-
-		Args:
-			<by>: "key"/"utt","value"/"frame" or "startIndex" or "filePath".
-			<reverse>: If True,sort in descending order.
-		
-		Return:
-			A new ArkIndexTable object.
-		''' 
-		declare.is_instances("by",by,["utt","key","frame","value","startIndex","filePath"])
-
-		if by in ["utt","key"]:
-			items = sorted(self.items(),key=lambda x:x[0],reverse=reverse)
-		elif by in ["frame","value"]:
-			items = sorted(self.items(),key=lambda x:x[1].frames,reverse=reverse)
-		elif by == "startIndex":
-			items = sorted(self.items(),key=lambda x:x[1].startIndex,reverse=reverse)
-		else:
-			try:
-				items = sorted(self.items(),key=lambda x:x[1].filePath,reverse=reverse)
-			except TypeError:
-				items = self.items()
-		
-		newName = f"sort({self.name},{by})"
-		return ArkIndexTable(dict(items),name=newName)
-
-	def __add__(self,other):
-		'''
-		Integrate two ArkIndexTable objects. If utterance has existed in both two objects,the former will be retained.
-
-		Args:
-			<other>: another ArkIndexTable object.
-
-		Return:
-			A new ArkIndexTable object.
-		'''
-		declare.is_classes("other",other,ArkIndexTable)
-
-		result = super().__add__(other)
-		return ArkIndexTable(result.data,name=result.name)
-
-	def shuffle(self):
-		'''
-		Random shuffle the index table.
-
-		Return:
-			A new ArkIndexTable object.
-		'''
-		result = super().shuffle()
-
-		return ArkIndexTable(result.data,name=self.name)
-	
-	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
-		'''
-		Subset.
-		Only one mode will work when it is not the default value. 
-		The priority order is: nHead > nTail > nRandom > chunks > keys.
-		
-		Args:
-			<nHead>: If it > 0,extract N head utterances.
-			<nTail>: If it > 0,extract N tail utterances.
-			<nRandom>: If it > 0,randomly sample N utterances.
-			<chunks>: If it > 1,split data into N chunks.
-			<keys>: If it is not None,pick out these utterances whose ID in keys.
-
-		Return:
-			a new ArkIndexTable object or a list of new ArkIndexTable objects.
-		''' 
-		result = super().subset(nHead,nTail,nRandom,chunks,keys)
-
-		if isinstance(result,list):
-			for index in range(len(result)):
-				temp = result[index]
-				result[index] = ArkIndexTable(temp.data,temp.name)
-		else:
-			result = ArkIndexTable(result.data,result.name)
-
-		return result
-
-	def save(self,fileName=None,chunks=1):
-		'''
-		Save this index informat to text file with kaidi script-file table format.
-		Note that the frames informat will be discarded.
-
-		Args:
-			<fileName>: file name or file handle.  
-			<chunks>: an int value. If > 1,split it into N chunks and save them.  
-								This option only work when _fileName_ is a file name.  
-		
-		Return:
-			file name,file handle or a string.
-		'''
-		declare.not_void(type_name(self),self)
-
-		def concat(item):
-			utt,indexInfo = item
-			if indexInfo.filePath is None:
-				raise WrongOperation("Cannot save to script file becase miss the file path info.")
-			else:
-				startIndex = indexInfo.startIndex + len(utt) + 1
-				return f"{utt} {indexInfo.filePath}:{startIndex}"
-
-		return super().save(fileName,chunks,concat)
-	
-	def fetch(self,arkType="mat",keys=None):
-		"""
-		Fetch records from file.
-
-		Args:
-			<keys>: utterance ID or a list of utterance IDs.
-			<arkType>: If None,return BytesMatrix or BytesVector object.
-					   If "feat",return BytesFeature object.
-					   If "cmvn",return BytesFeature object.
-					   If "prob",return BytesFeature object.
-					   If "ali",return BytesFeature object.
-					   If "fmllrMat",return BytesFeature object.
-					   If "mat",return BytesMatrix object.
-					   If "vec",return BytesVector object.
-		
-		Return:
-		    an exkaldi bytes achieve object. 
-		"""
-		declare.not_void(type_name(self),self)
-		declare.is_instances("arkType",arkType,[None,"mat","vec","feat","cmvn","prob","ali","fmllrMat"])
-
-		if keys is None:
-			keys = self.keys()
-		else:
-			declare.is_classes("keys",keys,[str,list,tuple])
-			if isinstance(keys,str):
-				keys = [keys,]
-			else:
-				declare.members_are_valid_strings("keys",keys)
-
-		newTable = ArkIndexTable(name=self.name)
-
-		def is_matrix(oneRecord):
-			with BytesIO(oneRecord) as sp:
-				while True:
-					char = sp.read(1).decode()
-					if (char == '') or (char == ' '):
-						break
-				sp.read(2)
-				sizeSymbol = sp.read(1).decode()
-				if sizeSymbol == '\4':	
-					return False
-				else:
-					return True
-
-		with FileHandleManager() as fhm:
-
-			startIndex = 0
-			datas = []
-
-			for k in keys:
-				try:
-					indexInfo = self[k]
-				except KeyError:
-					continue
-				else:
-					if indexInfo.filePath is None:
-						raise WrongDataFormat(f"Miss file path information in the index table: {k}.")
-					
-					fr = fhm.call(indexInfo.filePath)
-					if fr is None:
-						fr = fhm.open(indexInfo.filePath,mode="rb")
-						
-					fr.seek(indexInfo.startIndex)
-					buf = fr.read(indexInfo.dataSize)
-					newTable[k] = newTable.spec( indexInfo.frames,startIndex,indexInfo.dataSize,None )
-					startIndex += indexInfo.dataSize
-					datas.append(buf)
-
-			if len(datas) == 0:
-				raise WrongOperation("Miss all utterance IDs. We don't think it's a reasonable result. Check the provided <keys> please.")
-
-			matrixFlag = is_matrix(buf)
-			
-			if arkType is None:
-				if matrixFlag is True:
-					result = BytesMatrix( b"".join(datas),name=self.name,indexTable=newTable )
-				else:
-					result = BytesVector( b"".join(datas),name=self.name,indexTable=newTable )
-			elif arkType == "mat":
-				result = BytesMatrix( b"".join(datas),name=self.name,indexTable=newTable )
-			elif arkType == "vec":
-				result = BytesVector( b"".join(datas),name=self.name,indexTable=newTable )		
-			elif arkType == "feat":
-				result = BytesFeature( b"".join(datas),name=self.name,indexTable=newTable )
-			elif arkType == "cmvn":
-				result = BytesCMVNStatistics( b"".join(datas),name=self.name,indexTable=newTable )
-			elif arkType == "prob":
-				result = BytesProbability( b"".join(datas),name=self.name,indexTable=newTable )
-			elif arkType == "ali":
-				result = BytesAlignmentTrans( b"".join(datas),name=self.name,indexTable=newTable )
-			else:
-				result = BytesFmllrMatrix( b"".join(datas),name=self.name,indexTable=newTable )
-			
-			result.check_format()
-
-			return result
-
-	@property
-	def utts(self):
-		'''
-		Get a list of all utterance IDs.
-		'''
-		return list(self.keys())
-
-	@property
-	def spks(self):
-		'''
-		The same as self.utts.
-		'''
-		return self.utts
 
 '''BytesArchive class group'''
 '''Designed for Kaldi binary archive table. It also support other objects such as lattice,HMM-GMM and decision tree'''
@@ -1505,12 +1495,12 @@ class BytesMatrix(BytesArchive):
 	def __init__(self,data=b'',name="data",indexTable=None):
 		'''
 		Args:
-			<data>: If it's BytesMatrix or ArkIndexTable or NumpyMatrix object (or their subclasses),extra <indexTable> will not work.
+			<data>: If it's BytesMatrix or IndexTable or NumpyMatrix object (or their subclasses),extra <indexTable> will not work.
 					If it's bytes object (or their subclasses),generate index table automatically if it is not provided.
 			<name>: a string.
-			<indexTable>: ArkIndexTable object.
+			<indexTable>: IndexTable object.
 		'''
-		declare.belong_classes("data",data,[BytesMatrix,NumpyMatrix,ArkIndexTable,bytes])
+		declare.belong_classes("data",data,[BytesMatrix,NumpyMatrix,IndexTable,bytes])
 
 		needIndexTableFlag = True
 
@@ -1520,7 +1510,7 @@ class BytesMatrix(BytesArchive):
 			data = data.data
 			needIndexTableFlag = False
 		
-		elif isinstance(data ,ArkIndexTable):
+		elif isinstance(data ,IndexTable):
 			data = data.fetch(arkType="mat",name=name)
 			self.__dataIndex = data.indexTable
 			data = data.data
@@ -1538,7 +1528,7 @@ class BytesMatrix(BytesArchive):
 			if indexTable is None:
 				self.__generate_index_table()
 			else:
-				declare.is_classes("indexTable",indexTable,ArkIndexTable)
+				declare.is_classes("indexTable",indexTable,IndexTable)
 				self.__verify_index_table(indexTable)
 	
 	def __verify_index_table(self,indexTable):
@@ -1564,7 +1554,7 @@ class BytesMatrix(BytesArchive):
 		if self.is_void:
 			return None
 		else:
-			self.__dataIndex = ArkIndexTable(name=self.name)
+			self.__dataIndex = IndexTable(name=self.name)
 			start = 0
 			with BytesIO(self.data) as sp:
 				while True:
@@ -1628,7 +1618,7 @@ class BytesMatrix(BytesArchive):
 		Get the index information of utterances.
 		
 		Return:
-			A ArkIndexTable object.
+			A IndexTable object.
 		'''
 		# Return a dict object.
 		return copy.deepcopy(self.__dataIndex)
@@ -1679,7 +1669,7 @@ class BytesMatrix(BytesArchive):
 				newDataType = 'DM '
 			
 			result = []
-			newDataIndex = ArkIndexTable(name=self.name)
+			newDataIndex = IndexTable(name=self.name)
 			# Data size will be changed so generate a new index table.
 			with BytesIO(self.data) as sp:
 				start = 0
@@ -1766,7 +1756,7 @@ class BytesMatrix(BytesArchive):
 						else:
 							mat = np.frombuffer(buf,dtype=np.float64)
 					except Exception as e:
-						print(f"Wrong matrix data format at utterance {utt}.")
+						e.args = ( f"Wrong matrix data format at utterance {utt}." + "\n" + e.args[0],)
 						raise e
 				
 				oneRecordLen = len(utt) + 16 + bufSize
@@ -1874,7 +1864,7 @@ class BytesMatrix(BytesArchive):
 						else:
 							newMatrix = np.frombuffer(buf,dtype=np.float64)
 					except Exception as e:
-						print(f"Wrong matrix data format at utterance {key}.")
+						e.args = ( f"Wrong matrix data format at utterance {key}." + "\n" + e.args[0],)
 						raise e	
 					else:
 						newDict[key] = np.reshape(newMatrix,(rows,cols))
@@ -1886,16 +1876,16 @@ class BytesMatrix(BytesArchive):
 		The plus operation between two objects.
 
 		Args:
-			<other>: a BytesMatrix,NumpyMatrix,ArkIndexTable object (or their subclasses object).
+			<other>: a BytesMatrix,NumpyMatrix,IndexTable object (or their subclasses object).
 		
 		Return:
 			a new BytesMatrix object.
 		''' 
-		declare.belong_classes("other",other,[BytesMatrix,NumpyMatrix,ArkIndexTable])
+		declare.belong_classes("other",other,[BytesMatrix,NumpyMatrix,IndexTable])
 
 		if isinstance(other,NumpyMatrix):
 			other = other.to_bytes()
-		elif isinstance(other,ArkIndexTable):
+		elif isinstance(other,IndexTable):
 			keys = [ key for key in other.keys() if key not in self.keys() ]
 			other = other.fecth(arkType="mat",keys=keys)
 		
@@ -1965,7 +1955,7 @@ class BytesMatrix(BytesArchive):
 		if nHead > 0:
 			declare.is_positive_int("nHead",nHead)
 			newName = f"subset({self.name},head {nHead})"
-			newDataIndex = ArkIndexTable(name=newName)
+			newDataIndex = IndexTable(name=newName)
 			totalSize = 0
 			
 			for utt,indexInfo in self.indexTable.items():
@@ -1985,7 +1975,7 @@ class BytesMatrix(BytesArchive):
 		elif nTail > 0:
 			declare.is_positive_int("nTail",nTail)
 			newName = f"subset({self.name},tail {nTail})"
-			newDataIndex = ArkIndexTable(name=newName)
+			newDataIndex = IndexTable(name=newName)
 
 			tailNRecord = list(self.indexTable.items())[-nTail:]
 			start_index = tailNRecord[0][1].startIndex
@@ -2003,20 +1993,24 @@ class BytesMatrix(BytesArchive):
 
 		elif nRandom > 0:
 			declare.is_positive_int("nRandom",nRandom)
-			randomNRecord = random.choices(list(self.indexTable.items()),k=nRandom)
+
+			if nRandom >= self.lens:
+				newName = f"subset({self.name},random {self.lens})"
+				return BytesMatrix(self,name=newName)
+
+			randomNRecord = random.sample(list(self.indexTable.items()),k=nRandom)
 			newName = f"subset({self.name},random {nRandom})"
 
-			newDataIndex = ArkIndexTable(name=newName)
+			newDataIndex = IndexTable(name=newName)
 			start_index = 0
 			newData = []
 			with BytesIO(self.data) as sp:
 				for utt,indexInfo in randomNRecord:
 					sp.seek(indexInfo.startIndex)
 					newData.append( sp.read(indexInfo.dataSize) )
-
 					newDataIndex[utt] = newDataIndex.spec(indexInfo.frames,start_index,indexInfo.dataSize)
 					start_index += indexInfo.dataSize
-
+					
 			return BytesMatrix(b"".join(newData),name=newName,indexTable=newDataIndex)
 
 		elif chunks > 1:
@@ -2039,7 +2033,7 @@ class BytesMatrix(BytesArchive):
 				start = 0
 				for i in range(chunks):
 					newName = f"subset({self.name},chunk {chunks}-{i})"
-					newDataIndex = ArkIndexTable(name=newName)
+					newDataIndex = IndexTable(name=newName)
 					if i < t:
 						end = start + chunkLens + 1
 					else:
@@ -2063,7 +2057,7 @@ class BytesMatrix(BytesArchive):
 
 			newData = []
 			dataIndex = self.indexTable
-			newDataIndex = ArkIndexTable(name=newName)
+			newDataIndex = IndexTable(name=newName)
 			start_index = 0
 			with BytesIO(self.data) as sp:
 				for utt in keys:
@@ -2101,7 +2095,7 @@ class BytesMatrix(BytesArchive):
 		else:
 			indexInfo = self.indexTable[utt]
 			newName = f"pick({self.name},{utt})"
-			newDataIndex = ArkIndexTable(name=newName)
+			newDataIndex = IndexTable(name=newName)
 			with BytesIO(self.data) as sp:
 				sp.seek( indexInfo.startIndex )
 				data = sp.read( indexInfo.dataSize )
@@ -2179,15 +2173,15 @@ class BytesMatrix(BytesArchive):
 		return BytesMatrix(newData,name=self.name,indexTable=newDataIndex)			
 
 ## Subclass: for acoustic feature (in binary format)		
-class BytesFeature(BytesMatrix):
+class BytesFeat(BytesMatrix):
 	'''
-	Hold the feature with kaldi binary format.
+	Hold the feature with Kaldi binary format.
 	'''
 	def __init__(self,data=b"",name="feat",indexTable=None):
 		'''
-		Only allow BytesFeature,NumpyFeature,ArkIndexTable or bytes (do not extend to their subclasses and their parent-classes).
+		Only allow BytesFeat,NumpyFeat,IndexTable or bytes (do not extend to their subclasses and their parent-classes).
 		'''
-		declare.is_classes("data",data,[BytesFeature,NumpyFeature,ArkIndexTable,bytes])
+		declare.is_classes("data",data,[BytesFeat,NumpyFeat,IndexTable,bytes])
 		super().__init__(data,name,indexTable)
 	
 	@property
@@ -2205,25 +2199,25 @@ class BytesFeature(BytesMatrix):
 		Transform feature to numpy format.
 
 		Return:
-			a NumpyFeature object.
+			a NumpyFeat object.
 		'''
 		result = super().to_numpy()
-		return NumpyFeature(result.data,name=result.name)
+		return NumpyFeat(result.data,name=result.name)
 
 	def __add__(self,other):
 		'''
 		Plus operation between two feature objects.
 
 		Args:
-			<other>: a BytesFeature or NumpyFeature object.
+			<other>: a BytesFeat or NumpyFeat object.
 		Return:
-			a BytesFeature object.
+			a BytesFeat object.
 		'''
 		declare.is_feature("other",other)
 
 		result = super().__add__(other)
 
-		return BytesFeature(result.data,name=result.name,indexTable=result.indexTable)
+		return BytesFeat(result.data,name=result.name,indexTable=result.indexTable)
 
 	def splice(self,left=1,right=None):
 		'''
@@ -2234,7 +2228,7 @@ class BytesFeature(BytesMatrix):
 			<right>: the right N-frames to splice. If None,right = left.
 
 		Return:
-			A new BytesFeature object whose dim became original-dim * (1 + left + right).
+			A new BytesFeat object whose dim became original-dim * (1 + left + right).
 		''' 
 		declare.kaldi_existed()
 		declare.not_void(type_name(self),self)
@@ -2249,12 +2243,11 @@ class BytesFeature(BytesMatrix):
 		out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 
 		if cod != 0 or out == b'':
-			print(err.decode())
-			raise KaldiProcessError("Failed to splice left-right frames.")
+			raise KaldiProcessError("Failed to splice left-right frames.",err.decode())
 		else:
 			newName = f"splice({self.name},{left},{right})"
 			# New index table will be generated later.
-			return BytesFeature(out,name=newName,indexTable=None)
+			return BytesFeat(out,name=newName,indexTable=None)
 
 	def select(self,dims,retain=False):
 		'''
@@ -2265,7 +2258,7 @@ class BytesFeature(BytesMatrix):
 			<retain>: If True,return the rest dimensions of feature simultaneously.
 
 		Return:
-			A new BytesFeature object or two BytesFeature objects.
+			A new BytesFeat object or two BytesFeat objects.
 		''' 
 		declare.kaldi_existed()
 		declare.not_void( type_name(self),self )
@@ -2332,28 +2325,26 @@ class BytesFeature(BytesMatrix):
 		outS,errS,codS = run_shell_command(cmdS,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 		
 		if codS != 0 or outS == b'':
-			print(errS.decode())
-			raise KaldiProcessError("Failed to select data.")
+			raise KaldiProcessError("Failed to select data.",errS.decode())
 		else:
 			newName = f"select({self.name},{dims})"
 			# New index table will be generated later.
-			selectedResult = BytesFeature(outS,name=newName,indexTable=None)
+			selectedResult = BytesFeat(outS,name=newName,indexTable=None)
 
 		if retain:
 			if retainFlag == "":
 				newName = f"select({self.name},void)"
 				# New index table will be generated later.
-				retainedResult = BytesFeature(name=newName,indexTable=None)
+				retainedResult = BytesFeat(name=newName,indexTable=None)
 			else: 
 				cmdR = f"select-feats {retainFlag} ark:- ark:-"
 				outR,errR,codR = run_shell_command(cmdR,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 				if codR != 0 or outR == b'':
-					print(errR.decode())
-					raise KaldiProcessError("Failed to select retained data.")
+					raise KaldiProcessError("Failed to select retained data.",errR.decode())
 				else:
 					newName = f"select({self.name},not {dims})"
 					# New index table will be generated later.
-					retainedResult = BytesFeature(outR,name=newName,indexTable=None)
+					retainedResult = BytesFeat(outR,name=newName,indexTable=None)
 		
 			return selectedResult,retainedResult
 		
@@ -2373,16 +2364,16 @@ class BytesFeature(BytesMatrix):
 			<chunks>: split data into N chunks averagely.
 			<keys>: pick out these utterances whose ID in keys.
 		Return:
-			a new BytesFeature object or a list of new BytesFeature objects.
+			a new BytesFeat object or a list of new BytesFeat objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
 		if isinstance(result,list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = BytesFeature(temp.data,temp.name,temp.indexTable)
+				result[index] = BytesFeat(temp.data,temp.name,temp.indexTable)
 		else:
-			result = BytesFeature(result.data,result.name,result.indexTable)
+			result = BytesFeat(result.data,result.name,result.indexTable)
 
 		return result
 	
@@ -2393,11 +2384,11 @@ class BytesFeature(BytesMatrix):
 		Args:
 			<uttID>: a string.
 		Return:
-			If existed,return a new BytesFeature object.
+			If existed,return a new BytesFeat object.
 		''' 
 		result = super().__call__(uttID)
 		if result is not None:
-			result = BytesFeature(result.data,result.name,result.indexTable)
+			result = BytesFeat(result.data,result.name,result.indexTable)
 		return result
 
 	def add_delta(self,order=2):
@@ -2408,7 +2399,7 @@ class BytesFeature(BytesMatrix):
 			<order>: A positive int value.
 
 		Return:
-			A new BytesFeature object whose dimendion became original-dim * (1 + order). 
+			A new BytesFeat object whose dimendion became original-dim * (1 + order). 
 		''' 
 		declare.kaldi_existed()
 		declare.is_positive_int("order",order)
@@ -2417,12 +2408,11 @@ class BytesFeature(BytesMatrix):
 		cmd = f"add-deltas --delta-order={order} ark:- ark:-"
 		out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 		if cod != 0 or out == b'':
-			print(err.decode())
-			raise KaldiProcessError('Failed to add delta feature.')
+			raise KaldiProcessError('Failed to add delta feature.',err.decode())
 		else:
 			newName = f"delta({self.name},{order})"
 			# New index table need to be generated later.
-			return BytesFeature(data=out,name=newName,indexTable=None)
+			return BytesFeat(data=out,name=newName,indexTable=None)
 
 	def paste(self,others):
 		'''
@@ -2447,19 +2437,19 @@ class BytesFeature(BytesMatrix):
 		
 		with FileHandleManager() as fhm:
 		
-			if isinstance(others,BytesFeature):
+			if isinstance(others,BytesFeat):
 				temp = fhm.create("wb+",suffix=".ark")
 				others.sort(by="utt").save(temp)
 				otherResp.append( f"ark:{temp.name}" )
 				pastedName.append( others.name )
 
-			elif isinstance(others,NumpyFeature):
+			elif isinstance(others,NumpyFeat):
 				temp = fhm.create("wb+",suffix=".ark")
 				others.sort(by="utt").to_bytes().save(temp)
 				otherResp.append( f"ark:{temp.name}" )
 				pastedName.append( others.name )
 			
-			elif isinstance(others,ArkIndexTable):
+			elif isinstance(others,IndexTable):
 				temp = fhm.create("w+",suffix=".scp")
 				others.sort(by="utt").save(temp)
 				otherResp.append( f"scp:{temp.name}" )
@@ -2468,12 +2458,12 @@ class BytesFeature(BytesMatrix):
 			else:
 				for ot in others:
 
-					if isinstance(ot,BytesFeature):
+					if isinstance(ot,BytesFeat):
 						temp = fhm.create("wb+",suffix=".ark")
 						ot.sort(by="utt").save(temp)
 						otherResp.append( f"ark:{ot.name}" )
 
-					elif isinstance(ot,NumpyFeature):
+					elif isinstance(ot,NumpyFeat):
 						temp = fhm.create("wb+",suffix=".ark")
 						ot.sort(by="utt").to_bytes().save(temp)
 						otherResp.append( f"ark:{ot.name}" )
@@ -2494,13 +2484,12 @@ class BytesFeature(BytesMatrix):
 			out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE")
 
 			if cod != 0 or out == b'':
-				print(err.decode())
-				raise KaldiProcessError("Failed to paste feature.")
+				raise KaldiProcessError("Failed to paste feature.",err.decode())
 			else:
 				pastedName = ",".join(pastedName)
 				pastedName = f"paste({pastedName})"
 				# New index table need to be generated later.
-				return BytesFeature(out,name=pastedName,indexTable=None)
+				return BytesFeat(out,name=pastedName,indexTable=None)
 
 	def sort(self,by="utt",reverse=False):
 		'''
@@ -2511,21 +2500,21 @@ class BytesFeature(BytesMatrix):
 			<reverse>: If reverse,sort in descending order.
 
 		Return:
-			A new BytesFeature object.
+			A new BytesFeat object.
 		''' 
 		result = super().sort(by,reverse)
-		return BytesFeature(result.data,name=result.name,indexTable=result.indexTable)
+		return BytesFeat(result.data,name=result.name,indexTable=result.indexTable)
 
 ## Subclass: for CMVN statistics
-class BytesCMVNStatistics(BytesMatrix):
+class BytesCMVN(BytesMatrix):
 	'''
-	Hold the CMVN statistics with kaldi binary format.
+	Hold the CMVN statistics with Kaldi binary format.
 	'''
 	def __init__(self,data=b"",name="cmvn",indexTable=None):
 		'''
-		Only allow BytesCMVNStatistics,NumpyCMVNStatistics,ArkIndexTable or bytes (do not extend to their subclasses and their parent-classes).
+		Only allow BytesCMVN,NumpyCMVN,IndexTable or bytes (do not extend to their subclasses and their parent-classes).
 		'''
-		declare.is_classes("data",data,[BytesCMVNStatistics,NumpyCMVNStatistics,ArkIndexTable,bytes])
+		declare.is_classes("data",data,[BytesCMVN,NumpyCMVN,IndexTable,bytes])
 
 		super().__init__(data,name,indexTable)
 
@@ -2544,25 +2533,25 @@ class BytesCMVNStatistics(BytesMatrix):
 		Transform CMVN statistics to numpy format.
 
 		Return:
-			a NumpyCMVNStatistics object.
+			a NumpyCMVN object.
 		'''
 		result = super().to_numpy()
-		return NumpyCMVNStatistics(result.data,name=result.name)
+		return NumpyCMVN(result.data,name=result.name)
 
 	def __add__(self,other):
 		'''
 		Plus operation between two CMVN statistics objects.
 
 		Args:
-			<other>: a BytesCMVNStatistics or NumpyCMVNStatistics object.
+			<other>: a BytesCMVN or NumpyCMVN object.
 		Return:
-			a BytesCMVNStatistics object.
+			a BytesCMVN object.
 		'''	
 		declare.is_cmvn("other",other)
 
 		result = super().__add__(other)
 
-		return BytesCMVNStatistics(result.data,name=result.name,indexTable=result.indexTable)
+		return BytesCMVN(result.data,name=result.name,indexTable=result.indexTable)
 
 	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
 		'''
@@ -2577,16 +2566,16 @@ class BytesCMVNStatistics(BytesMatrix):
 			<chunks>: split data into N chunks averagely.
 			<keys>: pick out these utterances whose ID in keys.
 		Return:
-			a new BytesCMVNStatistics object or a list of new BytesCMVNStatistics objects.
+			a new BytesCMVN object or a list of new BytesCMVN objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
 		if isinstance(result,list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = BytesCMVNStatistics(temp.data,temp.name,temp.indexTable)
+				result[index] = BytesCMVN(temp.data,temp.name,temp.indexTable)
 		else:
-			result = BytesCMVNStatistics(result.data,result.name,result.indexTable)
+			result = BytesCMVN(result.data,result.name,result.indexTable)
 
 		return result
 
@@ -2598,11 +2587,11 @@ class BytesCMVNStatistics(BytesMatrix):
 			<spk>: a string. the spkeaker ID
 
 		Return:
-			If existed,return a new BytesCMVNStatistics object.
+			If existed,return a new BytesCMVN object.
 		''' 
 		result = super().__call__(spk)
 		if result is not None:
-			result = BytesCMVNStatistics(result.data,result.name,result.indexTable)
+			result = BytesCMVN(result.data,result.name,result.indexTable)
 		return result
 
 	def sort(self,by="spk",reverse=False):
@@ -2613,23 +2602,23 @@ class BytesCMVNStatistics(BytesMatrix):
 			<by>: only one mode,"spk"/"key".
 			<reverse>: If reverse,sort in descending order.
 		Return:
-			A new BytesCMVNStatistics object.
+			A new BytesCMVN object.
 		''' 
 		declare.is_instances("by",by,["key","spk"])
 
 		result = super().sort(by="key",reverse=reverse)
-		return BytesCMVNStatistics(result.data,name=result.name,indexTable=result.indexTable)
+		return BytesCMVN(result.data,name=result.name,indexTable=result.indexTable)
 
 ## Subclass: for probability of neural network output
-class BytesProbability(BytesMatrix):
+class BytesProb(BytesMatrix):
 	'''
-	Hold the probalility with kaldi binary format.
+	Hold the probalility with Kaldi binary format.
 	'''
 	def __init__(self,data=b"",name="prob",indexTable=None):
 		'''
-		Only allow BytesProbability,NumpyProbability,ArkIndexTable or bytes (do not extend to their subclasses and their parent-classes).
+		Only allow BytesProb,NumpyProb,IndexTable or bytes (do not extend to their subclasses and their parent-classes).
 		'''		
-		declare.is_classes("data",data,[BytesProbability,NumpyProbability,ArkIndexTable,bytes])
+		declare.is_classes("data",data,[BytesProb,NumpyProb,IndexTable,bytes])
 
 		super().__init__(data,name,indexTable)
 
@@ -2648,25 +2637,25 @@ class BytesProbability(BytesMatrix):
 		Transform post probability to numpy format.
 
 		Return:
-			a NumpyProbability object.
+			a NumpyProb object.
 		'''
 		result = super().to_numpy()
-		return NumpyProbability(result.data,result.name)
+		return NumpyProb(result.data,result.name)
 
 	def __add__(self,other):
 		'''
 		Plus operation between two post probability objects.
 
 		Args:
-			<other>: a BytesProbability or NumpyProbability object.
+			<other>: a BytesProb or NumpyProb object.
 		Return:
-			a BytesProbability object.
+			a BytesProb object.
 		'''
 		declare.is_probability("other",other)
 
 		result = super().__add__(other)
 
-		return BytesProbability(result.data,result.name,result.indexTable)
+		return BytesProb(result.data,result.name,result.indexTable)
 
 	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
 		'''
@@ -2681,16 +2670,16 @@ class BytesProbability(BytesMatrix):
 			<chunks>: split data into N chunks averagely.
 			<keys>: pick out these utterances whose ID in keys.
 		Return:
-			a new BytesProbability object or a list of new BytesProbability objects.
+			a new BytesProb object or a list of new BytesProb objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
 		if isinstance(result,list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = BytesProbability(temp.data,temp.name,temp.indexTable)
+				result[index] = BytesProb(temp.data,temp.name,temp.indexTable)
 		else:
-			result = BytesProbability(result.data,result.name,result.indexTable)
+			result = BytesProb(result.data,result.name,result.indexTable)
 
 		return result
 
@@ -2701,11 +2690,11 @@ class BytesProbability(BytesMatrix):
 		Args:
 			<utt>: a string.
 		Return:
-			If existed,return a new BytesProbability object.
+			If existed,return a new BytesProb object.
 		''' 
 		result = super().__call__(utt)
 		if result is not None:
-			result = BytesProbability(result.data,result.name,result.indexTable)
+			result = BytesProb(result.data,result.name,result.indexTable)
 		return result
 
 	def sort(self,by="utt",reverse=False):
@@ -2717,21 +2706,21 @@ class BytesProbability(BytesMatrix):
 			<reverse>: If reverse,sort in descending order.
 
 		Return:
-			A new BytesProbability object.
+			A new BytesProb object.
 		''' 
 		result = super().sort(by,reverse)
 
-		return BytesProbability(result.data,name=result.name,indexTable=result.indexTable)
+		return BytesProb(result.data,name=result.name,indexTable=result.indexTable)
 
-class BytesFmllrMatrix(BytesMatrix):
+class BytesFmllr(BytesMatrix):
 	'''
-	Hold the fMLLR transform matrix with kaldi binary format.
+	Hold the fMLLR transform matrix with Kaldi binary format.
 	'''
 	def __init__(self,data=b"",name="fmllrTrans",indexTable=None):
 		'''
-		Only allow BytesFmllrMatrix,NumpyFmllrMatrix,ArkIndexTable or bytes (do not extend to their subclasses and their parent-classes).
+		Only allow BytesFmllr,NumpyFmllr,IndexTable or bytes (do not extend to their subclasses and their parent-classes).
 		'''		
-		declare.is_classes("data",data,[BytesFmllrMatrix,NumpyFmllrMatrix,ArkIndexTable,bytes])
+		declare.is_classes("data",data,[BytesFmllr,NumpyFmllr,IndexTable,bytes])
 
 		super().__init__(data,name,indexTable)
 
@@ -2750,25 +2739,25 @@ class BytesFmllrMatrix(BytesMatrix):
 		Transform fMLLR transform matrix to numpy format.
 
 		Return:
-			a NumpyFmllrMatrix object.
+			a NumpyFmllr object.
 		'''
 		result = super().to_numpy()
-		return NumpyFmllrMatrix(result.data,name=result.name)
+		return NumpyFmllr(result.data,name=result.name)
 
 	def __add__(self,other):
 		'''
 		Plus operation between two fMLLR transform matrix objects.
 
 		Args:
-			<other>: a BytesFmllrMatrix or NumpyFmllrMatrix object.
+			<other>: a BytesFmllr or NumpyFmllr object.
 		Return:
-			a BytesFmllrMatrix object.
+			a BytesFmllr object.
 		'''
 		declare.is_fmllr_matrix("other",other)
 
 		result = super().__add__(other)
 
-		return BytesFmllrMatrix(result.data,name=result.name,indexTable=result.indexTable)
+		return BytesFmllr(result.data,name=result.name,indexTable=result.indexTable)
 
 	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
 		'''
@@ -2783,58 +2772,59 @@ class BytesFmllrMatrix(BytesMatrix):
 			<chunks>: split data into N chunks averagely.
 			<keys>: pick out these utterances whose ID in keys.
 		Return:
-			a new BytesFmllrMatrix object or a list of new BytesFmllrMatrix objects.
+			a new BytesFmllr object or a list of new BytesFmllr objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
 		if isinstance(result,list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = BytesFmllrMatrix(temp.data,temp.name,temp.indexTable)
+				result[index] = BytesFmllr(temp.data,temp.name,temp.indexTable)
 		else:
-			result = BytesFmllrMatrix(result.data,result.name,result.indexTable)
+			result = BytesFmllr(result.data,result.name,result.indexTable)
 
 		return result
 
-	def __call__(self,uttID):
+	def __call__(self,spk):
 		'''
 		Pick out an utterance.
 		
 		Args:
-			<uttID>: a string.
+			<spk>: a string.
 		Return:
-			If existed,return a new BytesFmllrMatrix object.
+			If existed,return a new BytesFmllr object.
 		''' 
-		result = super().__call__(uttID)
+		result = super().__call__(spk)
 		if result is not None:
-			result = BytesFmllrMatrix(result.data,result.name,result.indexTable)
+			result = BytesFmllr(result.data,result.name,result.indexTable)
 		return result
 		
-	def sort(self,by="utt",reverse=False):
+	def sort(self,by="spk",reverse=False):
 		'''
-		Sort utterances by frames length or uttID
+		Sort utterances by speaker ID.
 
 		Args:
-			<by>: "frame" or "utt"
+			<by>: only one mode, "key"/"spk".
 			<reverse>: If reverse,sort in descending order.
+
 		Return:
-			A new BytesFmllrMatrix object.
+			A new BytesFmllr object.
 		''' 
 		result = super().sort(by,reverse)
-		return BytesFmllrMatrix(result.data,name=result.name,indexTable=result.indexTable)
+		return BytesFmllr(result.data,name=result.name,indexTable=result.indexTable)
 
 ## Base class: for Vector Data archives
 class BytesVector(BytesArchive):
 	'''
-	A base class to hold kaldi vector data such as alignment.  
+	A base class to hold Kaldi vector data such as alignment.  
 	'''
 	def __init__(self,data=b'',name="vec",indexTable=None):
 		'''
 		Args:
-			<data>: If it's BytesMatrix or ArkIndexTable object (or their subclasses),extra <indexTable> will not work.
+			<data>: If it's BytesMatrix or IndexTable object (or their subclasses),extra <indexTable> will not work.
 					If it's NumpyMatrix or bytes object (or their subclasses),generate index table automatically if it is not provided.
 		'''
-		declare.belong_classes("data",data,[BytesVector,NumpyVector,ArkIndexTable,bytes])
+		declare.belong_classes("data",data,[BytesVector,NumpyVector,IndexTable,bytes])
 
 		needIndexTableFlag = True
 
@@ -2844,7 +2834,7 @@ class BytesVector(BytesArchive):
 			data = data.data
 			needIndexTableFlag = False
 		
-		elif isinstance(data ,ArkIndexTable):
+		elif isinstance(data ,IndexTable):
 			data = data.fetch(arkType="vec",name=name)
 			self.__dataIndex = data.indexTable
 			data = data.data
@@ -2859,7 +2849,7 @@ class BytesVector(BytesArchive):
 			if indexTable is None:
 				self.__generate_index_table()
 			else:
-				declare.is_classes("indexTable",indexTable,ArkIndexTable)
+				declare.is_classes("indexTable",indexTable,IndexTable)
 				self.__verify_index_table(indexTable)
 	
 	def __verify_index_table(self,indexTable):
@@ -2911,7 +2901,7 @@ class BytesVector(BytesArchive):
 				buf = fp.read(bufferSize)
 		else:
 			fp.close()
-			raise WrongDataFormat("Miss binary symbol before utterance. We do not support read kaldi archives with text format.")
+			raise WrongDataFormat("Miss binary symbol before utterance. We do not support read Kaldi archives with text format.")
 		
 		return (utt,4,frames,bufferSize,buf)
 
@@ -2923,7 +2913,7 @@ class BytesVector(BytesArchive):
 			return None
 		else:
 			# Index table will have the same name with BytesMatrix object.
-			self.__dataIndex = ArkIndexTable(name=self.name)
+			self.__dataIndex = IndexTable(name=self.name)
 			start_index = 0
 			with BytesIO(self.data) as sp:
 				while True:
@@ -2940,7 +2930,7 @@ class BytesVector(BytesArchive):
 		Get the index informat of utterances.
 		
 		Return:
-			A ArkIndexTable object.
+			A IndexTable object.
 		'''
 		# Return deepcopied dict object.
 		return copy.deepcopy(self.__dataIndex)
@@ -2976,7 +2966,7 @@ class BytesVector(BytesArchive):
 
 	def check_format(self):
 		'''
-		Check if data has right kaldi format.
+		Check if data has right Kaldi format.
 		
 		Return:
 			If data is void,return False.
@@ -3002,7 +2992,7 @@ class BytesVector(BytesArchive):
 	@property
 	def dtype(self):
 		'''
-		Get the dtype of vector. In current Exkaldi,we only use vector is int32.
+		Get the dtype of vector. In current ExKaldi,we only use vector is int32.
 		'''
 		if self.is_void:
 			return None
@@ -3105,11 +3095,11 @@ class BytesVector(BytesArchive):
 		Return:
 			a new BytesVector object.
 		'''
-		declare.belong_classes("other",other,[BytesVector,NumpyVector,ArkIndexTable])
+		declare.belong_classes("other",other,[BytesVector,NumpyVector,IndexTable])
 
 		if isinstance(other,NumpyVector):
 			other = other.to_bytes()
-		elif isinstance(other,ArkIndexTable):
+		elif isinstance(other,IndexTable):
 			keys = [ utt for utt in other.keys() if utt not in self.keys() ]
 			other = other.fecth(arkType="vec",keys=keys)
 		
@@ -3160,7 +3150,7 @@ class BytesVector(BytesArchive):
 		else:
 			indexInfo = self.indexTable[utt]
 			newName = f"pick({self.name},{utt})"
-			newDataIndex = ArkIndexTable(name=newName)
+			newDataIndex = IndexTable(name=newName)
 			with BytesIO(self.data) as sp:
 				sp.seek( indexInfo.startIndex )
 				data = sp.read( indexInfo.dataSize )
@@ -3190,7 +3180,7 @@ class BytesVector(BytesArchive):
 		if nHead > 0:
 			declare.is_positive_int("nHead",nHead)
 			newName = f"subset({self.name},head {nHead})"
-			newDataIndex = ArkIndexTable(name=newName)
+			newDataIndex = IndexTable(name=newName)
 			totalSize = 0
 			
 			for utt,indexInfo in self.indexTable.items():
@@ -3209,7 +3199,7 @@ class BytesVector(BytesArchive):
 		elif nTail > 0:
 			declare.is_positive_int("nTail",nTail)
 			newName = f"subset({self.name},tail {nTail})"
-			newDataIndex = ArkIndexTable(name=newName)
+			newDataIndex = IndexTable(name=newName)
 
 			tailNRecord = list(self.indexTable.items())[-nTail:]
 			start_index = tailNRecord[0][1].startIndex
@@ -3227,10 +3217,15 @@ class BytesVector(BytesArchive):
 
 		elif nRandom > 0:
 			declare.is_positive_int("nRandom",nRandom)
-			randomNRecord = random.choices(list(self.indexTable.items()),k=nRandom)
+
+			if nRandom >= self.lens:
+				newName = f"subset({self.name},random {self.lens})"
+				return BytesVector(self,name=newName)
+
+			randomNRecord = random.sample(list(self.indexTable.items()),k=nRandom)
 			newName = f"subset({self.name},random {nRandom})"
 
-			newDataIndex = ArkIndexTable(name=newName)
+			newDataIndex = IndexTable(name=newName)
 			start_index = 0
 			newData = []
 			with BytesIO(self.data) as sp:
@@ -3262,7 +3257,7 @@ class BytesVector(BytesArchive):
 				start = 0
 				for i in range(chunks):
 					newName = f"subset({self.name},chunk {chunks}-{i})"
-					newDataIndex = ArkIndexTable(name=newName)
+					newDataIndex = IndexTable(name=newName)
 					if i < t:
 						end = start + chunkLens + 1
 					else:
@@ -3285,7 +3280,7 @@ class BytesVector(BytesArchive):
 
 			newData = []
 			dataIndex = self.indexTable
-			newDataIndex = ArkIndexTable(name=newName)
+			newDataIndex = IndexTable(name=newName)
 			start_index = 0
 			with BytesIO(self.data) as sp:
 				for utt in keys:
@@ -3369,15 +3364,15 @@ class BytesVector(BytesArchive):
 		return BytesVector(newData,name=self.name,indexTable=newDataIndex)		
 
 ## Subclass: for transition-ID alignment
-class BytesAlignmentTrans(BytesVector):
+class BytesAliTrans(BytesVector):
 	'''
-	Hold the alignment(transition ID) with kaldi binary format.
+	Hold the alignment(transition ID) with Kaldi binary format.
 	'''
 	def __init__(self,data=b"",name="transitionID",indexTable=None):
 		'''
-		Only allow BytesAlignmentTrans,NumpyAlignmentTrans,ArkIndexTable or bytes (do not extend to their subclasses and their parent-classes).
+		Only allow BytesAliTrans,NumpyAliTrans,IndexTable or bytes (do not extend to their subclasses and their parent-classes).
 		'''
-		declare.is_classes("data",data,[BytesAlignmentTrans,NumpyAlignmentTrans,ArkIndexTable,bytes])
+		declare.is_classes("data",data,[BytesAliTrans,NumpyAliTrans,IndexTable,bytes])
 
 		super().__init__(data,name,indexTable)
 
@@ -3402,23 +3397,22 @@ class BytesAlignmentTrans(BytesVector):
 			<hmm>: None,or hmm file or exkaldi HMM object.
 
 		Return:
-			a NumpyAlignmentTrans or NumpyAlignmentPhone or NumpyAlignmentPdf object.
+			a NumpyAliTrans or NumpyAliPhone or NumpyAliPdf object.
 		'''
 		declare.is_instances("aliType",aliType,["transitionID","pdfID","phoneID"])
 		
 		if self.is_void:
 			if aliType == "transitionID":
-				return NumpyAlignmentTrans(name=self.name)
+				return NumpyAliTrans(name=self.name)
 			elif aliType == "phoneID":
-				return NumpyAlignmentPhone(name=f"to_phone({self.name})")
+				return NumpyAliPhone(name=f"to_phone({self.name})")
 			else:
-				return NumpyAlignmentPdf(name=f"to_pdf({self.name})")
+				return NumpyAliPdf(name=f"to_pdf({self.name})")
 
 		def transform(data,cmd):
 			out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=data)
 			if (isinstance(cod,int) and cod != 0) or out == b'':
-				print(err.decode())
-				raise KaldiProcessError('Failed to transform alignment.')
+				raise KaldiProcessError('Failed to transform alignment.',err.decode())
 			else:
 				result = {}
 				sp = BytesIO(out)
@@ -3432,7 +3426,7 @@ class BytesAlignmentTrans(BytesVector):
 
 		if aliType == "transitionID":
 			result = super().to_numpy()
-			return NumpyAlignmentTrans(result.data,self.name)
+			return NumpyAliTrans(result.data,self.name)
 		
 		else:
 			declare.kaldi_existed()
@@ -3449,27 +3443,27 @@ class BytesAlignmentTrans(BytesVector):
 					cmd = f"ali-to-phones --per-frame=true {hmm} ark:- ark,t:-"
 					result = transform(self.data,cmd)
 					newName = f"to_phone({self.name})"
-					return NumpyAlignmentPhone(result,newName)
+					return NumpyAliPhone(result,newName)
 
 				else:
 					cmd = f"ali-to-pdf {hmm} ark:- ark,t:-"
 					result = transform(self.data,cmd)
 					newName = f"to_pdf({self.name})"
-					return NumpyAlignmentPdf(result,newName)
+					return NumpyAliPdf(result,newName)
 
 	def __add__(self,other):
 		'''
 		The Plus operation between two objects.
 
 		Args:
-			<other>: a BytesAlignmentTrans or NumpyAlignmentTrans object.
+			<other>: a BytesAliTrans or NumpyAliTrans object.
 		Return:
-			a new BytesAlignmentTrans object.
+			a new BytesAliTrans object.
 		''' 
 		declare.is_alignment("other",other)
 		result = super().__add__(other)
 
-		return BytesAlignmentTrans(result.data,result.name,result.indexTable)
+		return BytesAliTrans(result.data,result.name,result.indexTable)
 
 	def __call__(self,uttID):
 		'''
@@ -3478,11 +3472,11 @@ class BytesAlignmentTrans(BytesVector):
 		Args:
 			<uttID>: a string.
 		Return:
-			If existed,return a new BytesAlignmentTrans object.
+			If existed,return a new BytesAliTrans object.
 		''' 
 		result = super().__call__(uttID)
 		if result is not None:
-			result = BytesAlignmentTrans(result.data,result.name,result.indexTable)
+			result = BytesAliTrans(result.data,result.name,result.indexTable)
 		return result
 
 	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
@@ -3499,16 +3493,16 @@ class BytesAlignmentTrans(BytesVector):
 			<keys>: pick out these utterances whose ID in keys.
 			
 		Return:
-			a new BytesAlignmentTrans object or a list of new BytesAlignmentTrans objects.
+			a new BytesAliTrans object or a list of new BytesAliTrans objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
 		if isinstance(result,list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = BytesAlignmentTrans(temp.data,temp.name,temp.indexTable)
+				result[index] = BytesAliTrans(temp.data,temp.name,temp.indexTable)
 		else:
-			result = BytesAlignmentTrans(result.data,result.name,result.indexTable)
+			result = BytesAliTrans(result.data,result.name,result.indexTable)
 
 		return result
 
@@ -3521,10 +3515,10 @@ class BytesAlignmentTrans(BytesVector):
 			<reverse>: If reverse,sort in descending order.
 
 		Return:
-			A new BytesAlignmentTrans object.
+			A new BytesAliTrans object.
 		''' 
 		result = super().sort(by,reverse)
-		return BytesAlignmentTrans(result.data,name=result.name,indexTable=result.indexTable)
+		return BytesAliTrans(result.data,name=result.name,indexTable=result.indexTable)
 
 '''NumpyArchive class group'''
 '''Designed for Kaldi binary archive table (in Numpy Format)'''
@@ -3626,6 +3620,38 @@ class NumpyArchive:
 		'''
 		return self.__data.values()	
 
+	@property
+	def array(self):
+		'''
+		Get all arrays.
+
+		Return:
+			a list of arrays.
+		'''
+		return list(self.values())
+
+	def __getitem__(self,key):
+		'''
+		Get an item.
+
+		Args:
+			key: a string.
+		'''
+		if key not in self.__data.keys():
+			raise WrongOperation(f"No such key: {key}.")
+		else:
+			return copy.deepcopy(self.__data[key])
+	
+	def __setitem__(self,key,value):
+		'''
+		Set the items directly.
+
+		Args:
+			key: a string, the utterance or skpeaker ID.
+			value: a 1-d or 2-d Numpy array.
+		'''
+		self.__data[key] = value
+
 ## Base Class: for Matrix Data Archives 
 class NumpyMatrix(NumpyArchive):
 	'''
@@ -3634,13 +3660,13 @@ class NumpyMatrix(NumpyArchive):
 	def __init__(self,data={},name="mat"):
 		'''
 		Args:
-			<data>: BytesMatrix or ArkIndexTable object or NumpyMatrix or dict object (or their subclasses)
+			<data>: BytesMatrix or IndexTable object or NumpyMatrix or dict object (or their subclasses)
 		'''
-		declare.belong_classes("data",data,[BytesMatrix,NumpyMatrix,ArkIndexTable,dict])
+		declare.belong_classes("data",data,[BytesMatrix,NumpyMatrix,IndexTable,dict])
 
 		if isinstance(data,BytesMatrix):
 			data = data.to_Numpy().data
-		elif isinstance(data,ArkIndexTable):
+		elif isinstance(data,IndexTable):
 			data = data.fetch(arkType="mat").to_Numpy().data
 		elif isinstance(data,NumpyMatrix):
 			data = data.data
@@ -3704,7 +3730,7 @@ class NumpyMatrix(NumpyArchive):
 	
 	def check_format(self):
 		'''
-		Check if data has right kaldi format.
+		Check if data has right Kaldi format.
 		
 		Return:
 			If data is void,return False.
@@ -3743,7 +3769,7 @@ class NumpyMatrix(NumpyArchive):
 		'''	
 		self.check_format()
 
-		newDataIndex = ArkIndexTable(name=self.name)
+		newDataIndex = IndexTable(name=self.name)
 		newData = []
 		start_index = 0
 		for utt in self.keys():
@@ -3816,16 +3842,16 @@ class NumpyMatrix(NumpyArchive):
 		The Plus operation between two objects.
 
 		Args:
-			<other>: a BytesMatrix,NumpyMatrix or ArkIndexTable (or their subclassed) object.
+			<other>: a BytesMatrix,NumpyMatrix or IndexTable (or their subclassed) object.
 
 		Return:
 			a new NumpyMatrix object.
 		''' 
-		declare.belong_classes("other",other,[BytesMatrix,NumpyMatrix,ArkIndexTable])
+		declare.belong_classes("other",other,[BytesMatrix,NumpyMatrix,IndexTable])
 
 		if isinstance(other,BytesMatrix):
 			other = other.to_numpy()
-		elif isinstance(other,ArkIndexTable):
+		elif isinstance(other,IndexTable):
 			keys = [ utt for utt in other.keys() if utt not in self.keys() ]
 			other = other.fecth(arkType="mat",keys=keys).to_numpy()
 		
@@ -3923,8 +3949,12 @@ class NumpyMatrix(NumpyArchive):
 
 		elif nRandom > 0:
 			declare.is_positive_int("nRandom",nRandom)
-			newDict = dict(random.choices(self.items,k=nRandom))
-			newName = f"subset({self.name},tail {nRandom})"
+			if nRandom >= self.lens:
+				newName = f"subset({self.name},tail {self.lens})"
+				newDict = self
+			else:
+				newDict = dict(random.sample(self.items,k=nRandom))
+				newName = f"subset({self.name},tail {nRandom})"
 			return NumpyMatrix(newDict,newName)
 
 		elif chunks > 1:
@@ -4013,16 +4043,33 @@ class NumpyMatrix(NumpyArchive):
 
 		return NumpyMatrix(new,name=f"mapped({self.name})")
 
+	def __setitem__(self,key,value):
+		'''
+		Set an item.
+
+		Args:
+			key: a string.
+			value: a Numpy array.
+		'''
+		declare.is_valid_string("key",key,debug=f"The key of NumpyMatrix must be a string such as utterance ID or speaker ID but got: {key}.")
+		assert isinstance(value,np.ndarray) and len(value.shape) == 2, f"The value of NumpyMatrix must be a 2-d Numpy array."
+		assert value.shape[1] == self.dim, f"Cannot set item because it has a unexpected dimmension: {value.shape[1]} != {self.dim}."
+		
+		if value.dtype != self.dtype:
+			value = np.array(value,dtype=self.dtype)
+		
+		super().__setitem__(key,value)
+
 ## Subclass: for acoustic feature
-class NumpyFeature(NumpyMatrix):
+class NumpyFeat(NumpyMatrix):
 	'''
 	Hold the feature with Numpy format.
 	'''
 	def __init__(self,data={},name="feat"):
 		'''
-		Only allow BytesFeature,NumpyFeature,ArkIndexTable or dict (do not extend to their subclasses and their parent-classes).
+		Only allow BytesFeat,NumpyFeat,IndexTable or dict (do not extend to their subclasses and their parent-classes).
 		'''		
-		declare.is_classes("data",data,[BytesFeature,NumpyFeature,ArkIndexTable,dict])
+		declare.is_classes("data",data,[BytesFeat,NumpyFeat,IndexTable,dict])
 
 		super().__init__(data,name)
 
@@ -4044,37 +4091,37 @@ class NumpyFeature(NumpyMatrix):
 			<dtype>: a string of "float","float32" or "float64". IF "float",it will be treated as "float32".
 
 		Return:
-			A new NumpyFeature object.
+			A new NumpyFeat object.
 		'''
 		result = super().to_dtype(dtype)
 
-		return NumpyFeature(result.data,result.name)
+		return NumpyFeat(result.data,result.name)
 
 	def to_bytes(self):
 		'''
 		Transform feature to bytes format.
 
 		Return:
-			a BytesFeature object.
+			a BytesFeat object.
 		'''		
 		result = super().to_bytes()
-		return BytesFeature(result.data,self.name,result.indexTable)
+		return BytesFeat(result.data,self.name,result.indexTable)
 	
 	def __add__(self,other):
 		'''
 		Plus operation between two feature objects.
 
 		Args:
-			<other>: a BytesFeature or NumpyFeature object.
+			<other>: a BytesFeat or NumpyFeat object.
 
 		Return:
-			a NumpyFeature object.
+			a NumpyFeat object.
 		'''
 		declare.is_feature("other",other)
 
 		result = super().__add__(other)
 
-		return NumpyFeature(result.data,result.name)
+		return NumpyFeat(result.data,result.name)
 
 	def __call__(self,key):
 		'''
@@ -4084,11 +4131,11 @@ class NumpyFeature(NumpyMatrix):
 			<key>: a string.
 
 		Return:
-			If existed,return a new NumpyFeature object.
+			If existed,return a new NumpyFeat object.
 		''' 
 		result = super().__call__(key)
 		if result is not None:
-			result = NumpyFeature(data=result.data,name=result.name)
+			result = NumpyFeat(data=result.data,name=result.name)
 		return result
 
 	def splice(self,left=4,right=None):
@@ -4100,7 +4147,7 @@ class NumpyFeature(NumpyMatrix):
 			<right>: the right N-frames to splice. If None,right = left.
 
 		Return:
-			a new NumpyFeature object whose dim became original-dim * (1 + left + right).
+			a new NumpyFeat object whose dim became original-dim * (1 + left + right).
 		''' 
 		declare.not_void(type_name(self),self)
 		declare.is_non_negative_int("left",left)
@@ -4140,7 +4187,7 @@ class NumpyFeature(NumpyMatrix):
 			newFea[utt] = newMat[index:index+length]
 			index += length
 		newName = f"splice({self.name},{left},{right})"
-		return NumpyFeature(newFea,newName)
+		return NumpyFeat(newFea,newName)
 	
 	def select(self,dims,retain=False):
 		'''
@@ -4151,7 +4198,7 @@ class NumpyFeature(NumpyMatrix):
 			<retain>: If True,return the rest dimensions of feature simultaneously.
 
 		Return:
-			A new NumpyFeature object or two NumpyFeature objects.
+			A new NumpyFeat object or two NumpyFeat objects.
 		''' 
 		declare.not_void(type_name(self),self)
 		declare.is_bool("retain",retain)
@@ -4215,9 +4262,9 @@ class NumpyFeature(NumpyMatrix):
 		newNameSele = f"select({self.name},{dims})"
 		if retain:
 			newNameRese = f"select({self.name},not {dims})"
-			return NumpyFeature(seleDict,newNameSele),NumpyFeature(reseDict,newNameRese)
+			return NumpyFeat(seleDict,newNameSele),NumpyFeat(reseDict,newNameRese)
 		else:
-			return NumpyFeature(seleDict,newNameSele)
+			return NumpyFeat(seleDict,newNameSele)
 
 	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
 		'''
@@ -4233,16 +4280,16 @@ class NumpyFeature(NumpyMatrix):
 			<keys>: pick out these utterances whose ID in keys.
 
 		Return:
-			a new NumpyFeature object or a list of new NumpyFeature objects.
+			a new NumpyFeat object or a list of new NumpyFeat objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
 		if isinstance(result,list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = NumpyFeature(temp.data,temp.name)
+				result[index] = NumpyFeat(temp.data,temp.name)
 		else:
-			result = NumpyFeature(result.data,result.name)
+			result = NumpyFeat(result.data,result.name)
 
 		return result
 
@@ -4255,11 +4302,11 @@ class NumpyFeature(NumpyMatrix):
 			<reverse>: If reverse,sort in descending order.
 
 		Return:
-			A new NumpyFeature object.
+			A new NumpyFeat object.
 		''' 		
 		result = super().sort(by,reverse)
 
-		return NumpyFeature(result.data,result.name)
+		return NumpyFeat(result.data,result.name)
 
 	def normalize(self,std=True,alpha=1.0,beta=0.0,epsilon=1e-8,axis=0):
 		'''
@@ -4276,7 +4323,7 @@ class NumpyFeature(NumpyMatrix):
 			<axis>: the dimension to normalize.
 		
 		Return:
-			A new NumpyFeature object.
+			A new NumpyFeat object.
 		'''
 		declare.not_void(type_name(self),self)
 		declare.is_bool("std",std)
@@ -4309,7 +4356,7 @@ class NumpyFeature(NumpyMatrix):
 			start += lens[index]
 
 		newName = f"norm({self.name},std {std})"
-		return NumpyFeature(newDict,newName) 
+		return NumpyFeat(newDict,newName) 
 
 	def cut(self,maxFrames):
 		'''
@@ -4320,7 +4367,7 @@ class NumpyFeature(NumpyMatrix):
 						If the rest part is still longer than 1.25*maxFrames,continue to cut it. 
 			
 		Return:
-			A new NumpyFeature object.
+			A new NumpyFeat object.
 		''' 
 		declare.not_void(type_name(self),self)
 		declare.is_positive_int("maxFrames",maxFrames)
@@ -4343,26 +4390,26 @@ class NumpyFeature(NumpyMatrix):
 					newData[utt+"_"+str(i)] = matrix[i*maxFrames:]
 		
 		newName = f"cut({self.name},{maxFrames})"
-		return NumpyFeature(newData,newName)
+		return NumpyFeat(newData,newName)
 
 	def paste(self,others):
 		'''
 		Concatenate feature arrays of the same utterance ID from multiple objects in feature dimention.
 
 		Args:
-			<others>: an object or a list of objects of NumpyFeature or BytesFeature or ArkIndexTable.
+			<others>: an object or a list of objects of NumpyFeat or BytesFeat or IndexTable.
 
 		Return:
-			a new NumpyFeature objects.
+			a new NumpyFeat objects.
 		'''
 		if not isinstance(others,(list,tuple)):
 			others = [others,]
 
 		for index,other in enumerate(others):
 			declare.is_feature("others",other)
-			if isinstance(other,BytesFeature):
+			if isinstance(other,BytesFeat):
 				others[index] = other.to_numpy()    
-			elif isinstance(other,ArkIndexTable):
+			elif isinstance(other,IndexTable):
 				others[index] = other.fetch("feat").to_numpy()  
 
 		newDict = {}
@@ -4392,7 +4439,7 @@ class NumpyFeature(NumpyMatrix):
 			newName += f",{other.name}"
 		newName += ")"
 
-		return NumpyFeature(newDict,newName)
+		return NumpyFeat(newDict,newName)
 
 	def map(self,func):
 		'''
@@ -4402,21 +4449,21 @@ class NumpyFeature(NumpyMatrix):
 			<func>: callable function object.
 		
 		Return:
-			A new NumpyFeature object.
+			A new NumpyFeat object.
 		'''
 		result = super().map(func)
-		return NumpyFeature(data=result.data,name=result.name)	
+		return NumpyFeat(data=result.data,name=result.name)	
 
-## Subclass: for fMLLR transform matrix
-class NumpyFmllrMatrix(NumpyMatrix):
+## Subclass: for CMVN statistics
+class NumpyCMVN(NumpyMatrix):
 	'''
-	Hold the fMLLR transform matrix with Numpy format.
+	Hold the CMVN statistics with Numpy format.
 	'''
-	def __init__(self,data={},name="fmllrMat"):
+	def __init__(self,data={},name="cmvn"):
 		'''
-		Only allow BytesFmllrMatrix,NumpyFmllrMatrix,ArkIndexTable or dict (do not extend to their subclasses and their parent-classes).
-		'''		
-		declare.is_classes("data",data,[BytesFmllrMatrix,NumpyFmllrMatrix,ArkIndexTable,dict])
+		Only allow BytesCMVN,NumpyCMVN,IndexTable or dict (do not extend to their subclasses and their parent-classes).
+		'''	
+		declare.is_classes("data",data,[BytesCMVN,NumpyCMVN,IndexTable,dict])
 
 		super().__init__(data,name)
 
@@ -4435,10 +4482,10 @@ class NumpyFmllrMatrix(NumpyMatrix):
 		Transform feature to bytes format.
 
 		Return:
-			a BytesFmllrMatrix object.
+			a BytesCMVN object.
 		'''			
 		result = super().to_bytes()
-		return BytesFmllrMatrix(result.data,result.name)
+		return BytesCMVN(result.data,result.name)
 
 	def to_dtype(self,dtype):
 		'''
@@ -4448,27 +4495,27 @@ class NumpyFmllrMatrix(NumpyMatrix):
 			<dtype>: a string of "float","float32" or "float64". IF "float",it will be treated as "float32".
 
 		Return:
-			A new NumpyFmllrMatrix object.
+			A new NumpyCMVN object.
 		'''
 		result = super().to_dtype(dtype)
 
-		return NumpyFmllrMatrix(result.data,result.name)
+		return NumpyCMVN(result.data,result.name)
 
 	def __add__(self,other):
 		'''
-		Plus operation between two fMLLR transform matrix objects.
+		Plus operation between two CMVN statistics objects.
 
 		Args:
-			<other>: a NumpyFmllrMatrix,BytesFmllrMatrix or ArkIndexTable object.
+			<other>: a NumpyCMVN,BytesCMVN or IndexTable object.
 
 		Return:
-			a NumpyFmllrMatrix object.
+			a NumpyCMVN object.
 		'''	
-		declare.is_fmllr_matrix("other",other)
+		declare.is_cmvn("other",other)
 
 		result = super().__add__(other)
 
-		return NumpyFmllrMatrix(result.data,result.name)
+		return NumpyCMVN(result.data,result.name)
 
 	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
 		'''
@@ -4484,16 +4531,151 @@ class NumpyFmllrMatrix(NumpyMatrix):
 			<keys>: pick out these utterances whose ID in keys.
 
 		Return:
-			a new NumpyFmllrMatrix object or a list of new NumpyFmllrMatrix objects.
+			a new NumpyCMVN object or a list of new NumpyCMVN objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
 		if isinstance(result,list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = NumpyFmllrMatrix(temp.data,temp.name)
+				result[index] = NumpyCMVN(temp.data,temp.name)
 		else:
-			result = NumpyFmllrMatrix(result.data,result.name)
+			result = NumpyCMVN(result.data,result.name)
+
+		return result
+
+	def sort(self,by='spk',reverse=False):
+		'''
+		Sort.
+
+		Args:
+			<by>: "spk"/"key".
+			<reverse>: If reverse,sort in descending order.
+
+		Return:
+			A new NumpyCMVN object.
+		'''
+		declare.is_instances("by",by,["key","spk"])
+
+		result = super().sort(by,reverse)
+
+		return NumpyCMVN(result.data,result.name)
+
+	def __call__(self,key):
+		'''
+		Pick out the specified utterance.
+		
+		Args:
+			<key>: a string.
+		
+		Return:
+			If existed,return a new NumpyCMVN object.
+		''' 
+		result = super().__call__(key)
+		if result is not None:
+			result = NumpyCMVN(data=result.data,name=result.name)
+		return result
+
+	def map(self,func):
+		'''
+		Map all arrays to a function.
+
+		Args:
+			<func>: callable function object.
+		
+		Return:
+			A new NumpyCMVN object.
+		'''
+		result = super().map(func)
+		return NumpyCMVN(data=result.data,name=result.name)	
+
+## Subclass: for fMLLR transform matrix
+class NumpyFmllr(NumpyMatrix):
+	'''
+	Hold the fMLLR transform matrix with Numpy format.
+	'''
+	def __init__(self,data={},name="fmllrMat"):
+		'''
+		Only allow BytesFmllr,NumpyFmllr,IndexTable or dict (do not extend to their subclasses and their parent-classes).
+		'''		
+		declare.is_classes("data",data,[BytesFmllr,NumpyFmllr,IndexTable,dict])
+
+		super().__init__(data,name)
+
+	@property
+	def spks(self):
+		'''
+		Get all speakers IDs.
+
+		Return:
+		  a list. 
+		'''
+		return list(self.keys())
+
+	def to_bytes(self):
+		'''
+		Transform feature to bytes format.
+
+		Return:
+			a BytesFmllr object.
+		'''			
+		result = super().to_bytes()
+		return BytesFmllr(result.data,result.name)
+
+	def to_dtype(self,dtype):
+		'''
+		Transform data type.
+
+		Args:
+			<dtype>: a string of "float","float32" or "float64". IF "float",it will be treated as "float32".
+
+		Return:
+			A new NumpyFmllr object.
+		'''
+		result = super().to_dtype(dtype)
+
+		return NumpyFmllr(result.data,result.name)
+
+	def __add__(self,other):
+		'''
+		Plus operation between two fMLLR transform matrix objects.
+
+		Args:
+			<other>: a NumpyFmllr,BytesFmllr or IndexTable object.
+
+		Return:
+			a NumpyFmllr object.
+		'''	
+		declare.is_fmllr_matrix("other",other)
+
+		result = super().__add__(other)
+
+		return NumpyFmllr(result.data,result.name)
+
+	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
+		'''
+		Subset data.
+		The priority of mode is nHead > nTail > nRandom > chunks > keys.
+		If you chose multiple modes,only the prior one will work.
+		
+		Args:
+			<nHead>: get N head utterances.
+			<nTail>: get N tail utterances.
+			<nRandom>: sample N utterances randomly.
+			<chunks>: split data into N chunks averagely.
+			<keys>: pick out these utterances whose ID in keys.
+
+		Return:
+			a new NumpyFmllr object or a list of new NumpyFmllr objects.
+		''' 
+		result = super().subset(nHead,nTail,nRandom,chunks,keys)
+
+		if isinstance(result,list):
+			for index in range(len(result)):
+				temp = result[index]
+				result[index] = NumpyFmllr(temp.data,temp.name)
+		else:
+			result = NumpyFmllr(result.data,result.name)
 
 		return result
 
@@ -4506,11 +4688,11 @@ class NumpyFmllrMatrix(NumpyMatrix):
 			<reverse>: If reverse,sort in descending order.
 
 		Return:
-			A new NumpyFmllrMatrix object.
+			A new NumpyFmllr object.
 		''' 		
 		result = super().sort(by,reverse)
 
-		return NumpyFmllrMatrix(result.data,result.name)
+		return NumpyFmllr(result.data,result.name)
 
 	def __call__(self,key):
 		'''
@@ -4520,11 +4702,11 @@ class NumpyFmllrMatrix(NumpyMatrix):
 			<key>: a string.
 
 		Return:
-			None or a NumpyFmllrMatrix object.
+			None or a NumpyFmllr object.
 		''' 
 		result = super().__call__(key)
 		if result is not None:
-			result = NumpyFmllrMatrix(data=result.data,name=result.name)
+			result = NumpyFmllr(data=result.data,name=result.name)
 		return result
 
 	def map(self,func):
@@ -4535,21 +4717,21 @@ class NumpyFmllrMatrix(NumpyMatrix):
 			<func>: callable function object.
 		
 		Return:
-			A new NumpyFmllrMatrix object.
+			A new NumpyFmllr object.
 		'''
 		result = super().map(func)
-		return NumpyFmllrMatrix(data=result.data,name=result.name)	
+		return NumpyFmllr(data=result.data,name=result.name)	
 
 ## Subclass: for probability of neural network output
-class NumpyProbability(NumpyMatrix):
+class NumpyProb(NumpyMatrix):
 	'''
 	Hold the probability with Numpy format.
 	'''
 	def __init__(self,data={},name="prob"):
 		'''
-		Only allow BytesProbability,NumpyProbability,ArkIndexTable or dict (do not extend to their subclasses and their parent-classes).
+		Only allow BytesProb,NumpyProb,IndexTable or dict (do not extend to their subclasses and their parent-classes).
 		'''	
-		declare.is_classes("data",data,[BytesProbability,NumpyProbability,ArkIndexTable,dict])
+		declare.is_classes("data",data,[BytesProb,NumpyProb,IndexTable,dict])
 		
 		super().__init__(data,name)
 
@@ -4568,10 +4750,10 @@ class NumpyProbability(NumpyMatrix):
 		Transform post probability to bytes format.
 
 		Return:
-			a BytesProbability object.
+			a BytesProb object.
 		'''				
 		result = super().to_bytes()
-		return BytesProbability(result.data,result.name)
+		return BytesProb(result.data,result.name)
 
 	def to_dtype(self,dtype):
 		'''
@@ -4581,27 +4763,27 @@ class NumpyProbability(NumpyMatrix):
 			<dtype>: a string of "float","float32" or "float64". IF "float",it will be treated as "float32".
 
 		Return:
-			A new NumpyProbability object.
+			A new NumpyProb object.
 		'''
 		result = super().to_dtype(dtype)
 
-		return NumpyProbability(result.data,result.name)
+		return NumpyProb(result.data,result.name)
 
 	def __add__(self,other):
 		'''
 		Plus operation between two post probability objects.
 
 		Args:
-			<other>: a NumpyProbability,BytesProbability or ArkIndexTable object.
+			<other>: a NumpyProb,BytesProb or IndexTable object.
 
 		Return:
-			a NumpyProbability object.
+			a NumpyProb object.
 		'''	
 		declare.is_probability("other",other)
 
 		result = super().__add__(other)
 
-		return NumpyProbability(result.data,result.name)
+		return NumpyProb(result.data,result.name)
 
 	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
 		'''
@@ -4617,16 +4799,16 @@ class NumpyProbability(NumpyMatrix):
 			<keys>: pick out these utterances whose ID in keys.
 
 		Return:
-			a new NumpyProbability object or a list of new NumpyProbability objects.
+			a new NumpyProb object or a list of new NumpyProb objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
 		if isinstance(result,list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = NumpyProbability(temp.data,temp.name)
+				result[index] = NumpyProb(temp.data,temp.name)
 		else:
-			result = NumpyProbability(result.data,result.name)
+			result = NumpyProb(result.data,result.name)
 
 		return result
 
@@ -4639,11 +4821,11 @@ class NumpyProbability(NumpyMatrix):
 			<reverse>: If reverse,sort in descending order.
 
 		Return:
-			A new NumpyProbability object.
+			A new NumpyProb object.
 		'''	
 		result = super().sort(by,reverse)
 
-		return NumpyProbability(result.data,result.name)
+		return NumpyProb(result.data,result.name)
 
 	def __call__(self,key):
 		'''
@@ -4653,11 +4835,11 @@ class NumpyProbability(NumpyMatrix):
 			<key>: a string.
 
 		Return:
-			None or a NumpyProbability object.
+			None or a NumpyProb object.
 		''' 
 		result = super().__call__(key)
 		if result is not None:
-			result = NumpyProbability(data=result.data,name=result.name)
+			result = NumpyProb(data=result.data,name=result.name)
 		return result
 
 	def map(self,func):
@@ -4668,162 +4850,27 @@ class NumpyProbability(NumpyMatrix):
 			<func>: callable function object.
 		
 		Return:
-			A new NumpyProbability object.
+			A new NumpyProb object.
 		'''
 		result = super().map(func)
-		return NumpyProbability(data=result.data,name=result.name)	
-
-## Subclass: for CMVN statistics
-class NumpyCMVNStatistics(NumpyMatrix):
-	'''
-	Hold the CMVN statistics with Numpy format.
-	'''
-	def __init__(self,data={},name="cmvn"):
-		'''
-		Only allow BytesCMVNStatistics,NumpyCMVNStatistics,ArkIndexTable or dict (do not extend to their subclasses and their parent-classes).
-		'''	
-		declare.is_classes("data",data,[BytesCMVNStatistics,NumpyCMVNStatistics,ArkIndexTable,dict])
-
-		super().__init__(data,name)
-
-	@property
-	def spks(self):
-		'''
-		Get all speakers IDs.
-
-		Return:
-		  a list. 
-		'''
-		return list(self.keys())
-
-	def to_bytes(self):
-		'''
-		Transform feature to bytes format.
-
-		Return:
-			a BytesCMVNStatistics object.
-		'''			
-		result = super().to_bytes()
-		return BytesCMVNStatistics(result.data,result.name)
-
-	def to_dtype(self,dtype):
-		'''
-		Transform data type.
-
-		Args:
-			<dtype>: a string of "float","float32" or "float64". IF "float",it will be treated as "float32".
-
-		Return:
-			A new NumpyCMVNStatistics object.
-		'''
-		result = super().to_dtype(dtype)
-
-		return NumpyCMVNStatistics(result.data,result.name)
-
-	def __add__(self,other):
-		'''
-		Plus operation between two CMVN statistics objects.
-
-		Args:
-			<other>: a NumpyCMVNStatistics,BytesCMVNStatistics or ArkIndexTable object.
-
-		Return:
-			a NumpyCMVNStatistics object.
-		'''	
-		declare.is_cmvn("other",other)
-
-		result = super().__add__(other)
-
-		return NumpyCMVNStatistics(result.data,result.name)
-
-	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
-		'''
-		Subset data.
-		The priority of mode is nHead > nTail > nRandom > chunks > keys.
-		If you chose multiple modes,only the prior one will work.
-		
-		Args:
-			<nHead>: get N head utterances.
-			<nTail>: get N tail utterances.
-			<nRandom>: sample N utterances randomly.
-			<chunks>: split data into N chunks averagely.
-			<keys>: pick out these utterances whose ID in keys.
-
-		Return:
-			a new NumpyCMVNStatistics object or a list of new NumpyCMVNStatistics objects.
-		''' 
-		result = super().subset(nHead,nTail,nRandom,chunks,keys)
-
-		if isinstance(result,list):
-			for index in range(len(result)):
-				temp = result[index]
-				result[index] = NumpyCMVNStatistics(temp.data,temp.name)
-		else:
-			result = NumpyCMVNStatistics(result.data,result.name)
-
-		return result
-
-	def sort(self,by='spk',reverse=False):
-		'''
-		Sort.
-
-		Args:
-			<by>: "spk"/"key".
-			<reverse>: If reverse,sort in descending order.
-
-		Return:
-			A new NumpyCMVNStatistics object.
-		'''
-		declare.is_instances("by",by,["key","spk"])
-
-		result = super().sort(by,reverse)
-
-		return NumpyCMVNStatistics(result.data,result.name)
-
-	def __call__(self,key):
-		'''
-		Pick out the specified utterance.
-		
-		Args:
-			<key>: a string.
-		
-		Return:
-			If existed,return a new NumpyCMVNStatistics object.
-		''' 
-		result = super().__call__(key)
-		if result is not None:
-			result = NumpyCMVNStatistics(data=result.data,name=result.name)
-		return result
-
-	def map(self,func):
-		'''
-		Map all arrays to a function.
-
-		Args:
-			<func>: callable function object.
-		
-		Return:
-			A new NumpyCMVNStatistics object.
-		'''
-		result = super().map(func)
-		return NumpyCMVNStatistics(data=result.data,name=result.name)	
+		return NumpyProb(data=result.data,name=result.name)	
 
 ## Base Class: for Vector Data Archives
 class NumpyVector(NumpyMatrix):
 	'''
-	Hold the kaldi vector data with Numpy format.
+	Hold the Kaldi vector data with Numpy format.
 	'''
 	def __init__(self,data={},name="vec"):
 		'''
 		Args:
-			<data>: Bytesvector or ArkIndexTable object or NumpyVector or dict object (or their subclasses).
+			<data>: Bytesvector or IndexTable object or NumpyVector or dict object (or their subclasses).
 			<name>: a string.
 		'''
-		declare.belong_classes("data",data,[BytesVector,NumpyVector,ArkIndexTable,dict])
+		declare.belong_classes("data",data,[BytesVector,NumpyVector,IndexTable,dict])
 
 		if isinstance(data,BytesVector):
 			data = data.to_Numpy().data
-		elif isinstance(data,ArkIndexTable):
+		elif isinstance(data,IndexTable):
 			data = data.fetch(arkType="vec").to_Numpy().data
 		elif isinstance(data,NumpyMatrix):
 			data = data.data
@@ -4883,7 +4930,7 @@ class NumpyVector(NumpyMatrix):
 
 	def check_format(self):
 		'''
-		Check if data has right kaldi format.
+		Check if data has right Kaldi format.
 		
 		Return:
 			If data is void,return False.
@@ -4912,9 +4959,9 @@ class NumpyVector(NumpyMatrix):
 		self.check_format()
 		
 		if self.dtype == "int64":
-			raise WrongDataFormat(f"Only int32 vector can be convert to bytes object in current Exkaldi but this is: {self.dtype}")
+			raise WrongDataFormat(f"Only int32 vector can be convert to bytes object in current ExKaldi but this is: {self.dtype}")
 
-		newDataIndex = ArkIndexTable(name=self.name)
+		newDataIndex = IndexTable(name=self.name)
 		newData = []
 		start_index = 0
 		for utt,vector in self.items():
@@ -4937,12 +4984,12 @@ class NumpyVector(NumpyMatrix):
 		Plus operation between two vector objects.
 
 		Args:
-			<other>: a BytesVector,NumpyVector or ArkIndexTable (or their subclass) object.
+			<other>: a BytesVector,NumpyVector or IndexTable (or their subclass) object.
 
 		Return:
 			a new NumpyVector object.
 		'''	
-		declare.belong_classes("other",other,[BytesVector,NumpyVector,ArkIndexTable])
+		declare.belong_classes("other",other,[BytesVector,NumpyVector,IndexTable])
 		
 		result = super().__add__(other)
 
@@ -4975,7 +5022,7 @@ class NumpyVector(NumpyMatrix):
 
 		return result
 
-	def sort(self,by='utt',reverse=False):
+	def sort(self,by='key',reverse=False):
 		'''
 		Sort utterances by frames length or uttID
 
@@ -5018,16 +5065,32 @@ class NumpyVector(NumpyMatrix):
 		result = super().map(func)
 		return NumpyVector(data=result.data,name=result.name)			
 
+	def __setitem__(self,key,value):
+		'''
+		Set an item.
+
+		Args:
+			key: a string.
+			value: a 1-d Numpy array.
+		'''
+		declare.is_valid_string("key",key,debug=f"The key of NumpyVector must be a string such as utterance ID or speaker ID but got: {key}.")
+		assert isinstance(value,np.ndarray) and len(value.shape) == 1, f"The value of NumpyVector must be a 1-d Numpy array."
+
+		assert value.dtype == int, "NumpyVector only accept int array."
+		value = np.array(value,dtype=self.dtype)
+		
+		super().__setitem__(key,value)
+
 ## Subclass: for transition-ID alignment 			
-class NumpyAlignmentTrans(NumpyVector):
+class NumpyAliTrans(NumpyVector):
 	'''
 	Hold the alignment(transition ID) with Numpy format.
 	'''
 	def __init__(self,data={},name="transitionID"):
 		'''
-		Only allow BytesAlignmentTrans,NumpyAlignmentTrans,ArkIndexTable or dict (do not extend to their subclasses and their parent-classes).
+		Only allow BytesAliTrans,NumpyAliTrans,IndexTable or dict (do not extend to their subclasses and their parent-classes).
 		'''	
-		declare.is_classes("data",data,[BytesAlignmentTrans,NumpyAlignmentTrans,ArkIndexTable,dict])
+		declare.is_classes("data",data,[BytesAliTrans,NumpyAliTrans,IndexTable,dict])
 	
 		super().__init__(data,name)
 
@@ -5046,11 +5109,11 @@ class NumpyAlignmentTrans(NumpyVector):
 		Tansform numpy alignment to bytes format.
 
 		Return:
-			A BytesAlignmentTrans object.
+			A BytesAliTrans object.
 		'''
-		result = super(NumpyAlignmentTrans,self.to_dtype("int32")).to_bytes()
+		result = super(NumpyAliTrans,self.to_dtype("int32")).to_bytes()
 
-		return BytesAlignmentTrans(data=result.data,name=self.name,indexTable=result.indexTable)
+		return BytesAliTrans(data=result.data,name=self.name,indexTable=result.indexTable)
 
 	def to_dtype(self,dtype):
 		'''
@@ -5059,26 +5122,26 @@ class NumpyAlignmentTrans(NumpyVector):
 		Args:
 			<dtype>: a string of "int","int16","int32" or "int64". IF "int",it will be treated as "int32".
 		Return:
-			A new NumpyAlignment object.
+			A new NumpyAli object.
 		'''
 		result = super().to_dtype(dtype)
 
-		return NumpyAlignmentTrans(result.data,result.name)
+		return NumpyAliTrans(result.data,result.name)
 
 	def __add__(self,other):
 		'''
 		The Plus operation between two transition ID alignment objects.
 
 		Args:
-			<other>: a NumpyAlignmentTrans or BytesAlignmentTrans object.
+			<other>: a NumpyAliTrans or BytesAliTrans object.
 
 		Return:
-			a new NumpyAlignmentTrans object.
+			a new NumpyAliTrans object.
 		''' 
 		declare.is_alignment("other",other)
 
 		results = super().__add__(other)
-		return NumpyAlignmentTrans(results.data,results.name)
+		return NumpyAliTrans(results.data,results.name)
 
 	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
 		'''
@@ -5094,16 +5157,16 @@ class NumpyAlignmentTrans(NumpyVector):
 			<keys>: pick out these utterances whose ID in keys.
 
 		Return:
-			a new NumpyAlignmentTrans object or a list of new NumpyAlignmentTrans objects.
+			a new NumpyAliTrans object or a list of new NumpyAliTrans objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
 		if isinstance(result,list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = NumpyAlignmentTrans(temp.data,temp.name)
+				result[index] = NumpyAliTrans(temp.data,temp.name)
 		else:
-			result = NumpyAlignmentTrans(result.data,result.name)
+			result = NumpyAliTrans(result.data,result.name)
 
 		return result
 	
@@ -5116,11 +5179,11 @@ class NumpyAlignmentTrans(NumpyVector):
 			<reverse>: If reverse,sort in descending order.
 		
 		Return:
-			A new NumpyAlignmentTrans object.
+			A new NumpyAliTrans object.
 		''' 			
 		result = super().sort(by,reverse)
 
-		return NumpyAlignmentTrans(result.data,result.name)
+		return NumpyAliTrans(result.data,result.name)
 
 	def __to_phone_or_pdf(self,tool,hmm):
 		'''
@@ -5148,8 +5211,7 @@ class NumpyAlignmentTrans(NumpyVector):
 			cmd = f'copy-int-vector ark:- ark:- | {tool} {hmm} ark:- ark,t:-'
 			out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=temp)
 			if (isinstance(cod,int) and cod != 0) or out == b'':
-				print(err.decode())
-				raise KaldiProcessError('Failed to transform alignment.')
+				raise KaldiProcessError('Failed to transform alignment.',err.decode())
 			else:
 				result = {}
 				sp = BytesIO(out)
@@ -5169,11 +5231,11 @@ class NumpyAlignmentTrans(NumpyVector):
 		Args:
 			<hmm>: exkaldi HMM object or file path.
 		Return:
-			a NumpyAlignmentPhone object.
+			a NumpyAliPhone object.
 		'''		
 		result = self.__to_phone_or_pdf(tool="ali-to-phones --per-frame=true",hmm=hmm)
 
-		return NumpyAlignmentPhone(result,name=f"to_phone({self.name})")
+		return NumpyAliPhone(result,name=f"to_phone({self.name})")
 
 	def to_pdfID(self,hmm):
 		'''
@@ -5183,11 +5245,11 @@ class NumpyAlignmentTrans(NumpyVector):
 			<hmm>: exkaldi HMM object or file path.
 
 		Return:
-			a NumpyAlignmentPdf object.
+			a NumpyAliPdf object.
 		'''		
 		result = self.__to_phone_or_pdf(tool="ali-to-pdf",hmm=hmm)
 
-		return NumpyAlignmentPdf(result,name=f"to_pdf({self.name})")
+		return NumpyAliPdf(result,name=f"to_pdf({self.name})")
 
 	def __call__(self,key):
 		'''
@@ -5197,11 +5259,11 @@ class NumpyAlignmentTrans(NumpyVector):
 			<key>: a string.
 
 		Return:
-			If existed,return a new NumpyAlignmentTrans object.
+			If existed,return a new NumpyAliTrans object.
 		''' 
 		result = super().__call__(key)
 		if result is not None:
-			result = NumpyAlignmentTrans(data=result.data,name=result.name)
+			result = NumpyAliTrans(data=result.data,name=result.name)
 		return result	
 
 	def map(self,func):
@@ -5212,10 +5274,10 @@ class NumpyAlignmentTrans(NumpyVector):
 			<func>: a callable object or function.
 		
 		Return:
-			A new NumpyAlignmentTrans object.
+			A new NumpyAliTrans object.
 		'''
 		result = super().map(func)
-		return NumpyAlignmentTrans(data=result.data,name=result.name)	
+		return NumpyAliTrans(data=result.data,name=result.name)	
 
 	def cut(self,maxFrames):
 		'''
@@ -5226,7 +5288,7 @@ class NumpyAlignmentTrans(NumpyVector):
 						If the rest part is still longer than 1.25*maxFrames,continue to cut it. 
 
 		Return:
-			A new NumpyAlignmentTrans object.
+			A new NumpyAliTrans object.
 		''' 
 		declare.not_void(type_name(self),self)	
 		declare.is_positive_int("maxFrames",maxFrames)
@@ -5248,21 +5310,21 @@ class NumpyAlignmentTrans(NumpyVector):
 					newData[utt+"_"+str(i)] = vector[i*maxFrames:]
 		
 		newName = f"cut({self.name},{maxFrames})"
-		return NumpyAlignmentTrans(newData,newName)
+		return NumpyAliTrans(newData,newName)
 
 ## Subclass: for user customized alignment 
-class NumpyAlignment(NumpyVector):
+class NumpyAli(NumpyVector):
 	'''
 	Hold the alignment with Numpy format.
 	'''
 	def __init__(self,data={},name="ali"):
 		'''
 		Args:
-			<data>: NumpyAlignment or dict object (or their subclasses).
+			<data>: NumpyAli or dict object (or their subclasses).
 		'''
-		declare.belong_classes("data",data,[NumpyAlignment,dict])
+		declare.belong_classes("data",data,[NumpyAli,dict])
 
-		if isinstance(data,NumpyAlignment):
+		if isinstance(data,NumpyAli):
 			data = data.data
 				
 		super().__init__(data,name)
@@ -5285,11 +5347,11 @@ class NumpyAlignment(NumpyVector):
 			<dtype>: a string of "int","int16","int32" or "int64". IF "int",it will be treated as "int32".
 
 		Return:
-			A new NumpyAlignment object.
+			A new NumpyAli object.
 		'''
 		result = super().to_dtype(dtype)
 
-		return NumpyAlignment(result.data,result.name)
+		return NumpyAli(result.data,result.name)
 
 	def to_bytes(self):
 		'''
@@ -5302,15 +5364,15 @@ class NumpyAlignment(NumpyVector):
 		Plus operation between two alignment objects.
 
 		Args:
-			<other>: a NumpyAlignment object.
+			<other>: a NumpyAli object.
 
 		Return:
-			a NumpyAlignment object.
+			a NumpyAli object.
 		'''	
-		declare.belong_classes("other",other,NumpyAlignment)
+		declare.belong_classes("other",other,NumpyAli)
 		
 		result = super().__add__(other)
-		return NumpyAlignment(result.data,result.name)
+		return NumpyAli(result.data,result.name)
 
 	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
 		'''
@@ -5326,16 +5388,16 @@ class NumpyAlignment(NumpyVector):
 			<keys>: pick out these utterances whose ID in keys.
 
 		Return:
-			a new NumpyAlignment object or a list of new NumpyAlignment objects.
+			a new NumpyAli object or a list of new NumpyAli objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
 		if isinstance(result,list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = NumpyAlignment( temp.data,temp.name )
+				result[index] = NumpyAli( temp.data,temp.name )
 		else:
-			result = NumpyAlignment( result.data,result.name )
+			result = NumpyAli( result.data,result.name )
 
 		return result
 
@@ -5348,11 +5410,11 @@ class NumpyAlignment(NumpyVector):
 			<reverse>: If reverse,sort in descending order.
 
 		Return:
-			A new NumpyAlignment object.
+			A new NumpyAli object.
 		''' 			
 		result = super().sort(by,reverse)
 
-		return NumpyAlignment(result.data,result.name)
+		return NumpyAli(result.data,result.name)
 
 	def __call__(self,key):
 		'''
@@ -5362,12 +5424,12 @@ class NumpyAlignment(NumpyVector):
 			<key>: a string.
 
 		Return:
-			If existed,return a new NumpyAlignment object.
+			If existed,return a new NumpyAli object.
 			Or return None.
 		''' 
 		result = super().__call__(key)
 		if result is not None:
-			result = NumpyAlignment(data=result.data,name=result.name)
+			result = NumpyAli(data=result.data,name=result.name)
 		return result	
 
 	def map(self,func):
@@ -5378,10 +5440,10 @@ class NumpyAlignment(NumpyVector):
 			<func>: callable function object.
 		
 		Return:
-			A new NumpyAlignment object.
+			A new NumpyAli object.
 		'''
 		result = super().map(func)
-		return NumpyAlignment(data=result.data,name=result.name)	
+		return NumpyAli(data=result.data,name=result.name)	
 
 	def cut(self,maxFrames):
 		'''
@@ -5392,7 +5454,7 @@ class NumpyAlignment(NumpyVector):
 						If the rest part is still longer than 1.25*maxFrames,continue to cut it. 
 
 		Return:
-			A new NumpyAlignment object.
+			A new NumpyAli object.
 		''' 
 		declare.not_void(type_name(self),self)	
 		declare.is_positive_int("maxFrames",maxFrames)
@@ -5414,20 +5476,20 @@ class NumpyAlignment(NumpyVector):
 					newData[utt+"_"+str(i)] = vector[i*maxFrames:]
 		
 		newName = f"cut({self.name},{maxFrames})"
-		return NumpyAlignment(newData,newName)
+		return NumpyAli(newData,newName)
 
 ## Subclass: for phone-ID alignment 
-class NumpyAlignmentPhone(NumpyAlignment):
+class NumpyAliPhone(NumpyAli):
 	'''
 	Hold the alignment(phone ID) with Numpy format.
 	'''
 	def __init__(self,data={},name="phoneID"):
 		'''
-		Only allow NumpyAlignmentPhone or dict (do not extend to their subclasses and their parent-classes).
+		Only allow NumpyAliPhone or dict (do not extend to their subclasses and their parent-classes).
 		'''			
-		declare.is_classes("data",data,[NumpyAlignmentPhone,dict])
+		declare.is_classes("data",data,[NumpyAliPhone,dict])
 
-		if isinstance(data,NumpyAlignmentPhone):
+		if isinstance(data,NumpyAliPhone):
 			data = data.data
 				
 		super().__init__(data,name)		
@@ -5439,26 +5501,26 @@ class NumpyAlignmentPhone(NumpyAlignment):
 		Args:
 			<dtype>: a string of "int","int16","int32" or "int64". If "int",it will be treated as "int32".
 		Return:
-			A new NumpyAlignmentPhone object.
+			A new NumpyAliPhone object.
 		'''
 		result = super().to_dtype(dtype)
 
-		return NumpyAlignmentPhone(result.data,result.name)
+		return NumpyAliPhone(result.data,result.name)
 
 	def __add__(self,other):
 		'''
 		The plus operation between two phone ID alignment objects.
 
 		Args:
-			<other>: a NumpyAlignmentPhone object.
+			<other>: a NumpyAliPhone object.
 
 		Return:
-			a new NumpyAlignmentPhone object.
+			a new NumpyAliPhone object.
 		''' 
-		declare.is_classes("other",other,NumpyAlignmentPhone)
+		declare.is_classes("other",other,NumpyAliPhone)
 
 		results = super().__add__(other)
-		return NumpyAlignmentPhone(results.data,results.name)
+		return NumpyAliPhone(results.data,results.name)
 
 	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
 		'''
@@ -5474,16 +5536,16 @@ class NumpyAlignmentPhone(NumpyAlignment):
 			<keys>: pick out these utterances whose ID in keys.
 
 		Return:
-			a new NumpyAlignmentPhone object or a list of new NumpyAlignmentPhone objects.
+			a new NumpyAliPhone object or a list of new NumpyAliPhone objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
 		if isinstance(result,list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = NumpyAlignmentPhone(temp.data,temp.name)
+				result[index] = NumpyAliPhone(temp.data,temp.name)
 		else:
-			result = NumpyAlignmentPhone(result.data,result.name)
+			result = NumpyAliPhone(result.data,result.name)
 
 		return result
 
@@ -5495,11 +5557,11 @@ class NumpyAlignmentPhone(NumpyAlignment):
 			<key>: a string.
 
 		Return:
-			If existed,return a new NumpyAlignmentPhone object.
+			If existed,return a new NumpyAliPhone object.
 		''' 
 		result = super().__call__(key)
 		if result is not None:
-			result = NumpyAlignmentPhone(data=result.data,name=result.name)
+			result = NumpyAliPhone(data=result.data,name=result.name)
 		return result	
 
 	def sort(self,by='utt',reverse=False):
@@ -5511,11 +5573,11 @@ class NumpyAlignmentPhone(NumpyAlignment):
 			<reverse>: If reverse,sort in descending order.
 		
 		Return:
-			A new NumpyAlignmentPhone object.
+			A new NumpyAliPhone object.
 		''' 			
 		result = super().sort(by,reverse)
 
-		return NumpyAlignmentPhone(result.data,result.name)
+		return NumpyAliPhone(result.data,result.name)
 
 	def map(self,func):
 		'''
@@ -5525,10 +5587,10 @@ class NumpyAlignmentPhone(NumpyAlignment):
 			<func>: callable function object.
 		
 		Return:
-			A new NumpyAlignmentPhone object.
+			A new NumpyAliPhone object.
 		'''
 		result = super().map(func)
-		return NumpyAlignmentPhone(data=result.data,name=result.name)
+		return NumpyAliPhone(data=result.data,name=result.name)
 
 	def cut(self,maxFrames):
 		'''
@@ -5539,23 +5601,23 @@ class NumpyAlignmentPhone(NumpyAlignment):
 						If the rest part is still longer than 1.25*maxFrames,continue to cut it. 
 
 		Return:
-			A new NumpyAlignmentPhone object.
+			A new NumpyAliPhone object.
 		''' 
 		result = super().cut(maxFrames)
-		return NumpyAlignmentPhone(result.data,result.name)
+		return NumpyAliPhone(result.data,result.name)
 
 ## Subclass: for pdf-ID alignment 
-class NumpyAlignmentPdf(NumpyAlignment):
+class NumpyAliPdf(NumpyAli):
 	'''
 	Hold the alignment(pdf ID) with Numpy format.
 	'''
 	def __init__(self,data={},name="phoneID"):
 		'''
-		Only allow NumpyAlignmentPdf or dict (do not extend to their subclasses and their parent-classes).
+		Only allow NumpyAliPdf or dict (do not extend to their subclasses and their parent-classes).
 		'''	
-		declare.is_classes("data",data,[NumpyAlignmentPdf,dict])
+		declare.is_classes("data",data,[NumpyAliPdf,dict])
 
-		if isinstance(data,NumpyAlignmentPdf):
+		if isinstance(data,NumpyAliPdf):
 			data = data.data
 				
 		super().__init__(data,name)
@@ -5568,25 +5630,25 @@ class NumpyAlignmentPdf(NumpyAlignment):
 			<dtype>: a string of "int","int16","int32" or "int64". IF "int",it will be treated as "int32".
 
 		Return:
-			A new NumpyAlignmentPdf object.
+			A new NumpyAliPdf object.
 		'''
 		result = super().to_dtype(dtype)
 
-		return NumpyAlignmentPdf(result.data,result.name)
+		return NumpyAliPdf(result.data,result.name)
 
 	def __add__(self,other):
 		'''
 		The Plus operation between two phone ID alignment objects.
 
 		Args:
-			<other>: a NumpyAlignmentPdf object.
+			<other>: a NumpyAliPdf object.
 		Return:
-			a new NumpyAlignmentPdf object.
+			a new NumpyAliPdf object.
 		''' 
-		declare.is_classes("other",other,NumpyAlignmentPdf)
+		declare.is_classes("other",other,NumpyAliPdf)
 
 		results = super().__add__(other)
-		return NumpyAlignmentPdf(results.data,results.name)
+		return NumpyAliPdf(results.data,results.name)
 
 	def subset(self,nHead=0,nTail=0,nRandom=0,chunks=1,keys=None):
 		'''
@@ -5602,16 +5664,16 @@ class NumpyAlignmentPdf(NumpyAlignment):
 			<keys>: pick out these utterances whose ID in keys.
 
 		Return:
-			a new NumpyAlignmentPdf object or a list of new NumpyAlignmentPdf objects.
+			a new NumpyAliPdf object or a list of new NumpyAliPdf objects.
 		''' 
 		result = super().subset(nHead,nTail,nRandom,chunks,keys)
 
 		if isinstance(result,list):
 			for index in range(len(result)):
 				temp = result[index]
-				result[index] = NumpyAlignmentPdf(temp.data,temp.name)
+				result[index] = NumpyAliPdf(temp.data,temp.name)
 		else:
-			result = NumpyAlignmentPdf(result.data,result.name)
+			result = NumpyAliPdf(result.data,result.name)
 
 		return result
 
@@ -5623,12 +5685,12 @@ class NumpyAlignmentPdf(NumpyAlignment):
 			<key>: a string.
 
 		Return:
-			If existed,return a new NumpyAlignmentPdf object.
+			If existed,return a new NumpyAliPdf object.
 			Or return None.
 		''' 
 		result = super().__call__(key)
 		if result is not None:
-			result = NumpyAlignmentPdf(data=result.data,name=result.name)
+			result = NumpyAliPdf(data=result.data,name=result.name)
 		return result	
 
 	def sort(self,by='utt',reverse=False):
@@ -5640,10 +5702,10 @@ class NumpyAlignmentPdf(NumpyAlignment):
 			<reverse>: If reverse,sort in descending order.
 		
 		Return:
-			A new NumpyAlignmentPdf object.
+			A new NumpyAliPdf object.
 		''' 			
 		result = super().sort(by,reverse)
-		return NumpyAlignmentPdf(result.data,result.name)
+		return NumpyAliPdf(result.data,result.name)
 
 	def map(self,func):
 		'''
@@ -5653,10 +5715,10 @@ class NumpyAlignmentPdf(NumpyAlignment):
 			<func>: callable function object.
 		
 		Return:
-			A new NumpyAlignmentPdf object.
+			A new NumpyAliPdf object.
 		'''
 		result = super().map(func)
-		return NumpyAlignmentPdf(data=result.data,name=result.name)
+		return NumpyAliPdf(data=result.data,name=result.name)
 	
 	def cut(self,maxFrames):
 		'''
@@ -5667,7 +5729,7 @@ class NumpyAlignmentPdf(NumpyAlignment):
 						If the rest part is still longer than 1.25*maxFrames,continue to cut it. 
 		
 		Return:
-			A new NumpyAlignmentPdf object.
+			A new NumpyAliPdf object.
 		''' 
 		result = super().cut(maxFrames)
-		return NumpyAlignmentPdf(result.data,result.name)
+		return NumpyAliPdf(result.data,result.name)

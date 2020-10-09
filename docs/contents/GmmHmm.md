@@ -102,7 +102,7 @@ _lexicons_: None. If no any lexicons provided in DecisionTree, this is expected.
 
 **Parallel Args:**  
 _feat_: exkaldi feature object.  
-_ali_: file path or exkaldi transition-ID Alignment object.  
+_ali_: file path or exkaldi transition-ID Ali object.  
 
 >### .save  
 (fileName="tree")
@@ -543,7 +543,7 @@ _outFile_: None or file name.
 
 **Return:**  
 If _outFile_ is not None, return the path of output file.
-Else, return Numpy Matrix object or BytesFmllrMatrix object.
+Else, return Numpy Matrix object or BytesFmllr object.
 
 --------------------------------------
 >## hmm.estimate_fMLLR_matrix

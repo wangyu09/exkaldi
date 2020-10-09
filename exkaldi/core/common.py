@@ -19,12 +19,12 @@ import os
 import numpy as np
 from collections import namedtuple
 
-from exkaldi.version import info as ExkaldiInfo
-from exkaldi.version import UnsupportedType,WrongOperation,KaldiProcessError,WrongDataFormat
+from exkaldi.version import info as ExKaldiInfo
+from exkaldi.error import *
 from exkaldi.utils.utils import run_shell_command,run_shell_command_parallel,type_name,list_files,make_dependent_dirs
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
-from exkaldi.core.archive import BytesArchive,BytesMatrix,BytesVector,BytesFeature,BytesCMVNStatistics,BytesFmllrMatrix,BytesAlignmentTrans
+from exkaldi.core.archive import BytesArchive,BytesMatrix,BytesVector,BytesFeat,BytesCMVN,BytesFmllr,BytesAliTrans
 from exkaldi.core.archive import NumpyMatrix,NumpyVector
 from exkaldi.core.archive import ListTable
 from exkaldi.core.load import load_index_table,load_list_table
@@ -68,8 +68,9 @@ def tuple_dataset(archives,frameLevel=False):
 		else:
 			templet = namedtuple(typename="TupledData",field_names=["key",]+fieldNames)
 	except ValueError as e:
-		print('While tuple data,use "name" of archives as identity ID so they are expected Python valid identifiers.')
-		print('You can use ".rename()" method to rename it and try this function again.')
+		e.args = ('While tuple data,use "name" of archives as identity ID so they are expected Python valid identifiers.'+
+							'You can use ".rename()" method to rename it and try this function again.'+"\n"+
+							e.args[0],)
 		raise e
 
 	def align_tuple_data_to_frame(key,record,templet):
@@ -227,13 +228,13 @@ def check_multiple_resources(*resources,outFile=None):
 
 	return resources
 
-def run_kaldi_commands_parallel(resources,cmdPattern,analyzeResult=True,timeout=ExkaldiInfo.timeout,generateArchive=None,archiveNames=None):
+def run_kaldi_commands_parallel(resources,cmdPattern,analyzeResult=True,timeout=ExKaldiInfo.timeout,generateArchive=None,archiveNames=None):
 	'''
 	Map resources to command pattern and run this command parallelly.
 
 	Args:
 		<resources>: a dict whose keys are the name of resource and values are lists of resources objects.
-					For example: {"feat": [BytesFeature01,BytesFeature02,... ],"outFile":{"newFeat01.ark","newFeat02.ark",...} }.
+					For example: {"feat": [BytesFeat01,BytesFeat02,... ],"outFile":{"newFeat01.ark","newFeat02.ark",...} }.
 					The "outFile" resource is necessary.
 					When there is only one process to run,"outFile" can be "-" which means the standard output stream.
 
@@ -279,7 +280,7 @@ def run_kaldi_commands_parallel(resources,cmdPattern,analyzeResult=True,timeout=
 	parallel = len(outFiles)
 
 	if generateArchive is not None:
-		declare.is_instances("generateArchive",generateArchive,["feat","cmvn","ali","fmllrMat"])
+		declare.is_instances("generateArchive",generateArchive,["feat","cmvn","ali","fmllr"])
 		if archiveNames is None:
 			archiveNames = [ generateArchive for i in range(parallel)]
 		elif isinstance(archiveNames,str):
@@ -328,7 +329,7 @@ def run_kaldi_commands_parallel(resources,cmdPattern,analyzeResult=True,timeout=
 						newResources[key] = f"{targetTemp.name}"
 
 				# If target is an index-table,we automatically recognize it as scp-file,so you do not need appoint it.
-				elif type_name(target) == "ArkIndexTable":
+				elif type_name(target) == "IndexTable":
 					if prefix != " ":
 						errMes = f"Do not need prefix such as 'ark:' or 'scp:' in command pattern before: {key}."
 						errMes += f"Because we will decide the prefix depending on its data type."
@@ -388,7 +389,7 @@ def run_kaldi_commands_parallel(resources,cmdPattern,analyzeResult=True,timeout=
 						newResources[key] = f"{targetTemp.name}"
 
 				else:
-					raise UnsupportedType(f"<target> should be ArkIndexTable,ListTable,file name,int or float value,or exkaldi achieve object but got: {type_name(target)}.")
+					raise UnsupportedType(f"<target> should be IndexTable,ListTable,file name,int or float value,or exkaldi achieve object but got: {type_name(target)}.")
 			
 			# Then,process output stream
 			outFile = outFiles[0]
@@ -400,20 +401,19 @@ def run_kaldi_commands_parallel(resources,cmdPattern,analyzeResult=True,timeout=
 			
 			if analyzeResult:
 				if cod != 0:
-					print(err.decode())
 					finalCmd = ",".join([cmd.strip().split(maxsplit=1)[0] for cmd in finalCmd.split("|")])
-					raise KaldiProcessError(f"Failed to run Kaldi command: {finalCmd}.")
+					raise KaldiProcessError(f"Failed to run Kaldi command: {finalCmd}.",err.decode())
 			
 			if outFile == "-":
 				if generateArchive is not None:
 					if generateArchive == "feat":
-						out = BytesFeature(data=out,name=archiveNames[0])
+						out = BytesFeat(data=out,name=archiveNames[0])
 					elif generateArchive == "ali":
-						out = BytesAlignmentTrans(data=out,name=archiveNames[0])
+						out = BytesAliTrans(data=out,name=archiveNames[0])
 					elif generateArchive == "cmvn":
-						out = BytesCMVNStatistics(data=out,name=archiveNames[0])
+						out = BytesCMVN(data=out,name=archiveNames[0])
 					else:
-						out = BytesFmllrMatrix(data=out,name=archiveNames[0])
+						out = BytesFmllr(data=out,name=archiveNames[0])
 					return out
 				else:
 					return (cod,err,out)
@@ -445,7 +445,7 @@ def run_kaldi_commands_parallel(resources,cmdPattern,analyzeResult=True,timeout=
 						target.save(targetTemp)
 						newValues.append(f"{targetTemp.name}")						
 
-					elif type_name(target) == "ArkIndexTable":
+					elif type_name(target) == "IndexTable":
 						if prefix != " ":
 							errMes = f"Do not need prefix such as 'ark:' or 'scp:' in command pattern before: {key}."
 							errMes += f"Because we will decide the prefix depending on its data type."
@@ -488,7 +488,7 @@ def run_kaldi_commands_parallel(resources,cmdPattern,analyzeResult=True,timeout=
 						newValues.append(f"{targetTemp.name}")
 
 					else:
-						raise UnsupportedType(f"<target> should be ArkIndexTable,ListTable,Transcription,file,int or float values or exkaldi achieve object but got: {type_name(target)}.")
+						raise UnsupportedType(f"<target> should be IndexTable,ListTable,Transcription,file,int or float values or exkaldi achieve object but got: {type_name(target)}.")
 				
 				newResources[key] = newValues
 			

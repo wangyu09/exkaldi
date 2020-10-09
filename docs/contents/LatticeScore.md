@@ -99,7 +99,7 @@ _requireAli_: If True, return alignment simultaneously.
 _requireCost_: If True, return acoustic model and language model cost simultaneously.  
 
 **Return:**  
-A list of exkaldi Transcription objects (and their Alignment and Metric objects).
+A list of exkaldi Transcription objects (and their Ali and Metric objects).
 
 >### .determinize
 (acwt=1.0, beam=6)

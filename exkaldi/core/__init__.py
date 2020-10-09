@@ -1,25 +1,25 @@
 from __future__ import absolute_import
 
 from exkaldi.core.archive import ListTable
-from exkaldi.core.archive import ArkIndexTable
+from exkaldi.core.archive import IndexTable
 from exkaldi.core.archive import Transcription
 from exkaldi.core.archive import Metric
 from exkaldi.core.archive import WavSegment
 
-from exkaldi.core.archive import BytesFeature
-from exkaldi.core.archive import BytesCMVNStatistics
-from exkaldi.core.archive import BytesProbability
-from exkaldi.core.archive import BytesAlignmentTrans
-from exkaldi.core.archive import BytesFmllrMatrix
+from exkaldi.core.archive import BytesFeat
+from exkaldi.core.archive import BytesCMVN
+from exkaldi.core.archive import BytesProb
+from exkaldi.core.archive import BytesAliTrans
+from exkaldi.core.archive import BytesFmllr
 
-from exkaldi.core.archive import NumpyFeature
-from exkaldi.core.archive import NumpyCMVNStatistics
-from exkaldi.core.archive import NumpyProbability
-from exkaldi.core.archive import NumpyAlignment
-from exkaldi.core.archive import NumpyAlignmentTrans
-from exkaldi.core.archive import NumpyAlignmentPhone
-from exkaldi.core.archive import NumpyAlignmentPdf
-from exkaldi.core.archive import NumpyFmllrMatrix
+from exkaldi.core.archive import NumpyFeat
+from exkaldi.core.archive import NumpyCMVN
+from exkaldi.core.archive import NumpyProb
+from exkaldi.core.archive import NumpyAli
+from exkaldi.core.archive import NumpyAliTrans
+from exkaldi.core.archive import NumpyAliPhone
+from exkaldi.core.archive import NumpyAliPdf
+from exkaldi.core.archive import NumpyFmllr
 
 from exkaldi.core.load import load_ali
 from exkaldi.core.load import load_feat

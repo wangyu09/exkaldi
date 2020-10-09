@@ -1,18 +1,17 @@
-# ExKaldi: An advance kaldi wrapper for Python 
-[![License](https://img.shields.io/hexpm/l/Apa)](https://github.com/wangyu09/exkaldi/blob/master/LICENSE)
-![Developing](https://img.shields.io/badge/Debug-1.3.x-orange)
+# ExKaldi: A Python-based Extension Tool of Kaldi
 ================================
 
-ExKaldi automatic speech recognition toolkit is designed to build an interface between [Kaldi ASR toolkit](https://github.com/kaldi-asr/kaldi) and Python. 
-Differing from other kaldi wrappers, ExKaldi have these features:  
-1. Integrated APIs to build a ASR systems, including training HMM-GMM acoustic model, training HMM-DNN acoustic model, training and quering a N-grams language model, decoding and scoring.  
-2. ExKaldi C++ library was designed to support, such as ctc decoding for End-to-End.   
-3. Use KenLm as languange model backend.
+ExKaldi automatic speech recognition toolkit is developed to build an interface between [Kaldi ASR toolkit](https://github.com/kaldi-asr/kaldi) and Python. 
+Differing from other Kaldi wrappers, ExKaldi have these features:  
+1. Integrated APIs to build a ASR systems, including feature extraction, GMM-HMM acoustic model training, N-Grams language model training, decoding and scoring. 
+2. ExKaldi provides tools to support train DNN acoustic model with Deep Learning frameworks, such as Tensorflow. 
+3. ExKaldi supports CTC decoding.  
 
 The goal of ExKaldi is to help developers build high-performance ASR systems with Python language easily.
 
 ## Installation
 
+Current version: 1.3.3.
 (We only tested our toolkit on Ubuntu >= 16.)
 
 1. If you have not installed Kaldi ASR toolkit, clone the Kaldi ASR toolkit repository firstly (Kaldi version 5.5 is expected.)
@@ -35,31 +34,30 @@ bash quick_install.sh
 
 3. Check if it is installed correctly.
 ```
-python -c "import exkaldi"
+python3 -c "import exkaldi"
 ```
-
 
 ## Tutorial
 
 In [exkaldi/tutorials](tutorials) directory, we prepared a simple tutorial to show how to use ExKaldi APIs to build a ASR system from the scratch.
-The data is from librispeech train_100_clean dataset. This tutorial includes:
+The data is from librispeech _train\_100\_clean_ dataset. This tutorial includes:
 1. Extract and process MFCC feature.  
 2. Train and querying a N-grams language model.  
-3. Train monophone GMM-HMM, build decision tree, triphone GMM-HMM.  
-4. Train a DNN acoustic model with tensorflow.  
+3. Train monophone GMM-HMM, build decision tree, and train triphone GMM-HMM.  
+4. Train a DNN acoustic model with Tensorflow.  
 5. Compile WFST decoding graph.  
 6. Decode based on GMM-HMM and DNN-HMM.  
-7. Process lattice and compute score WER.  
+7. Process lattice and compute WER score.  
 
-This ASR symtem built here is just a dummy model, and we have done some formal experiments in [exkaldi/examples](examples). Check the source code to look more information about ExKaldi APIs.
+This ASR symtem built here is just a dummy model, and we have done some formal experiments in [exkaldi/examples](examples). Check the source code or [documents](https://wangyu09.github.io/exkaldi/#/) to look more information about APIs.
 
 ## Experiments
 
-We have done some experiments to test ExKaldi toolkit, and it achieved a good performance.
+We have done some experiments to test ExKaldi toolkit, and they achieved a good performance.
 
 #### TIMIT
 
-1, The perplexity of various language models. All these systems are trained with TIMIT train data and tested with TIMIT test data. The score showed in the table is weighted average of all utterances and weights are the sentence length of each utterance.  
+1, The perplexity of various language models. All these systems are trained with TIMIT _train_ dataset and tested with TIMIT _test_ data. The score showed in the table is PPL score.  
 
 |                           | __2-grams__  | __3-grams__ | __4-grams__ | __5-grams__ | __6-grams__ |
 | :-----------------------: | :----------: | :---------: | :---------: | :---------: | :---------: |
@@ -67,7 +65,7 @@ We have done some experiments to test ExKaldi toolkit, and it achieved a good pe
 | __ExKaldi srilm__         | 14.42        | 13.05       | 13.67       | 14.30       | 14.53       |
 | __ExKaldi kenlm__         | 14.39        | 12.75       | 12.75       | 12.70       | __12.25__   |
 
-2, The phone error rate (PER) of various GMM-HMM-based systems. All these systems are trained with TIMIT train dataset and tested with TIMIT test dataset. The Language model backend used in ExKaldi is KenLM. From the results, we can know than KenLm is avaliable to optimize the language model. And what's more, with ExKaldi, we cherry-picked the N-grams by testing the perplexity and it improved the performance of ASR system.
+2, The phone error rate (PER) of various GMM-HMM-based systems. All these systems are trained with TIMIT _train_ dataset and tested with TIMIT _test_ dataset. The Language model backend used in ExKaldi is KenLM. From the results, we can know than KenLm is avaliable to optimize the language model. And what's more, with ExKaldi, we cherry-picked the N-grams model by testing the perplexity and it improved the performance of ASR system.
 
 |                           | __mono__  | __tri1__ | __tri2__ | __tri3__ |
 | :-----------------------: | :-------: | :------: | :------: | :------: |
@@ -75,10 +73,10 @@ We have done some experiments to test ExKaldi toolkit, and it achieved a good pe
 | __ExKaldi 2grams__        | 32.53     | 25.89    | 23.63    | 21.43    |
 | __ExKaldi 6grams__        | 29.83     | 24.07    | 22.40    |__20.01__ |
 
-3, The phone error rate (PER) of various DNN-HMM-based systems. We trained our models with Tensorflow 2.3. The version of PyTorch-Kaldi toolkit is 1.0 in our experiment. (We are tuning the hyperparameter for more better result)
+3, The phone error rate (PER) of two DNN-HMM-based systems. We trained our models with Tensorflow 2.3. The version of PyTorch-Kaldi toolkit is 1.0 in our experiment. 
 
 |                    | __DNN__   | __LSTM__ |
 | :----------------: | :-------: | :------: |
 | __Kaldi baseline__ | 18.67     | ---      | 
 | __PyTorch-Kaldi__  | 17.99     | 17.01    |
-| __ExKaldi__        | 15.13     | ---      |
+| __ExKaldi__        | 15.13     | 15.01    |

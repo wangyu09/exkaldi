@@ -23,9 +23,9 @@ import time,datetime
 from collections import namedtuple
 import numpy as np
 
-from exkaldi.version import info as ExkaldiInfo
-from exkaldi.version import WrongPath,KaldiProcessError,UnsupportedType,WrongOperation,WrongDataFormat
-from exkaldi.core.archive import BytesArchive,Transcription,ListTable,BytesAlignmentTrans,BytesFmllrMatrix
+from exkaldi.version import info as ExKaldiInfo
+from exkaldi.error import *
+from exkaldi.core.archive import BytesArchive,Transcription,ListTable,BytesAliTrans,BytesFmllr
 from exkaldi.core.load import load_ali,load_index_table,load_transcription,load_list_table
 from exkaldi.core.feature import transform_feat,use_fmllr
 from exkaldi.core.common import check_multiple_resources,run_kaldi_commands_parallel,merge_archives,utt_to_spk
@@ -195,8 +195,7 @@ class DecisionTree(BytesArchive):
 			out,err,cod = run_shell_command(cmd,stderr="PIPE",stdout="PIPE")
 
 			if (isinstance(cod,int) and cod != 0):
-				print(err.decode())
-				raise KaldiProcessError("Failed to cluster phones.")
+				raise KaldiProcessError("Failed to cluster phones.",err.decode())
 			
 			# second step: compile questions
 			extra = lexicons.dump_dict("extra_questions",None,True)
@@ -208,8 +207,7 @@ class DecisionTree(BytesArchive):
 			out,err,cod = run_shell_command(cmd,stdin="PIPE",stderr="PIPE",inputs=questions)
 
 			if cod != 0:
-				print(err.decode())
-				raise KaldiProcessError("Failed to compile questions.")
+				raise KaldiProcessError("Failed to compile questions.",err.decode())
 			
 			return outFile
 
@@ -251,8 +249,7 @@ class DecisionTree(BytesArchive):
 			out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
 
 			if (isinstance(cod,int) and cod !=0 ) or len(out) == 0:
-				print(err.decode())
-				raise KaldiProcessError("Failed to build tree.")
+				raise KaldiProcessError("Failed to build tree.",err.decode())
 			else:
 				self.reset_data(out)
 				return self			
@@ -271,7 +268,7 @@ class DecisionTree(BytesArchive):
 
 		Parallel Args:
 			<feat>: exkaldi feature object.
-			<ali>: file path or exkaldi transition-ID Alignment object.
+			<ali>: file path or exkaldi transition-ID Ali object.
 
 		'''
 		print("Start to build decision tree.")
@@ -335,8 +332,7 @@ class DecisionTree(BytesArchive):
 		cmd = f"tree-info -"
 		out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 		if isinstance(cod,int) and cod != 0:
-			print(err.decode())
-			raise WrongDataFormat("Failed to get the infomation of model.")
+			raise WrongDataFormat("Failed to get the infomation of model.",err.decode())
 		else:
 			out = out.decode().strip().split("\n")
 			names = []
@@ -489,8 +485,7 @@ class BaseHMM(BytesArchive):
 		out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 
 		if (isinstance(cod,int) and cod != 0 ) or len(out) == 0:
-			print(err.decode())
-			raise KaldiProcessError("Failed to estimate new GMM parameters.")
+			raise KaldiProcessError("Failed to estimate new GMM parameters.",err.decode())
 		else:
 			self.reset_data(out)
 			return self
@@ -681,8 +676,7 @@ class BaseHMM(BytesArchive):
 		cmd = f"gmm-info -"
 		out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 		if isinstance(cod,int) and cod != 0:
-			print(err.decode())
-			raise WrongDataFormat("Failed to get the infomation of model.")
+			raise WrongDataFormat("Failed to get the infomation of model.",err.decode())
 		else:
 			out = out.decode().strip().split("\n")
 			names = []
@@ -713,8 +707,7 @@ class BaseHMM(BytesArchive):
 		out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 
 		if cod != 0:
-			print(err.decode())
-			raise KaldiProcessError(f"Failed to transform GMM means.")
+			raise KaldiProcessError(f"Failed to transform GMM means.",err.decode())
 		else:
 			self.reset_data(out)
 
@@ -752,9 +745,9 @@ class MonophoneHMM(BaseHMM):
 
 		declare.is_feature("feat",feat)
 		feat = feat.subset(nHead=10)
-		if type_name(feat) == "NumpyFeature":
+		if type_name(feat) == "NumpyFeat":
 			feat = feat.to_bytes()
-		elif type_name(feat) == "ArkIndexTable":
+		elif type_name(feat) == "IndexTable":
 			feat = feat.fetch(arkType="feat")
 		
 		with FileHandleManager() as fhm:
@@ -769,8 +762,7 @@ class MonophoneHMM(BaseHMM):
 			out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=feat.data)
 
 			if isinstance(cod,int) and cod != 0:
-				print(err.decode())
-				raise KaldiProcessError("Failed to initialize mono model.")
+				raise KaldiProcessError("Failed to initialize mono model.",err.decode())
 
 			treeTemp.seek(0)
 			self.__tempTree = DecisionTree(lexicons=self.lex,contextWidth=1,centralPosition=0,name="monoTree")
@@ -917,7 +909,7 @@ class MonophoneHMM(BaseHMM):
 		print('Done to train the monophone model.')
 		print(f"Saved Final Model: {modeLFile}")
 		savedAliFiles = ",".join(list_files(os.path.join(tempDir,"*final.ali")))
-		print(f"Saved Alignments: ",savedAliFiles)
+		print(f"Saved Alis: ",savedAliFiles)
 		print(f"Saved tree: {treeFile}")
 		endtime = datetime.datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
 		print(f"End Time: {endtime}")
@@ -969,9 +961,9 @@ class TriphoneHMM(BaseHMM):
 					treeBackup = load_tree(tree)
 
 				feat = feat.subset(nRandom=10)
-				if type_name(feat) == "NumpyFeature":
+				if type_name(feat) == "NumpyFeat":
 					feat = feat.to_bytes()
-				elif type_name(feat) == "ArkIndexTable":
+				elif type_name(feat) == "IndexTable":
 					feat = feat.read_record(arkType="feat")				
 
 				cmd = f"gmm-init-model-flat {tree} {topoFile} - ark:- "
@@ -988,8 +980,7 @@ class TriphoneHMM(BaseHMM):
 				out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=tree.data)
 
 			if cod != 0:
-				print(err.decode())
-				raise KaldiProcessError("Failed to initialize model.") 
+				raise KaldiProcessError("Failed to initialize model.",err.decode()) 
 
 			self.reset_data(out)
 			self.__tree = treeBackup
@@ -1207,12 +1198,12 @@ class TriphoneHMM(BaseHMM):
 		print('Done to train the triphone model')
 		print(f"Saved Final Model: {modeLFile}")
 		savedAlis = ",".join(list_files(os.path.join(tempDir,f"*final.ali")))
-		print(f"Saved Alignment: ",savedAlis)
+		print(f"Saved Ali: ",savedAlis)
 		if ldaMatFile is not None:
-			print(f"Saved Feature Transform Matrix: {newTransMat}")
+			print(f"Saved Feat Transform Matrix: {newTransMat}")
 		elif fmllrTransMat is not None:
 			savedFmllrs = ",".join(list_files(os.path.join(tempDir,f"*trans.ark")))
-			print(f"Saved Feature Transform Matrix: ",savedFmllrs)
+			print(f"Saved Feat Transform Matrix: ",savedFmllrs)
 		endtime = datetime.datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
 		print(f"End Time: {endtime}")
 
@@ -1236,8 +1227,7 @@ def load_tree(target,name="tree",lexicons=None):
 	cmd = f"tree-info {target}"
 	out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
 	if isinstance(cod,int) and cod != 0:
-		print(err.decode())
-		raise WrongDataFormat("Failed to load tree.")
+		raise WrongDataFormat("Failed to load tree.",err.decode())
 	else:
 		out = out.decode().strip().split("\n")
 		contextWidth = int(out[1].strip().split()[-1])
@@ -1268,8 +1258,7 @@ def load_hmm(target,hmmType="tri",name="hmm",lexicons=None):
 	cmd = f"gmm-info {target}"
 	out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
 	if isinstance(cod,int) and cod != 0:
-		print(err.decode())
-		raise WrongDataFormat("Failed to load HMM-GMM model.")
+		raise WrongDataFormat("Failed to load HMM-GMM model.",err.decode())
 	else:
 		with open(target,"rb") as fr:
 			data = fr.read()
@@ -1303,8 +1292,7 @@ def __sum_statistics_files(tool,statsFiles,outFile):
 	out,err,cod = run_shell_command(cmd,stderr="PIPE")
 
 	if cod != 0:
-		print(err.decode())
-		raise KaldiProcessError(f"Failed to sum statistics.")
+		raise KaldiProcessError(f"Failed to sum statistics.",err.decode())
 	else:
 		return outFile
 
@@ -1365,15 +1353,14 @@ def make_topology(lexicons,outFile,numNonsilStates=3,numSilStates=5):
 
 	make_dependent_dirs(outFile,pathIsFile=True)
 
-	cmd = os.path.join(ExkaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","gen_topo.pl")
+	cmd = os.path.join(ExKaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","gen_topo.pl")
 	cmd += f" {numNonsilStates} {numSilStates} {nonsilphonelist} {silphonelist} > {outFile}"
 	out,err,cod = run_shell_command(cmd,stderr="PIPE")
 
 	if (isinstance(cod,int) and cod != 0) or (not os.path.isfile(outFile)) or (os.path.getsize(outFile) == 0):
-		print(err.decode())
 		if os.path.isfile(outFile):
 			os.remove(outFile)
-		raise KaldiProcessError("Failed to generate toponology file.")
+		raise KaldiProcessError("Failed to generate toponology file.",err.decode())
 	else:
 		return outFile
 
@@ -1521,7 +1508,7 @@ def transcription_from_int(transcription,symbolTable):
 				except KeyError:
 					raise WrongDataFormat(f"Word symbol table miss symbol: {word}")
 				except ValueError as e:
-					print("Transcription may conlude non-int value.")
+					e.args = ("Transcription may conlude non-int value."+"\n"+e.args[0],)
 					raise e
 					
 		transcription[utt] = " ".join(text)
@@ -1633,8 +1620,7 @@ def estimate_LDA_matrix(statsFiles,targetDim,outFile):
 	cmd = f'est-lda --dim={targetDim} {outFile} {statsFiles}'
 	out,err,cod = run_shell_command(cmd,stderr="PIPE")
 	if cod != 0:
-		print(err.decode())
-		raise KaldiProcessError("Failed to estimate LDA matrix.")
+		raise KaldiProcessError("Failed to estimate LDA matrix.",err.decode())
 	else:
 		return outFile
 
@@ -1659,8 +1645,7 @@ def estimate_MLLT_matrix(statsFiles,outFile):
 	cmd = f'est-mllt {outFile} {statsFiles}'
 	out,err,cod = run_shell_command(cmd,stderr="PIPE")
 	if cod != 0:
-		print(err.decode())
-		raise KaldiProcessError("Failed to estimate MLLT matrix.")
+		raise KaldiProcessError("Failed to estimate MLLT matrix.",err.decode())
 	else:
 		return outFile
 
@@ -1742,7 +1727,7 @@ def compose_transform_matrixs(matA,matB,bIsAffine=False,utt2spk=None,outFile=Non
 	else:
 		name = "compose({})".format(",".join(name))
 		if outFile is None:
-			return BytesFmllrMatrix(results[2],name=name)
+			return BytesFmllr(results[2],name=name)
 		else:
 			return load_index_table(outFile,name=name)
 
@@ -1763,8 +1748,7 @@ def load_mat(matrixFile):
 	out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
 	
 	if cod != 0:
-		print(err.decode())
-		raise KaldiProcessError("Failed to compose matrixes.")
+		raise KaldiProcessError("Failed to compose matrixes.",err.decode())
 	else:
 		out = out.decode().strip().strip("[]").strip().split("\n")
 		results = []
@@ -1818,13 +1802,13 @@ def estimate_fMLLR_matrix(aliOrLat,lexicons,aliHmm,feat,spk2utt,adaHmm=None,sile
 		
 		aliOrLats,feats,spk2utts,names,outFiles = check_multiple_resources(aliOrLat,feat,spk2utt,name,outFile=outFile)
 	
-		fromAlignment = True
+		fromAli = True
 		for aliOrLat,feat,spk2utt,name in zip(aliOrLats,feats,spk2utts,names):
 			# check alignment or lattice
-			if type_name(aliOrLat) in ["ArkIndexTable","BytesAlignmentTrans","NumpyAlignmentTrans"]:
-				fromAlignment = True
+			if type_name(aliOrLat) in ["IndexTable","BytesAliTrans","NumpyAliTrans"]:
+				fromAli = True
 			elif type_name(aliOrLat) in ["Lattice","str"]:
-				fromAlignment = False
+				fromAli = False
 			else:
 				raise UnsupportedType(f"<aliOrLat> should exkaldi alignment object,index table,lattice object or lattice file but got: {type_name(aliOrLat)}.")
 			# check feature
@@ -1834,7 +1818,7 @@ def estimate_fMLLR_matrix(aliOrLat,lexicons,aliHmm,feat,spk2utt,adaHmm=None,sile
 
 		# define command pattern
 		silphonelist = ":".join(lexicons("silence",True))
-		if fromAlignment:
+		if fromAli:
 			cmdPattern = "ali-to-post {aliOrLat} ark:- | "
 		else:
 			cmdPattern = f"lattice-to-post --acoustic-scale={acwt} "+"ark:{aliOrLat} ark:- | "

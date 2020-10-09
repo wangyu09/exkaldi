@@ -20,8 +20,8 @@ import os
 import pickle
 import copy
 
-from exkaldi.version import info as ExkaldiInfo
-from exkaldi.version import WrongPath,WrongOperation,WrongDataFormat,KaldiProcessError,ShellProcessError,UnsupportedType
+from exkaldi.version import info as ExKaldiInfo
+from exkaldi.error import *
 from exkaldi.utils.utils import make_dependent_dirs,run_shell_command,type_name
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
@@ -105,11 +105,10 @@ class LexiconBank:
 				extraDisambigWords = fhm.create("w+",encoding='utf-8')
 				extraDisambigWords.write("\n".join(self.__parameters["extraDisambigWords"]))
 				extraDisambigWords.seek(0)
-				cmd = os.path.join(ExkaldiInfo.KALDI_ROOT,'egs','wsj','s5','utils','lang','validate_disambig_sym_file.pl') + f' --allow-numeric "false" {extraDisambigWords.name}'
+				cmd = os.path.join(ExKaldiInfo.KALDI_ROOT,'egs','wsj','s5','utils','lang','validate_disambig_sym_file.pl') + f' --allow-numeric "false" {extraDisambigWords.name}'
 				out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
 				if cod != 0:
-					print(out.decode())
-					raise WrongDataFormat("Failed to validate extra disambig words.")
+					raise WrongDataFormat("Failed to validate extra disambig words.",out.decode())
 
 	def __initialize_dictionaries(self,fileName):
 		'''
@@ -344,8 +343,7 @@ class LexiconBank:
 			cmd = f'grep "#1" -m 1 < {lexiconFile}'
 			out,err,cod = run_shell_command(cmd,stdout="PIPE")
 			if (isinstance(cod,int) and cod != 0):
-				print(err.decode())
-				raise ShellProcessError("Failed to vertify disambig symbol.")
+				raise ShellProcessError("Failed to vertify disambig symbol.",err.decode())
 			elif len(out) > 0:
 				dictType += "_disambig"
 
@@ -636,11 +634,10 @@ class LexiconBank:
 			
 			lexiconp.seek(0)
 			
-			cmd = os.path.join(ExkaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","add_lex_disambig.pl") + f" --pron-probs {cmdOption}{lexiconp.name} {lexiconpDisambig.name}"
+			cmd = os.path.join(ExKaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","add_lex_disambig.pl") + f" --pron-probs {cmdOption}{lexiconp.name} {lexiconpDisambig.name}"
 			out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
 			if (isinstance(cod,int) and cod!=0 ) or out == b"":
-				print(err.decode())
-				raise KaldiProcessError("Failed to add disambig phones to lexiconp.")
+				raise KaldiProcessError("Failed to add disambig phones to lexiconp.",err.decode())
 			else:
 				self.__parameters["ndisambig"] = int(out.decode().strip()) + self.__parameters["extraDisambigPhoneNumbers"]
 
@@ -1482,12 +1479,12 @@ def make_L(lexicons,outFile,useSilprobLexicon=False,useSilprob=0.5,useDisambigLe
 				# If specify silprob lexicon,use silprob disambig lexiconp
 				lexicons.dump_dict("silprob",silprobTemp)
 				lexicons.dump_dict("lexiconp_silprob_disambig",lexiconTemp)
-				cmd1 = os.path.join(ExkaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","lang","make_lexicon_fst_silprob.py")
+				cmd1 = os.path.join(ExKaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","lang","make_lexicon_fst_silprob.py")
 				cmd1 += f' --sil-phone=\"{silPhone}\" --sil-disambig=#{ndisambig} {lexiconTemp.name} {silprobTemp.name}'
 			else:
 				# If use disambig lexiconp
 				lexicons.dump_dict("lexiconp_disambig",lexiconTemp)
-				cmd1 = os.path.join(ExkaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","lang","make_lexicon_fst.py")
+				cmd1 = os.path.join(ExKaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","lang","make_lexicon_fst.py")
 				cmd1 += f' --sil-prob={useSilprob} --sil-phone=\"{silPhone}\" --sil-disambig=#{ndisambig} {lexiconTemp.name}'
 		else:
 			# If use lexiconp
@@ -1495,18 +1492,17 @@ def make_L(lexicons,outFile,useSilprobLexicon=False,useSilprob=0.5,useDisambigLe
 				# If specify silprob lexicon,use silprob lexiconp
 				lexicons.dump_dict("silprob",silprobTemp)
 				lexicons.dump_dict("lexiconp_silprob",lexiconTemp)
-				cmd1 = os.path.join(ExkaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","lang","make_lexicon_fst_silprob.py")
+				cmd1 = os.path.join(ExKaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","lang","make_lexicon_fst_silprob.py")
 				cmd1 += f' --sil-phone=\"{silPhone}\" {lexiconTemp.name} {silprobTemp.name}'
 			else:
 				lexicons.dump_dict("lexiconp",lexiconTemp)
-				cmd1 = os.path.join(ExkaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","lang","make_lexicon_fst.py")
+				cmd1 = os.path.join(ExKaldiInfo.KALDI_ROOT,"egs","wsj","s5","utils","lang","make_lexicon_fst.py")
 				cmd1 += f' --sil-prob={useSilprob} --sil-phone=\"{silPhone}\" {lexiconTemp.name}'					
 
 		out1,err1,cod1 = run_shell_command(cmd1,stdout="PIPE",stderr="PIPE")
 		
 		if (isinstance(cod1,int) and cod1 != 0) or out1 is None or (isinstance(out1,str) and len(out1) == 0):
-			print(err1.decode())
-			raise KaldiProcessError("Failed to generate text format fst.")
+			raise KaldiProcessError("Failed to generate text format fst.",err1.decode())
 
 		phonesTemp = fhm.create("w+",encoding='utf-8',suffix=".phones")
 		lexicons.dump_dict("phones",phonesTemp)
@@ -1567,13 +1563,73 @@ def make_G(lexicons,arpaFile,outFile,order=3):
 		wordsTemp = fhm.create("w+",encoding='utf-8',suffix=".words")
 		lexicons.dump_dict("words",wordsTemp)
 
-		cmd =  f'arpa2fst --disambig-symbol=#0 --read-symbol-table={wordsTemp.name} {arpaFile} {outFile}'
-		
-		out,err,cod = run_shell_command(cmd,stderr="PIPE")
+		# check the arpa file
+		fr = fhm.open(arpaFile,mode="r",encoding="utf-8",name="sourceARPA")
+		orderCount = {}
+		## read header
+		while True:
+			line = fr.readline().strip()
+			if line == "\\data\\":
+				while True:
+					line = fr.readline().strip()
+					if not line:
+						break
+					line = line.split(maxsplit=1)[1]
+					try:
+						line = line.split("=")
+						orderCount[ int(line[0]) ] = int(line[1])
+					except Exception as e:
+						raise exkaldi.error.WrongDataFormat("Found wrong format when checking the header of ARPA file.",e.args[0])
+				break
+		assert len(orderCount) > 0, "Missed valid header in ARPA file."
+		sourceOrder = max(orderCount.keys())
+		assert sourceOrder == len(orderCount.keys()), "N-Grams is incomplete in ARPA file."
+
+		if order >= sourceOrder:
+			fr.close()
+			del orderCount
+
+			cmd =  f'arpa2fst --disambig-symbol=#0 --read-symbol-table={wordsTemp.name} {arpaFile} {outFile}'
+			out,err,cod = run_shell_command(cmd,stderr="PIPE")
+
+		else:
+			# extract header
+			backup = ["\\data\\",]
+			for n in range(1,order+1):
+					backup.append(f"ngram {n}={orderCount[n]}")
+			backup.append("")
+			# extract n-grams
+			for n in range(1,order+1):
+				# discard space line
+				while True:
+					line = fr.readline().strip()
+					if line:
+						break
+				# read contents
+				assert line == f"\\{n}-grams:", f"Wrong header: {line}."
+				backup.append(line)
+				count = 0
+				while True:
+					line = fr.readline().strip()
+					if line:
+						count += 1
+						if n == order:
+							line = " ".join(line.split()[0:-1])
+						backup.append(line)
+					else:
+						break
+				assert count == orderCount[n], f"Expected {n}-grams=={orderCount[n]} but found: {count}."
+				backup.append("")
+			backup.append("\\end\\")
+			fr.close()
+
+			backup = "\n".join(backup)
+					
+			cmd =  f'arpa2fst --disambig-symbol=#0 --read-symbol-table={wordsTemp.name} - {outFile}'
+			out,err,cod = run_shell_command(cmd,stdin="PIPE",stderr="PIPE",inputs=backup)
 		
 		if cod != 0:
-			print(err.decode())
-			raise KaldiProcessError("Failed to transform ARPA model to FST format.")
+			raise KaldiProcessError("Failed to transform ARPA model to FST format.",err.decode())
 		else:
 			return os.path.abspath(outFile)
 
@@ -1622,10 +1678,9 @@ def compose_LG(LFile,GFile,outFile="LG.fst"):
 	out,err,cod = run_shell_command(cmd,stderr="PIPE")
 
 	if cod != 0:
-		print(err.decode())
 		if os.path.isfile(outFile):
 			os.remove(outFile)
-		raise KaldiProcessError("Failed to compose L and G file.")
+		raise KaldiProcessError("Failed to compose L and G file.",err.decode())
 	else:
 		return os.path.abspath(outFile)
 
@@ -1677,8 +1732,7 @@ def compose_CLG(lexicons,tree,LGFile,outFile="CLG.fst"):
 		out,err,cod = run_shell_command(cmd,stderr="PIPE")
 
 		if cod != 0:
-			print(err.decode())
-			raise KaldiProcessError("Failed to generate CLG.fst file.")
+			raise KaldiProcessError("Failed to generate CLG.fst file.",err.decode())
 		else:
 			return outFile,iLabelFile
 
@@ -1733,8 +1787,7 @@ def compose_HCLG(hmm,tree,CLGFile,iLabelFile,outFile="HCLG.fst",transScale=1.0,l
 		out1,err1,cod1 = run_shell_command(cmd1,stdout="PIPE",stderr="PIPE")
 
 		if cod1 != 0:
-			print(err1.decode())
-			raise KaldiProcessError("Failed to make make H transducer.")
+			raise KaldiProcessError("Failed to make make H transducer.",err1.decode())
 		
 		disambigTID.seek(0)
 		Ha.seek(0)
@@ -1751,8 +1804,7 @@ def compose_HCLG(hmm,tree,CLGFile,iLabelFile,outFile="HCLG.fst",transScale=1.0,l
 		out2,err2,cod2 = run_shell_command(cmd2,stdout="PIPE",stderr="PIPE")
 
 		if cod2 != 0:
-			print(err2.decode())
-			raise KaldiProcessError("Failed to make HCLGa.fst.")
+			raise KaldiProcessError("Failed to make HCLGa.fst.",err2.decode())
 		
 		HCLGa.seek(0)
 		treeTemp = fhm.create('wb+',suffix='.tree')
@@ -1760,8 +1812,7 @@ def compose_HCLG(hmm,tree,CLGFile,iLabelFile,outFile="HCLG.fst",transScale=1.0,l
 		out3,err3,cod3 = run_shell_command(cmd3,stdout="PIPE",stderr="PIPE")
 
 		if cod3 != 0:
-			print(err3.decode())
-			raise KaldiProcessError("Failed to generate HCLG.fst.")
+			raise KaldiProcessError("Failed to generate HCLG.fst.",err3.decode())
 		else:
 			return outFile
 

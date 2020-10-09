@@ -21,21 +21,16 @@ import copy
 from glob import glob
 from collections import namedtuple
 
-'''Some Exception Classes'''
-class WrongPath(Exception):pass
-class WrongOperation(Exception):pass
-class WrongDataFormat(Exception):pass
-class ShellProcessError(Exception):pass
-class KaldiProcessError(Exception):pass
-class KenlmProcessError(Exception):pass
-class UnsupportedType(Exception):pass
-class UnsupportedKaldiVersion(Exception): pass
+import sys
+DIR=os.path.dirname(os.path.dirname(__file__))
+sys.path.append(DIR)
+from exkaldi.error import *
 
 '''Version Control'''
 
 _MAJOR_VERSION = '1'
 _MINOR_VERSION = '3'
-_PATCH_VERSION = '2'
+_PATCH_VERSION = '3'
 
 _EXPECTED_KALDI_VERSION = "5.5"
 
@@ -43,7 +38,7 @@ _TIMEOUT = 500
 
 class ExKaldiInfo( namedtuple("ExKaldiInfo",["version","major","minor","patch"]) ):
 	'''
-	Generate a object that carries various Exkaldi configurations.
+	Generate a object that carries various ExKaldi configurations.
 	'''
 	def initialize(self):
 		'''
@@ -64,10 +59,10 @@ class ExKaldiInfo( namedtuple("ExKaldiInfo",["version","major","minor","patch"])
 	@property
 	def EXKALDI(self):
 		'''
-		Get the Exkaldi version information.
+		Get the ExKaldi version information.
 
 		Return:
-		    A named tuple.
+		  A namedtuple object.
 		'''
 		return self
 
@@ -97,7 +92,7 @@ class ExKaldiInfo( namedtuple("ExKaldiInfo",["version","major","minor","patch"])
 					v = fr.readline().strip()
 					major, minor = v.split(".")[0:2]
 				if v != _EXPECTED_KALDI_VERSION:
-					raise UnsupportedKaldiVersion(f"Current Exkaldi only supports Kaldi version=={_EXPECTED_KALDI_VERSION} but got {v}.")
+					raise UnsupportedKaldiVersion(f"Current ExKaldi only supports Kaldi version=={_EXPECTED_KALDI_VERSION} but got {v}.")
 				else:
 					return namedtuple("Kaldi", ["version", "major", "minor"])(v, major, minor)
 
@@ -207,20 +202,26 @@ class ExKaldiInfo( namedtuple("ExKaldiInfo",["version","major","minor","patch"])
 
 	def export_path(self, path):
 		'''
-		Add a path to Exkaldi environment PATH.
+		Add a path to ExKaldi environment PATH.
 		
 		Args:
 			<path>: a path.
 		'''
 		if not os.path.exists(path):
 			raise WrongPath(f"No such path: {path}.")
+
 		systemPATH = self.ENV["PATH"]
+		path = os.path.abspath(path)
+		for p in systemPATH.split(":"):
+			if p == path:
+				return
+
 		systemPATH += f":{path}"
 		self.__ENV['PATH'] = systemPATH
 
 	def prepare_srilm(self):
 		'''
-		Prepare SriLM toolkit and add it to Exkaldi system PATH.
+		Prepare SriLM toolkit and add it to ExKaldi system PATH.
 		'''
 		if self.KALDI_ROOT is None:
 			raise WrongPath("Kaldi toolkit was not found.")

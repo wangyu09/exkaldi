@@ -19,8 +19,8 @@ import os
 import re
 from collections import namedtuple,Iterable
 
-from exkaldi.version import info as ExkaldiInfo
-from exkaldi.version import WrongPath,UnsupportedType,WrongDataFormat,KaldiProcessError,WrongOperation
+from exkaldi.version import info as ExKaldiInfo
+from exkaldi.error import *
 from exkaldi.utils.utils import type_name,flatten,run_shell_command
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
@@ -75,8 +75,7 @@ def wer(ref,hyp,ignore=None,mode='all'):
 			cmd = f'sed "s/{ignore} //g" > {hypTemp.name}'
 			hypOut,err,_ = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=hyp)
 			if len(hypOut) == 0:
-				print(err.decode())
-				raise WrongDataFormat("<hyp> has wrong data formation.")
+				raise WrongDataFormat("<hyp> has wrong data formation.",err.decode())
 			# remove the ingored symbol in ref
 			if type_name(ref) == "Transcription":
 				ref = ref.save()
@@ -87,15 +86,13 @@ def wer(ref,hyp,ignore=None,mode='all'):
 			cmd = f'sed "s/{ignore} //g" > {refTemp.name}'
 			refOut,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=ref)
 			if cod != 0 or len(refOut) == 0:
-				print(err.decode())
-				raise WrongDataFormat("<ref> has wrong data formation.")
+				raise WrongDataFormat("<ref> has wrong data formation.",err.decode())
 			# score
 			cmd = f'compute-wer --text --mode={mode} ark:{refTemp.name} ark,p:{hypTemp.name}'
 			scoreOut,scoreErr,_ = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
 	
 	if len(scoreOut) == 0:
-		print(scoreErr.decode())
-		raise KaldiProcessError("Failed to compute WER.")
+		raise KaldiProcessError("Failed to compute WER.",scoreErr.decode())
 	else:
 		out = scoreOut.decode().split("\n")
 		pattern1 = '%WER (.*) \[ (.*) \/ (.*),(.*) ins,(.*) del,(.*) sub \]'

@@ -27,12 +27,12 @@ utt2spk = exkaldi.load_list_table("./utt2spk")
 Load an index table from dict, or archive table file.
 
 **Args:**  
-_target_: dict object, ArkIndexTable object, bytes archive object or archive table file.  
+_target_: dict object, IndexTable object, bytes archive object or archive table file.  
 _name_: a string.  
 _useSuffix_: if _target_ is file path and not default suffix, appoint it "scp" or "ark".  
 
 **Return:**
-exkaldi ArkIndexTable object.
+exkaldi IndexTable object.
 
 **Examples:** 
 Exkaldi index table can discribe all bytes archives. typically, you can load the index table from a binary archive table file.
@@ -70,7 +70,7 @@ _name_: a string.
 _useSuffix_: a string. When target is file path, use this to specify file.  
 
 **Return:**  
-A BytesFeature or NumpyFeature object.  
+A BytesFeat or NumpyFeat object.  
 
 -----------------------------
 >## exkaldi.load_cmvn
@@ -83,7 +83,7 @@ _target_: Python dict object, bytes object, exkaldi feature object, .ark file, .
 _name_: a string.  
 _useSuffix_: a string. When target is file path, use this to specify file.  
 **Return:**  
-A BytesFeature or NumpyFeature object.
+A BytesFeat or NumpyFeat object.
 
 -----------------------------
 >## exkaldi.load_prob
@@ -96,7 +96,7 @@ _target_: Python dict object, bytes object, exkaldi feature object, .ark file, .
 _name_: a string.  
 _useSuffix_: a string. When target is file path, use this to specify file.  
 **Return:**  
-A BytesProbability or NumpyProbability object.  
+A BytesProb or NumpyProb object.  
 
 -----------------------------
 >## exkaldi.load_fmllr
@@ -109,7 +109,7 @@ _target_: Python dict object, bytes object, exkaldi feature object, .ark file, .
 _name_: a string.  
 _useSuffix_: a string. When target is file path, use this to specify file.  
 **Return:**  
-A BytesFmllrMatrix or NumpyFmllrMatrix object. 
+A BytesFmllr or NumpyFmllr object. 
 
 -----------------------------
 >## exkaldi.load_ali

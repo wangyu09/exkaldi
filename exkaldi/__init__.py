@@ -1,5 +1,8 @@
 from __future__ import absolute_import
 
+from exkaldi import error
+from exkaldi.error import *
+
 from exkaldi import version
 from exkaldi.version import info
 

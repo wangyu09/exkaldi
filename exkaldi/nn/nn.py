@@ -29,10 +29,9 @@ import time
 import shutil
 from glob import glob
 
-from exkaldi.version import WrongPath,WrongOperation,UnsupportedType,KaldiProcessError
+from exkaldi.error import *
 from exkaldi.utils.utils import make_dependent_dirs,type_name,run_shell_command,flatten
 from exkaldi.utils import declare
-from exkaldi.core.load import load_feat
 from collections import namedtuple,Iterable
 
 class Supporter:
@@ -256,7 +255,7 @@ class Supporter:
 							else:
 								raise UnsupportedType(f"Failed to remove {fileName}: It is not a file and directory path.")
 					except Exception as e:
-						print(f"Failed to remove saved achivements:{fileName}.")
+						e.args = (f"Failed to remove saved achivements:{fileName}."+"\n"+e.args[0],)
 						raise e
 			
 			self.savedArchs = self.savedArchs[-maxRetain:]
@@ -342,20 +341,32 @@ class Supporter:
 			return allData
 
 class DataIterator:
-
+	'''
+	A data iterator to load and generate dataset with parallel threads for large-scale corpus.
+	'''
 	def __init__(self,indexTable,processFunc,batchSize,chunks='auto',otherArgs=None,shuffle=False,retainData=0.0):
-		
+		'''
+		Args:
+			_indexTable_: an ExKaldi IndexTable object whose <filePath> info is necessary.
+			_processFunc_: a function receive a IndexTable object return return an iterable dataset object.
+										It at least need two arguments to receive ( the data iteator itself, a IndexTable object of a chunk data ).
+			_batchSize_: mini batch size.
+			_chunks_: how many chunks to split.
+			_otherArgs_: other arguments to send to <processFunc>.
+			_shuffle_: If True, shuffle a batch data.
+			_retainData_: a probability value. how much data to retained for evaluation.
+		'''
 		declare.is_index_table("indexTable",indexTable)
 		declare.is_callable("processFunc",processFunc)	
 		declare.is_positive_int("batchSize",batchSize)
 		declare.is_bool("shuffle",shuffle)
 		declare.in_boundary("retainData",retainData,minV=0.0,maxV=0.9)
 
-		self.processFunc = processFunc
-		self._batchSize = batchSize
-		self.otherArgs = otherArgs
-		self._shuffle = shuffle
-		self._chunks = chunks
+		self.__processFunc = processFunc
+		self.__batchSize = batchSize
+		self.__otherArgs = otherArgs
+		self.__shuffle = shuffle
+		self.__chunks = chunks
 
 		if chunks != 'auto':
 			declare.is_positive_int("chunks",chunks)
@@ -365,177 +376,248 @@ class DataIterator:
 		evalDataNumber = totalDataNumber - trainDataNumber
 		scpTable = indexTable.shuffle()
 
-		self.trainTable = scpTable.subset(nHead=trainDataNumber)
-		self.evalTable = scpTable.subset(nTail=evalDataNumber)
+		self.__trainTable = scpTable.subset(nHead=trainDataNumber)
+		if evalDataNumber > 0:
+			self.__evalTable = scpTable.subset(nTail=evalDataNumber)
+		else:
+			self.__evalTable = None
 
 		if chunks == 'auto':
 			#Compute the chunks automatically
-			sampleTable = self.trainTable.subset(nHead=10)
+			sampleTable = self.__trainTable.subset(nHead=10)
 			meanSize = sum([ indexInfo.dataSize for indexInfo in sampleTable.values() ]) / 10
 			autoChunkSize = math.ceil(104857600/meanSize)  # 100MB = 102400KB = 104857600 B
-			self._chunks = trainDataNumber//autoChunkSize
-			if self._chunks == 0: 
-				self._chunks = 1
+			self.__chunks = trainDataNumber//autoChunkSize
+			if self.__chunks == 0: 
+				self.__chunks = 1
 
-		self.make_dataset_bag(shuffle=False)
-		self._epoch = 0
-		
-		self.load_dataset(0)
-		self.currentDataset = self.nextDataset
-		self.nextDataset = None
+		# split train dataset into N chunks
+		self.__make_dataset_bag(shuffle=False)
 
-		self.epochSize = len(self.currentDataset)
-		self.countEpochSizeFlag = True
+		# initialize some parameters
+		self.__epoch = 0
+		self.__currentPosition = 0
+		self.__currentEpochPosition = 0
+		self.__isNewEpoch = False
+		self.__isNewChunk = False
+		self.__datasetIndex = 0
 
-		self.currentPosition = 0
-		self.currentEpochPosition = 0
-		self._isNewEpoch = False
-		self._isNewChunk = False
-		self.datasetIndex = 0
+		# load the first chunk data
+		self.__load_dataset(0)
+		self.__currentDataset = self.__nextDataset
+		self.__nextDataset = None
 
-		if self._chunks > 1:
-			self.datasetIndex = 1
-			self.loadDatasetThread = threading.Thread(target=self.load_dataset,args=(1,))
-			self.loadDatasetThread.start()
+		# accumulate counts
+		self.__epochSize = len(self.__currentDataset)
+		self.__countEpochSizeFlag = True
 
-	def make_dataset_bag(self,shuffle=False):
+		# try to load the next chunk
+		if self.__chunks > 1:
+			self.__datasetIndex = 1
+			self.__loadDatasetThread = threading.Thread(target=self.__load_dataset,args=(1,))
+			self.__loadDatasetThread.start()
+
+	def __make_dataset_bag(self,shuffle=False):
+		'''
+		Split train index table into n chunks.
+		'''
 		if shuffle:
-			self.trainTable.shuffle()
-		self.datasetBag = self.trainTable.subset(chunks=self._chunks)
-
-	def load_dataset(self,datasetIndex):
-		chunkData = load_feat(self.datasetBag[datasetIndex])
-		if self.otherArgs != None:
-			self.nextDataset = self.processFunc(self,chunkData,self.otherArgs)
+			self.__trainTable.shuffle()
+		if self.__chunks > 1:
+			self.__datasetBag = self.__trainTable.subset(chunks=self.__chunks)
 		else:
-			self.nextDataset = self.processFunc(self,chunkData)
+			self.__datasetBag = [self.__trainTable,]
 
-		assert isinstance(self.nextDataset,Iterable),"Process function should return an iterable objects."
-		self.nextDataset = [X for X in self.nextDataset]
+	def __load_dataset(self,datasetIndex):
+		'''
+		Read a chunk data into memory.
+		'''
+		if self.__otherArgs != None:
+			self.__nextDataset = self.__processFunc(self, self.__datasetBag[datasetIndex], self.__otherArgs)
+		else:
+			self.__nextDataset = self.__processFunc(self, self.__datasetBag[datasetIndex])
 
-		if self._batchSize > len(self.nextDataset):
-			print(f"Warning: Batch Size <{self._batchSize}> is extremely large for this dataset,we hope you can use a more suitable value.")
+		assert isinstance(self.__nextDataset,Iterable),"Process function should return an iterable objects."
+		if not isinstance(self.__nextDataset,list):
+			self.__nextDataset = [X for X in self.__nextDataset]
+
+		if self.__batchSize > len(self.__nextDataset):
+			print(f"Warning: Batch Size <{self.__batchSize}> is extremely large for this dataset, we hope you can use a more suitable value.")
 		
 	def next(self):
-		i = self.currentPosition
-		iEnd = i + self._batchSize
-		N = len(self.currentDataset)
+		'''
+		Get the next batch data.
+		'''
+		i = self.__currentPosition
+		iEnd = i + self.__batchSize
+		N = len(self.__currentDataset)
 
-		batch = self.currentDataset[i:iEnd]
+		batch = self.__currentDataset[i:iEnd]
 
-		if self._chunks == 1:
+		if self.__chunks == 1:
 			if iEnd >= N:
 				rest = iEnd - N
-				if self._shuffle:
-					random.shuffle(self.currentDataset)
-				batch.extend(self.currentDataset[:rest])
-				self.currentPosition = rest
-				self.currentEpochPosition = self.currentPosition
-				self._epoch += 1
-				self._isNewEpoch = True
-				self._isNewChunk = True
+				if self.__shuffle:
+					random.shuffle(self.__currentDataset)
+				batch.extend(self.__currentDataset[:rest])
+				self.__currentPosition = rest
+				self.__epoch += 1
+				self.__isNewEpoch = True
+				self.__isNewChunk = True
 			else:
-				self.currentPosition = iEnd
-				self._isNewEpoch = False
-				self._isNewChunk = False
+				self.__currentPosition = iEnd
+				self.__isNewEpoch = False
+				self.__isNewChunk = False
+			self.__currentEpochPosition = self.__currentPosition
 		else:
 			if iEnd >= N:
 				rest = iEnd - N
-				if self.loadDatasetThread.is_alive():
-					self.loadDatasetThread.join()
-				if self._shuffle:
-					random.shuffle(self.nextDataset)
-				batch.extend(self.nextDataset[:rest])
-				self.currentPosition = rest
-				self.currentDataset = self.nextDataset
-				self._isNewChunk = True
+				if self.__loadDatasetThread.is_alive():
+					self.__loadDatasetThread.join()
+				if self.__shuffle:
+					random.shuffle(self.__nextDataset)
+				batch.extend(self.__nextDataset[:rest])
+				self.__currentPosition = rest
+				self.__currentDataset = self.__nextDataset
+				self.__isNewChunk = True
 				
-				if self.countEpochSizeFlag:
-					self.epochSize += len(self.currentDataset)
+				if self.__countEpochSizeFlag:
+					self.__epochSize += len(self.__currentDataset)
 
-				self.datasetIndex = (self.datasetIndex+1)%self._chunks
+				self.__datasetIndex = (self.__datasetIndex+1)%self.__chunks
 
-				if self.datasetIndex == 1:
-					self._epoch += 1
-					self._isNewEpoch = True
+				if self.__datasetIndex == 1:
+					self.__epoch += 1
+					self.__isNewEpoch = True
 
-				if self.datasetIndex == 0:
-					self.countEpochSizeFlag = False
-					del self.datasetBag
-					self.make_dataset_bag(shuffle=True)
+				if self.__datasetIndex == 0:
+					self.__countEpochSizeFlag = False
+					del self.__datasetBag
+					self.__make_dataset_bag(shuffle=True)
 
-				self.loadDatasetThread = threading.Thread(target=self.load_dataset,args=(self.datasetIndex,))
-				self.loadDatasetThread.start()
+				self.__loadDatasetThread = threading.Thread(target=self.__load_dataset,args=(self.__datasetIndex,))
+				self.__loadDatasetThread.start()
 
 			else:
-				self._isNewChunk = False
-				self._isNewEpoch = False
-				self.currentPosition = iEnd
+				self.__isNewChunk = False
+				self.__isNewEpoch = False
+				self.__currentPosition = iEnd
 
-			self.currentEpochPosition = (self.currentEpochPosition + self._batchSize)%self.epochSize
+			self.__currentEpochPosition = (self.__currentEpochPosition + self.__batchSize)%self.__epochSize
 
-		return batch                            
+		return batch                          
 
 	@property
 	def batchSize(self):
-		return self._batchSize
+		'''
+		Get the batch size.
+
+		Return:
+			an int value.
+		'''
+		return self.__batchSize
 
 	@property
 	def chunks(self):
-		return self._chunks
+		'''
+		Get the chunk size.
+
+		Return:
+			an int value.
+		'''
+		return self.__chunks
 
 	@property
 	def chunk(self):
-		if self.datasetIndex == 0:
-			return self._chunks - 1
+		'''
+		Get the current chunk ID.
+
+		Return:
+			an int value.
+		'''		
+		if self.__datasetIndex == 0:
+			return self.__chunks - 1
 		else:
-			return self.datasetIndex - 1
+			return self.__datasetIndex - 1
 
 	@property
 	def epoch(self):
-		return self._epoch
+		'''
+		Get the current epoch ID.
+
+		Return:
+			an int value.
+		'''	
+		return self.__epoch
 
 	@property
 	def isNewEpoch(self):
-		return self._isNewEpoch
+		'''
+		If it is a new epoch now, return True. 
+		'''	
+		return self.__isNewEpoch
 
 	@property
 	def isNewChunk(self):
-		return self._isNewChunk
+		'''
+		If it is a new chunk now, return True. 
+		'''	
+		return self.__isNewChunk
 
 	@property
 	def epochProgress(self):
-		if self._isNewEpoch is True:
+		'''
+		Get the epoch progress of current batch data.
+		It is not precise at the first epoch because we will accumulate the counts gradually.
+
+		Return:
+			a float value within [0,1].
+		'''	
+		if self.__isNewEpoch is True:
 			return 1.
 		else:
-			return round(self.currentEpochPosition/self.epochSize,2)
+			return round(self.__currentEpochPosition/self.__epochSize,4)
 	
 	@property
 	def chunkProgress(self):
-		if self._isNewChunk is True:
+		'''
+		Get the chunk progress of current batch data.
+
+		Return:
+			a float value within [0,1].
+		'''	
+		if self.__isNewChunk is True:
 			return 1.
 		else:
-			return round(self.currentPosition/len(self.currentDataset),2)
+			return round(self.__currentPosition/len(self.__currentDataset),4)
 
 	def get_retained_data(self,processFunc=None,batchSize=None,chunks='auto',otherArgs=None,shuffle=False,retainData=0.0):
+		'''
+		Get the retained data.
 
-		declare.non_void("retained data",self.evalTable)
+		Args:
+			_processFunc_: if None, use the function of parent iterator.
+			_batchSize_: if None, use the value of parent iterator.
+			_batchSize_: 'auto' or an int value.
+			_otherArgs_: if None, use the same values with other args.
+			_shuffle_: whether shuffle a chunk data.
+			_retainData_: a probability value. how much data to retained for evaluation.
+
+		Return:
+			A new DataIterator object.
+		'''
+		declare.not_void("retained data",self.__evalTable)
 
 		if processFunc is None:
-			processFunc = self.processFunc
+			processFunc = self.__processFunc
 		
 		if batchSize is None:
-			batchSize = self._batchSize
-
-		if chunks != 'auto':
-			declare.is_positive_int("chunks",chunks)
+			batchSize = self.__batchSize
 
 		if otherArgs is None:
-			otherArgs = self.otherArgs
+			otherArgs = self.__otherArgs
 
-		reIterator = DataIterator(self.evalTable,processFunc,batchSize,chunks,otherArgs,shuffle,retainData)
-
-		return reIterator
+		return DataIterator(self.__evalTable,processFunc,batchSize,chunks,otherArgs,shuffle,retainData)
 
 def pad_sequence(data,dim=0,maxLength=None,dtype='float32',padding='tail',truncating='tail',value=0.0):
 	'''
@@ -784,14 +866,14 @@ def compute_postprob_norm(ali,probDims):
 	For more help information,look at the Kaldi <analyze-counts> command.
 
 	Args:
-		<ali>: exkaldi NumpyAlignmentTrans,NumpyAlignmentPhone or NumpyAlignmentPdf object.
+		<ali>: exkaldi NumpyAliTrans,NumpyAliPhone or NumpyAliPdf object.
 		<probDims>: the dimensionality of posterior probability.
 		
 	Return:
 		A numpy array of the normalization.
 	''' 
 	declare.kaldi_existed()
-	declare.is_classes("ali",ali,["NumpyAlignmentTrans","NumpyAlignmentPhone","NumpyAlignmentPdf"])
+	declare.is_classes("ali",ali,["NumpyAliTrans","NumpyAliPhone","NumpyAliPdf"])
 	declare.is_positive_int("probDims",probDims)
 
 	txt = []
@@ -803,8 +885,7 @@ def compute_postprob_norm(ali,probDims):
 	cmd = f"analyze-counts --binary=false --counts-dim={probDims} ark:- -"
 	out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=txt)
 	if (isinstance(cod,int) and cod != 0) or out == b"":
-		print(err.decode())
-		raise KaldiProcessError('Analyze counts defailed.')
+		raise KaldiProcessError('Analyze counts defailed.',err.decode())
 	else:
 		out = out.decode().strip().strip("[]").strip().split()
 		counts = np.array(out,dtype=np.float32)

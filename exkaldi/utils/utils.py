@@ -28,8 +28,8 @@ import numpy as np
 import tempfile
 import time
 
-from exkaldi.version import info as ExkaldiInfo
-from exkaldi.version import WrongPath,WrongOperation,WrongDataFormat,KaldiProcessError,ShellProcessError,UnsupportedType
+from exkaldi.version import info as ExKaldiInfo
+from exkaldi.error import *
 from exkaldi.utils import declare
 
 def type_name(obj):
@@ -60,7 +60,7 @@ def run_shell_command(cmd,stdin=None,stdout=None,stderr=None,inputs=None,env=Non
 	declare.is_valid_string("cmd",cmd)
 	
 	if env is None:
-		env = ExkaldiInfo.ENV
+		env = ExKaldiInfo.ENV
 
 	if inputs is not None:
 		declare.is_classes("inputs",inputs,[str,bytes])
@@ -79,7 +79,7 @@ def run_shell_command(cmd,stdin=None,stdout=None,stderr=None,inputs=None,env=Non
 
 	return out,err,p.returncode
 
-def run_shell_command_parallel(cmds,env=None,timeout=ExkaldiInfo.timeout):
+def run_shell_command_parallel(cmds,env=None,timeout=ExKaldiInfo.timeout):
 	'''
 	Run shell commands with multiple processes.
 	In this mode,we don't allow the input and output streams are PIPEs.
@@ -98,7 +98,7 @@ def run_shell_command_parallel(cmds,env=None,timeout=ExkaldiInfo.timeout):
 	declare.is_positive_int("timeout",timeout)
 	
 	if env is None:
-		env = ExkaldiInfo.ENV
+		env = ExKaldiInfo.ENV
 
 	processManager = {}
 	for index,cmd in enumerate(cmds):
@@ -498,8 +498,6 @@ class FileHandleManager:
 			if filePath in self.__inventory.keys():
 				raise WrongOperation(f"File has been opened already: {filePath}. If you still want to open it to get another handle,please give it an exclusive name.")
 			name = filePath
-
-		declare.is_file("filePath",filePath)
 
 		handle = open(filePath,mode,encoding=encoding)
 

@@ -18,7 +18,7 @@
 import sys
 from exkaldi.utils import declare
 from exkaldi.utils.utils import make_dependent_dirs, flatten, list_files
-from exkaldi.version import WrongOperation, WrongDataFormat
+from exkaldi.error import WrongOperation, WrongDataFormat
 from collections import namedtuple
 
 class ArgumentParser:
@@ -36,12 +36,14 @@ class ArgumentParser:
 		self.__abb2Name = {}
 		self.__name2Abb = {}
 		self.__argv = None 
-		self.__discription = "Arguments for Exkaldi program"
+		self.__discription = "Arguments for ExKaldi program"
 
-	@property
-	def view(self):
+	def get_options(self):
 		'''
 		Check all added options.
+
+		Return:
+			a python dict object.
 		'''
 		return self.__arguments.copy()
 
@@ -300,8 +302,8 @@ class ArgumentParser:
 				the saved file name
 		'''
 		if fileName is not None:
-			declare.is_valid_file_name("fileName", fileName)
-			make_dependent_dirs(fileName, True)
+			declare.is_valid_file_name("file name", fileName)
+			make_dependent_dirs(fileName, pathIsFile=True)
 
 		contents = []
 		contents.append(self.__discription)
@@ -352,7 +354,7 @@ class ArgumentParser:
 		Args:
 			_filePath_: args file path.
 		'''
-		declare.is_file("filePath", filePath)
+		declare.is_file("file path", filePath)
 		self.reset()
 
 		with open(filePath, "r", encoding="utf-8") as fr:
@@ -468,9 +470,9 @@ class ArgumentParser:
 						declare.is_instances("Option value", v, values["choices"])
 					else:
 						if values["minV"] is not None:
-							declare.greater_equal("Option value", v, "minimum expected value", values["minV"])
+							declare.greater_equal("Option value", v, None, values["minV"])
 						if values["maxV"] is not None:
-							declare.less_equal("Option value", v, "maximum expected value", values["maxV"])
+							declare.less_equal("Option value", v, None, values["maxV"])
 					value[i] = v
 				if len(value) == 1:
 					value = value[0]
@@ -509,7 +511,7 @@ def load_args(target):
 		an ArgumentParser object.
 	'''
 	fileName = list_files(target)
-	assert len(fileName) == 1, "Cannot load auguments from multiple files."
+	assert len(fileName) == 1, "Cannot load arguments from multiple files."
 
 	global args
 

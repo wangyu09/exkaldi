@@ -20,12 +20,12 @@ import copy
 import os
 import numpy as np
 
-from exkaldi.version import info as ExkaldiInfo
-from exkaldi.version import WrongPath,WrongOperation,WrongDataFormat,KaldiProcessError,UnsupportedType
+from exkaldi.version import info as ExKaldiInfo
+from exkaldi.error import *
 from exkaldi.utils.utils import run_shell_command,make_dependent_dirs,type_name,check_config,list_files
 from exkaldi.utils.utils import FileHandleManager
 from exkaldi.utils import declare
-from exkaldi.core.archive import BytesArchive,Transcription,ListTable,BytesAlignmentTrans,NumpyAlignmentTrans,Metric
+from exkaldi.core.archive import BytesArchive,Transcription,ListTable,BytesAliTrans,NumpyAliTrans,Metric
 from exkaldi.core.common import check_multiple_resources,run_kaldi_commands_parallel 
 from exkaldi.nn.nn import log_softmax
 from exkaldi.hmm.hmm import load_hmm
@@ -232,8 +232,7 @@ class Lattice(BytesArchive):
 		out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 
 		if cod != 0 or out == b'':
-			print(err.decode())
-			raise KaldiProcessError("Failed to scale lattice.")
+			raise KaldiProcessError("Failed to scale lattice.",err.decode())
 		else:
 			newName = f"scale({self.name})"
 			return Lattice(data=out,symbolTable=self.symbolTable,hmm=self.hmm,name=newName)
@@ -257,8 +256,7 @@ class Lattice(BytesArchive):
 		out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 
 		if cod != 0 or out == b'':
-			print(err.decode())
-			raise KaldiProcessError("Failed to add penalty.")
+			raise KaldiProcessError("Failed to add penalty.",err.decode())
 		else:
 			newName = f"add_penalty({self.name})"
 			return Lattice(data=out,symbolTable=self.symbolTable,hmm=self.hmm,name=newName)
@@ -334,8 +332,7 @@ class Lattice(BytesArchive):
 			out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 			
 			if cod != 0 or out == b'':
-				print(err.decode())
-				raise KaldiProcessError('Failed to get N best results.')
+				raise KaldiProcessError('Failed to get N best results.',err.decode())
 			
 			def sperate_n_bests(data):
 				results	= {}
@@ -409,7 +406,7 @@ class Lattice(BytesArchive):
 					for key,value in one.items():
 						value = value.strip().split()
 						temp[key] = np.array(value,dtype=np.int32)
-					ALIGNMENT.append( NumpyAlignmentTrans(temp,name=name) )
+					ALIGNMENT.append( NumpyAliTrans(temp,name=name) )
 				del ali
 				finalResult.append(ALIGNMENT)
 
@@ -439,8 +436,7 @@ class Lattice(BytesArchive):
 		out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 
 		if cod != 0 or out == b'':
-			print(err.decode())
-			raise KaldiProcessError("Failed to determinize lattice.")
+			raise KaldiProcessError("Failed to determinize lattice.",err.decode())
 		else:
 			newName = f"determinize({self.name})"
 			return Lattice(data=out,symbolTable=self.symbolTable,hmm=self.hmm,name=newName)		
@@ -468,11 +464,11 @@ class Lattice(BytesArchive):
 				hmm.save(hmmTemp)
 				hmm = hmmTemp.name
 			
-			if type_name(feat) == "ArkIndexTable":
+			if type_name(feat) == "IndexTable":
 				featTemp = fhm.create("w+",suffix=".scp",encoding="utf-8")
 				feat.save(featTemp)
 				featRepe = f"scp:{featTemp.name}"
-			elif type_name(feat) == "BytesFeature":
+			elif type_name(feat) == "BytesFeat":
 				feat = feat.sort(by="utt")
 				featTemp = fhm.create("wb+",suffix=".ark")
 				feat.save(featTemp)
@@ -488,8 +484,7 @@ class Lattice(BytesArchive):
 			out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=self.data)
 
 			if cod != 0 or out == b'':
-				print(err.decode())
-				raise KaldiProcessError("Failed to determinize lattice.")
+				raise KaldiProcessError("Failed to determinize lattice.",err.decode())
 			else:
 				newName = f"am_rescore({self.name})"
 				return Lattice(data=out,symbolTable=self.symbolTable,hmm=self.hmm,name=newName)
@@ -604,8 +599,7 @@ def load_lat(target,name="lat"):
 				cmd = f'gunzip -c {fileName}'
 				out,err,_ = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
 				if out == b'':
-					print(err.decode())
-					raise WrongDataFormat('Failed to load Lattice.')
+					raise WrongDataFormat('Failed to load Lattice.',err.decode())
 				else:
 					allData.append(out)
 			else:
@@ -613,7 +607,7 @@ def load_lat(target,name="lat"):
 					with open(fileName,'rb') as fr:
 						out = fr.read()
 				except Exception as e:
-					print("Load lattice file defeated. Please make sure it is a lattice file avaliable.")
+					e.args = ("Load lattice file defeated. Please make sure it is a lattice file avaliable."+"\n"+e.args[0],)
 					raise e
 				else:
 					allData.append(out)
@@ -1072,8 +1066,7 @@ def gmm_align(hmm,feat,alignGraphFile=None,tree=None,transcription=None,LFile=No
 			out,err,cod = run_shell_command(cmd,stdin="PIPE",stdout="PIPE",stderr="PIPE",inputs=hmm.data)
 		
 		if cod != 0:
-			print(err.decode())
-			raise KaldiProcessError("Generate new HMM defeated.")
+			raise KaldiProcessError("Generate new HMM defeated.",err.decode())
 		hmmTemp.seek(0)
 
 		# then align

@@ -46,7 +46,7 @@ lists of resources.
 Map resources to command pattern and run this command parallelly.
 
 **Args:**  
-_resources_: a dict whose keys are the name of resource and values are lists of resources objects. For example: {"feat": [BytesFeature01, BytesFeature02,... ], "outFile":{"newFeat01.ark","newFeat02.ark",...} }.The "outFile" resource is necessary.When there is only one process to run, "outFile" can be "-" which means the standard output stream.  
+_resources_: a dict whose keys are the name of resource and values are lists of resources objects. For example: {"feat": [BytesFeat01, BytesFeat02,... ], "outFile":{"newFeat01.ark","newFeat02.ark",...} }.The "outFile" resource is necessary.When there is only one process to run, "outFile" can be "-" which means the standard output stream.  
 _cmdPattern_: a string needed to map the resources.For example: "copy-feat {feat} ark:{outFile}".  
 _analyzeResult_: If True, analyze the result of processes. That means if there are errors in any processes, print the track info in standard output and stop program.  
 _timeout_: a time out value. Dafaultly use _Exkaldi.info.timeout_.  
