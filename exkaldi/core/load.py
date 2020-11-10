@@ -566,31 +566,31 @@ def load_ali(target,aliType="transitionID",name="ali",hmm=None):
 				else:
 					cmd = f'cat {fileName}'
 
-					if aliType is None or aliType == "transitionID":
-						out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
-						if (isinstance(cod,int) and cod != 0 ) or out == b'':
-							raise ShellProcessError(f"Failed to get the alignment data from file: {fileName}.",err.decode())
-						else:
-							bytesAli.append( out )
-					
+				if aliType is None or aliType == "transitionID":
+					out,err,cod = run_shell_command(cmd,stdout="PIPE",stderr="PIPE")
+					if (isinstance(cod,int) and cod != 0 ) or out == b'':
+						raise ShellProcessError(f"Failed to get the alignment data from file: {fileName}.",err.decode())
 					else:
-						with FileHandleManager() as fhm:
+						bytesAli.append( out )
+				
+				else:
+					with FileHandleManager() as fhm:
 
-							declare.is_potential_hmm("hmm",hmm)
-							if not isinstance(hmm,str):
-								hmmTemp = fhm.create("wb+")
-								hmm.save(hmmTemp)
-								hmm = hmmTemp.name
+						declare.is_potential_hmm("hmm",hmm)
+						if not isinstance(hmm,str):
+							hmmTemp = fhm.create("wb+")
+							hmm.save(hmmTemp)
+							hmm = hmmTemp.name
 
-							if aliType == "phoneID":
-								cmd += f" | ali-to-phones --per-frame=true {hmm} ark:- ark,t:-"
-								temp = transform(None,cmd)
+						if aliType == "phoneID":
+							cmd += f" | ali-to-phones --per-frame=true {hmm} ark:- ark,t:-"
+							temp = transform(None,cmd)
 
-							else:
-								cmd = f" | ali-to-pdf {hmm} ark:- ark,t:-"
-								temp = transform(None,cmd)
+						else:
+							cmd = f" | ali-to-pdf {hmm} ark:- ark,t:-"
+							temp = transform(None,cmd)
 
-						numpyAli.update( temp )	
+					numpyAli.update( temp )	
 			
 			bytesAli = b"".join(bytesAli)
 			if aliType is None:
