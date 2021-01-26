@@ -1,0 +1,58 @@
+name: exkaldi_kaldi_build_macos_test
+
+on:
+  push:
+    branches: [ main , fix_installation ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  build-kaldi:
+    strategy:
+      matrix:
+        os: [macos-11.0, macos-10.15]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v2
+    # - name: Install Dependencies
+    #   run: |
+    #    brew install sox
+    - name: Clone kaldi-asr
+      run: |
+       git clone https://github.com/kaldi-asr/kaldi
+       cd kaldi
+       git checkout acff3f65640715f22252f143df7c3e1997899163
+    - name: Install MKL
+      run: sudo ./kaldi/tools/extras/install_mkl.sh -sp debian intel-mkl-64bit-2019.2-057
+    - name: Check Kaldi Dependencies
+      run: ./kaldi/tools/extras/check_dependencies.sh
+    - name: Build Kaldi's tools
+      run: |
+       cd kaldi/tools
+       make -j 4
+    - name: Build Kaldi's src
+      run: |
+       cd kaldi/src
+       ./configure --shared --use-cuda=no
+       make depend -j 4
+       make -j 4
+    - name: Add kaldi's bin to environment variables
+      run: |
+       export KALDI_ROOT=./kaldi
+       for kaldi_path in `ls ./kaldi/src | grep bin | xargs -I{} readlink -e $KALDI_ROOT/src/{}`;do export PATH=$PATH:$kaldi_path; done
+  exkaldi-installation:
+    needs: [build-kaldi]
+    strategy:
+      matrix:
+        os: [macos-11.0, macos-10.15]
+        python-version: [2.7, 3.6, 3.7, 3.8,3.9]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        bash quick_install.sh
+      
