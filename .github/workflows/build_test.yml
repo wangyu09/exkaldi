@@ -39,6 +39,7 @@ jobs:
     - name: Add kaldi's bin to environment variables
       run: |
        export KALDI_ROOT=./kaldi
-       env
        for kaldi_path in `ls ./kaldi/src | grep bin | xargs -I{} readlink -e $KALDI_ROOT/src/{}`;do export PATH=$PATH:$kaldi_path; done
-       env
+    - name: Installation Test
+      run: |
+       bash quick_install.sh
