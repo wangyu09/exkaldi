@@ -8,6 +8,7 @@ function install_package(){
     done || exit 1;
 
     #python3 setup.py install
+    pip3 install wheel numpy==1.16
     python3 setup.py sdist bdist_wheel && cd dist && pip3 install * || exit 1;
     cd ..
     
