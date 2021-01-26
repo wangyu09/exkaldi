@@ -258,6 +258,7 @@ def __read_data_from_file(fileName,useSuffix=None):
 			temp = np.load(fileName,allow_pickle=True)
 			data = {}
 			for utt_mat in temp:
+				assert isinstance(utt_mat[0],str) and isinstance(utt_mat[1],np.ndarray)
 				data[utt_mat[0]] = utt_mat[1]           
 		except:
 			raise UnsupportedType(f'This is not a valid Exkaldi npy file: {fileName}.')
@@ -545,9 +546,7 @@ def load_ali(target,aliType="transitionID",name="ali",hmm=None):
 		return result
 
 	elif isinstance(target,str):
-				
 		allFiles = list_files(target)
-
 		numpyAli = {}
 		bytesAli = []
 
@@ -556,8 +555,7 @@ def load_ali(target,aliType="transitionID",name="ali",hmm=None):
 			if fileName.endswith(".npy"):
 				try:
 					temp = np.load(fileName,allow_pickle=True)
-					for utt,mat in temp:
-						numpyAli[ utt ] = mat             
+					numpyAli.update(temp)          
 				except:
 					raise UnsupportedType(f'This is not a valid Exkaldi npy file: {fileName}.')
 			else:
@@ -575,7 +573,6 @@ def load_ali(target,aliType="transitionID",name="ali",hmm=None):
 				
 				else:
 					with FileHandleManager() as fhm:
-
 						declare.is_potential_hmm("hmm",hmm)
 						if not isinstance(hmm,str):
 							hmmTemp = fhm.create("wb+")
@@ -587,34 +584,34 @@ def load_ali(target,aliType="transitionID",name="ali",hmm=None):
 							temp = transform(None,cmd)
 
 						else:
-							cmd = f" | ali-to-pdf {hmm} ark:- ark,t:-"
+							cmd += f" | ali-to-pdf {hmm} ark:- ark,t:-"
 							temp = transform(None,cmd)
 
-					numpyAli.update( temp )	
-			
-			bytesAli = b"".join(bytesAli)
-			if aliType is None:
-				if len(numpyAli) == 0:
-					return BytesAliTrans(bytesAli,name=name)
-				elif len(bytesAli) == 0:
-					return NumpyAli(numpyAli,name=name)
-				else:
-					result = NumpyAliTrans(numpyAli) + BytesAliTrans(bytesAli)
-					result.rename(name)
-					return result
-			elif aliType == "transitionID":
-				if len(numpyAli) == 0:
-					return BytesAliTrans(bytesAli,name=name)
-				elif len(bytesAli) == 0:
-					return NumpyAliTrans(numpyAli,name=name)
-				else:
-					result = NumpyAliTrans(numpyAli) + BytesAliTrans(bytesAli)
-					result.rename(name)
-					return result
-			elif aliType == "phoneID":		
-				return NumpyAliPhone(numpyAli,name=name)
+					numpyAli.update(temp) 
+
+		bytesAli = b"".join(bytesAli)
+		if aliType is None:
+			if len(numpyAli) == 0:
+				return BytesAliTrans(bytesAli,name=name)
+			elif len(bytesAli) == 0:
+				return NumpyAli(numpyAli,name=name)
 			else:
-				return NumpyAliPdf(numpyAli,name=name)
+				result = NumpyAliTrans(numpyAli) + BytesAliTrans(bytesAli)
+				result.rename(name)
+				return result
+		elif aliType == "transitionID":
+			if len(numpyAli) == 0:
+				return BytesAliTrans(bytesAli,name=name)
+			elif len(bytesAli) == 0:
+				return NumpyAliTrans(numpyAli,name=name)
+			else:
+				result = NumpyAliTrans(numpyAli) + BytesAliTrans(bytesAli)
+				result.rename(name)
+				return result
+		elif aliType == "phoneID":		
+			return NumpyAliPhone(numpyAli,name=name)
+		else:
+			return NumpyAliPdf(numpyAli,name=name)
 
 	else:
 		raise UnsupportedType(f"<target> should be dict,file name or exkaldi alignment or index table object but got: {type_name(target)}.")

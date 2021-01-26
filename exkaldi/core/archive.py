@@ -1161,7 +1161,7 @@ class WavSegment(ListTable):
 			assert None not in [fileID,startTime,endTime], "When <key> has not been provided, we will make it from <fileID>, <startTime> and <endTime> automatically, so all or they are necessary."
 			declare.is_valid_string("fileID", fileID)
 			declare.is_non_negative_float("startTime",startTime)
-			declare.is_positive_float("endTime",endTime)
+			declare.is_non_negative_float("endTime",endTime)
 
 			st = str("%.3f"%startTime).replace(".","")
 			et = str("%.3f"%endTime).replace(".","")
@@ -1195,7 +1195,7 @@ class WavSegment(ListTable):
 					declare.is_non_negative_float("startTime", startTime)
 					value = value._replace(startTime=startTime)
 				if endTime is not None:
-					declare.is_positive_int("endTime", endTime)
+					declare.is_non_negative_float("endTime", endTime)
 					value = value._replace(endTime=endTime)		
 				if filePath is not None:
 					declare.is_file("filePath", filePath)
@@ -1207,7 +1207,7 @@ class WavSegment(ListTable):
 			else:
 				declare.is_valid_string("fileID", fileID)
 				declare.is_non_negative_float("startTime", startTime)
-				declare.is_positive_int("endTime", endTime)
+				declare.is_non_negative_float("endTime", endTime)
 				declare.is_file("filePath", filePath)
 				if text is not None:
 					declare.is_valid_string("text", text)
@@ -4053,8 +4053,9 @@ class NumpyMatrix(NumpyArchive):
 		'''
 		declare.is_valid_string("key",key,debug=f"The key of NumpyMatrix must be a string such as utterance ID or speaker ID but got: {key}.")
 		assert isinstance(value,np.ndarray) and len(value.shape) == 2, f"The value of NumpyMatrix must be a 2-d Numpy array."
-		assert value.shape[1] == self.dim, f"Cannot set item because it has a unexpected dimmension: {value.shape[1]} != {self.dim}."
-		
+		if not self.is_void:
+			assert value.shape[1] == self.dim, f"Cannot set item because it has a unexpected dimmension: {value.shape[1]} != {self.dim}."
+
 		if value.dtype != self.dtype:
 			value = np.array(value,dtype=self.dtype)
 		

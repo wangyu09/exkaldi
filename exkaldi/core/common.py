@@ -155,7 +155,11 @@ def match_utterances(archives):
 		if len(ark.keys()) == len(shareKeys):
 			results.append( ark )
 		else:
-			results.append( ark.subset(keys=shareKeys) )
+			oname = ark.name
+			ark = ark.subset(keys=shareKeys)
+			ark.rename(oname)
+			results.append( ark )
+
 	
 	return results
 

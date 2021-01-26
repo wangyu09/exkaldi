@@ -31,7 +31,7 @@ setup(
     data_files = [
             (os.path.join("exkaldisrc","tools"), glob.glob( os.path.join("tools","*")))
         ],
-    install_requires=["numpy>=1.16", "PyAudio>=0.2", "kenlm>=0.0"],
+    install_requires=["numpy>=1.16", "kenlm>=0.0"],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: Apache Software License",
