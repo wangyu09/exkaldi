@@ -9,7 +9,8 @@ function install_package(){
 
     #python3 setup.py install
     pip3 install -U pip
-    pip3 install wheel setuptools numpy==1.16
+    pip3 install wheel setuptools
+    pip3 install numpy==1.16
     python3 setup.py sdist bdist_wheel && cd dist && pip3 install *.whl || exit 1;
     cd ..
     
