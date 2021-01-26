@@ -56,4 +56,3 @@ jobs:
     - name: Install dependencies
       run: |
         bash quick_install.sh
-      
