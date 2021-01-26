@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  build-kaldi:
 
     runs-on: ubuntu-latest
     steps:
@@ -39,7 +39,8 @@ jobs:
       run: |
        export KALDI_ROOT=./kaldi
        for kaldi_path in `ls ./kaldi/src | grep bin | xargs -I{} readlink -e $KALDI_ROOT/src/{}`;do export PATH=$PATH:$kaldi_path; done
-  installation:
+  exkaldi-installation:
+    needs: [build-kaldi]
     runs-on: ubuntu-latest
     strategy:
       matrix:
