@@ -1,0 +1,3 @@
+[submodule "exkaldi-online"]
+	path = exkaldi-online
+	url = https://github.com/wangyu09/exkaldi-online.git
