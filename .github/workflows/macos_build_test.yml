@@ -1,4 +1,4 @@
-name: exkaldi_kaldi_build_macos_test
+name: exkaldi_macOS_build
 
 on:
   push:
