@@ -2,7 +2,7 @@ name: exkaldi_kaldi_build_test
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main , fix_installation]
   pull_request:
     branches: [ main ]
 
