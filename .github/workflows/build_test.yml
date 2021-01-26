@@ -5,11 +5,12 @@ on:
     branches: [ main , fix_installation]
   pull_request:
     branches: [ main ]
-
 jobs:
   build-kaldi:
-
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-16.04, ubuntu-18.04,ubuntu-20.04]
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
     - name: Install Dependencies
@@ -41,10 +42,11 @@ jobs:
        for kaldi_path in `ls ./kaldi/src | grep bin | xargs -I{} readlink -e $KALDI_ROOT/src/{}`;do export PATH=$PATH:$kaldi_path; done
   exkaldi-installation:
     needs: [build-kaldi]
-    runs-on: ubuntu-latest
     strategy:
       matrix:
+        os: [ubuntu-16.04, ubuntu-18.04,ubuntu-20.04]
         python-version: [2.7, 3.6, 3.7, 3.8,3.9]
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
     - name: Set up Python ${{ matrix.python-version }}
