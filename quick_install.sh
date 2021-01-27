@@ -8,10 +8,13 @@ function install_package(){
     done || exit 1;
 
     #python3 setup.py install
-    python3 setup.py sdist bdist_wheel && cd dist && pip3 install * || exit 1;
-    cd ..
-    
-    rm -r build dist *.egg-info
+    pip3 install -U pip
+    pip3 install wheel setuptools
+    pip3 install numpy==1.16
+    python3 setup.py sdist bdist_wheel && cd dist && pip3 install *.whl || exit 1;
+
+    cd ..    
+    # rm -r build dist *.egg-info
 }
 
 echo y | pip3 uninstall exkaldi;

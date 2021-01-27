@@ -1,4 +1,5 @@
 # ExKaldi: A Python-based Extension Tool of Kaldi
+![exkaldi_ubuntu_build](https://github.com/wangyu09/exkaldi/workflows/exkaldi_ubuntu_build/badge.svg)
 ================================
 
 ExKaldi automatic speech recognition toolkit is developed to build an interface between [Kaldi ASR toolkit](https://github.com/kaldi-asr/kaldi) and Python. 
