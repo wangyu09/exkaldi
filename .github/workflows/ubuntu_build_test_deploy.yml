@@ -55,6 +55,7 @@ jobs:
       run: |
         bash quick_install.sh
   deploy_pypi:
+    steps:
     - name: Publish distribution 📦 to Test PyPI
       uses: pypa/gh-action-pypi-publish@master
       with:
