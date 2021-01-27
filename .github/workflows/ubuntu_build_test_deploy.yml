@@ -56,6 +56,7 @@ jobs:
         bash quick_install.sh
   deploy_pypi:
     needs: [exkaldi-installation]
+    runs-on: ubuntu-18.04
     steps:
     - name: Publish distribution 📦 to Test PyPI
       uses: pypa/gh-action-pypi-publish@master
