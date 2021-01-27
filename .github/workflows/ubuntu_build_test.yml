@@ -1,4 +1,4 @@
-name: exkaldi_ubuntu_build
+name: exkaldi_ubuntu_build_pr
 
 on:
   pull_request:
@@ -38,7 +38,7 @@ jobs:
       run: |
        export KALDI_ROOT=./kaldi
        for kaldi_path in `ls ./kaldi/src | grep bin | xargs -I{} readlink -e $KALDI_ROOT/src/{}`;do export PATH=$PATH:$kaldi_path; done
-  exkaldi-installation:
+  exkaldi-build:
     needs: [build-kaldi]
     strategy:
       matrix:
@@ -54,3 +54,4 @@ jobs:
     - name: Install dependencies
       run: |
         bash quick_install.sh
+  
