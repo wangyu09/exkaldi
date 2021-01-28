@@ -1,4 +1,4 @@
- config = {
+config = {
             "--beam-delta":[0.5,float],
             "--delta":[0.000976562,float],
             "--determinize-lattice":['true',str],
