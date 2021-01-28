@@ -1,6 +1,7 @@
 from setuptools import setup,find_packages
 import glob
 import os
+import sys
 import subprocess
 
 with open("README.md", "r", encoding="utf-8") as fh:
@@ -17,6 +18,21 @@ def read_version_info():
         raise Exception("Failed to detect ExKaldi version.\n"+err.decode())
     else:
         return out.decode().strip().split("\n")[-1].strip()
+
+def install_kenlm():
+    kenlm_package="https://github.com/kpu/kenlm/archive/master.zip"
+    subprocess.call([sys.executable, '-m', 'pip', 'install', '{0}'.format(kenlm_package)])
+
+try:
+    import kenlm
+except ImportError as error:
+    print("can't import kenlm")
+    print("Installing kenlm")
+    install_kenlm()
+except Exception as exception:
+    # Output unexpected Exceptions.
+    print(exception, False)
+    print(exception.__class__.__name__ + ": " + exception.message)
 
 setup(
     name="exkaldi",

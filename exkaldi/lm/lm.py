@@ -18,7 +18,10 @@
 """Language Model"""
 
 import os
-import kenlm
+try:
+    import kenlm
+except Exception:
+    print("WARNING: kenlm is not installed, decoder's method can't use")
 import math
 import sys
 from collections import namedtuple
