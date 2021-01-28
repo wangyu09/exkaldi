@@ -18,10 +18,5 @@ function install_package(){
 }
 
 echo y | pip3 uninstall exkaldi;
-python3 -c "import kenlm" 2>/dev/null || {
-    cd src && cd kenlm || exit 1;
-    install_package
-    cd ../..
-}
 
 install_package
