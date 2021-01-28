@@ -30,7 +30,7 @@ from exkaldi.error import *
 
 _MAJOR_VERSION = '1'
 _MINOR_VERSION = '3'
-_PATCH_VERSION = '4'
+_PATCH_VERSION = '5'
 
 _EXPECTED_KALDI_VERSION = "5.5"
 
