@@ -12,8 +12,8 @@ The goal of ExKaldi is to help developers build high-performance ASR systems wit
 
 ## Installation
 
-Current version: 1.3.3.
-(We only tested our toolkit on Ubuntu >= 16.)
+Current version: 1.3.5.
+(We only tested our toolkit on Ubuntu >= 16., python3.6,python3.7,python3.8 with gh-action)
 
 1. If you have not installed Kaldi ASR toolkit, clone the Kaldi ASR toolkit repository firstly (Kaldi version 5.5 is expected.)
 ```
@@ -27,10 +27,16 @@ less kaldi/src/INSTALL
 ```
 
 2. Clone the ExKaldi source code from our github project, then install it.
+### Install with pip
 ```
-git clone https://github.com/wangyu09/exkaldi.git
-cd exkaldi
-bash quick_install.sh
+$ pip install https://github.com/kpu/kenlm/archive/master.zip
+$ pip install exkaldi
+```
+### Install with Source
+```
+$ git clone https://github.com/wangyu09/exkaldi.git
+$ cd exkaldi
+$ bash quick_install.sh
 ```
 
 3. Check if it is installed correctly.
