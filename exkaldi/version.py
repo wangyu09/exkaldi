@@ -31,12 +31,13 @@ from exkaldi.error import *
 _MAJOR_VERSION = '1'
 _MINOR_VERSION = '3'
 _PATCH_VERSION = '5'
+_UPLOAD_VERSION = '1'
 
 _EXPECTED_KALDI_VERSION = "5.5"
 
 _TIMEOUT = 500
 
-class ExKaldiInfo( namedtuple("ExKaldiInfo",["version","major","minor","patch"]) ):
+class ExKaldiInfo( namedtuple("ExKaldiInfo",["version","major","minor","patch","upload"]) ):
 	'''
 	Generate a object that carries various ExKaldi configurations.
 	'''
@@ -268,10 +269,11 @@ class ExKaldiInfo( namedtuple("ExKaldiInfo",["version","major","minor","patch"])
 
 # initialize version infomation
 info = ExKaldiInfo(
-            '.'.join([_MAJOR_VERSION,_MINOR_VERSION,_PATCH_VERSION]),
+            '.'.join([_MAJOR_VERSION,_MINOR_VERSION,_PATCH_VERSION,_UPLOAD_VERSION]),
             _MAJOR_VERSION,
             _MINOR_VERSION,
-						_PATCH_VERSION,
+            _PATCH_VERSION,
+            _UPLOAD_VERSION,
         ).initialize()
 
 # clear the temporary files possibly being left.
